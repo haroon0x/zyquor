@@ -1,0 +1,15 @@
+{
+  "name": "@zyquor/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm build && ZYQUOR_RUN_WORKER=1 node dist/index.js",
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@zyquor/core": "workspace:*"
+  }
+}

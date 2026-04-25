@@ -1,0 +1,22 @@
+{
+  "name": "@zyquor/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm build && node dist/server.js",
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.1",
+    "@zyquor/accounts": "workspace:*",
+    "@zyquor/browser": "workspace:*",
+    "@zyquor/core": "workspace:*",
+    "@zyquor/generation": "workspace:*",
+    "@zyquor/storage": "workspace:*",
+    "fastify": "^5.1.0",
+    "zod": "^3.24.1"
+  }
+}
