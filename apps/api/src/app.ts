@@ -608,9 +608,11 @@ export function buildApp(options: BuildAppOptions = {}) {
     const input = createDraftRequestSchema.parse(request.body);
     const repository = await repositoryPromise;
     const context = await generationContext(repository, input.accountId);
+    const count = input.yolo ? 1 : (input.count ?? 3);
+
     const candidates = await generationProvider.generateDraftCandidates({
       idea: input.idea,
-      ...(input.count ? { count: input.count } : {}),
+      count,
       ...context,
       ...(input.tweetType ? { tweetType: input.tweetType } : {})
     });
@@ -619,6 +621,21 @@ export function buildApp(options: BuildAppOptions = {}) {
       sourceInput: input.idea,
       candidates
     });
+
+    if (input.yolo) {
+      const draft = result;
+      const selectedText = draft.candidates[0]?.text;
+      if (!selectedText) {
+        throw new Error("YOLO generation returned no candidates");
+      }
+      const mode = input.autopost ? "autopost" : "prepare_only";
+      const approved = await repository.approveDraft({
+        draftId: draft.draft.id,
+        editedText: selectedText,
+        mode
+      });
+      return reply.code(201).send({ ...approved, candidates: draft.candidates });
+    }
 
     return reply.code(201).send(result);
   });
@@ -631,7 +648,8 @@ export function buildApp(options: BuildAppOptions = {}) {
     const repository = await repositoryPromise;
     const context = await generationContext(repository, input.accountId);
     const scheduleSpacingMinutes = input.scheduleSpacingMinutes ?? 90;
-    const mode = input.mode ?? (input.scheduleStart ? "scheduled" : "prepare_only");
+    const defaultMode = input.mode ?? (input.scheduleStart ? "scheduled" : "prepare_only");
+    const mode = input.yolo && input.autopost ? "autopost" : (input.yolo ? "prepare_only" : defaultMode);
     const created = [];
 
     for (const [index, idea] of input.ideas.entries()) {
@@ -781,6 +799,35 @@ export function buildApp(options: BuildAppOptions = {}) {
       total: results.length,
       results
     };
+  });
+
+  app.delete("/jobs", async () => {
+    const repository = await repositoryPromise;
+    const jobs = await repository.listJobs();
+    const deleted = [];
+
+    for (const job of jobs) {
+      if (job.status !== "running") {
+        await repository.deleteJob(job.id);
+        deleted.push(job.id);
+      }
+    }
+
+    return { deletedCount: deleted.length, ids: deleted };
+  });
+
+  app.delete("/jobs/cleanup", async () => {
+    const repository = await repositoryPromise;
+    const jobs = await repository.listJobs();
+    const toDelete = jobs.filter((job) => job.status === "posted" || job.status === "failed");
+    const deleted = [];
+
+    for (const job of toDelete) {
+      await repository.deleteJob(job.id);
+      deleted.push(job.id);
+    }
+
+    return { deletedCount: deleted.length, ids: deleted };
   });
 
   app.delete("/jobs/:id", async (request, reply) => {
