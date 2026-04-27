@@ -155,6 +155,33 @@ function shuffleJobs<T>(items: T[]) {
   return shuffled;
 }
 
+function pickTweetType(mix: Record<string, number>): string {
+  const total = Object.values(mix).reduce((a, b) => (typeof b === "number" ? a + b : a), 0);
+  if (total === 0) return "useful_info";
+  let random = Math.floor(Math.random() * total);
+  for (const [type, weight] of Object.entries(mix)) {
+    if (typeof weight !== "number") continue;
+    random -= weight;
+    if (random < 0) return type;
+  }
+  return "useful_info";
+}
+
+function isWithinScheduleWindow(start: string, end: string) {
+  const now = new Date();
+  const current = now.getHours() * 60 + now.getMinutes();
+  const partsS = start.split(":");
+  const partsE = end.split(":");
+  if (partsS.length !== 2 || partsE.length !== 2) return false;
+  const startTotal = Number(partsS[0]) * 60 + Number(partsS[1]);
+  const endTotal = Number(partsE[0]) * 60 + Number(partsE[1]);
+
+  if (startTotal <= endTotal) {
+    return current >= startTotal && current < endTotal;
+  }
+  return current >= startTotal || current < endTotal;
+}
+
 const STALE_RUNNING_JOB_MS = 10 * 60 * 1000;
 
 async function recoverStaleRunningJobs(repository: ZyquorRepository, accountId: string, currentJobId: string) {
@@ -567,6 +594,86 @@ export function buildApp(options: BuildAppOptions = {}) {
       }
       throw error;
     }
+  });
+
+  app.post("/ingest-run", async (request, reply) => {
+    const repository = await repositoryPromise;
+    const configs = await repository.listIngestConfigs();
+    const enabled = configs.filter((c) => c.enabled);
+    const results = [];
+    const today = new Date().toISOString().slice(0, 10);
+
+    for (const config of enabled) {
+      if (!isWithinScheduleWindow(config.scheduleWindowStart, config.scheduleWindowEnd)) {
+        continue;
+      }
+
+      const packets = await repository.listSourcePackets(config.accountId);
+      const todayPackets = packets.filter((p) => p.sourceType === config.sourceType && p.createdAt.startsWith(today));
+      if (todayPackets.length >= config.maxPacketsPerDay) {
+        continue;
+      }
+
+      // Mock source fetch logic - in real usage this would call an adapter
+      const mockNews = [
+        {
+          title: "New TypeScript 6.0 Features Leak",
+          summary: "Community is buzzing about the potential for higher-order type guards and better inference for recursive types.",
+          facts: ["Higher-order type guards", "Recursive type inference", "Beta expected Q3"],
+          url: "https://example.com/ts6-leak"
+        },
+        {
+          title: "Playwright v2.0 Roadmap Revealed",
+          summary: "The next major version focuses on native mobile emulation and a unified trace viewer that supports multi-page debugging.",
+          facts: ["Native mobile emulation", "Unified trace viewer", "Multi-page debugging support"],
+          url: "https://example.com/playwright-v2"
+        }
+      ];
+
+      const source = mockNews[Math.floor(Math.random() * mockNews.length)]!;
+      const tweetType = pickTweetType(config.tweetTypeMix) as any;
+
+      const packet = await repository.createSourcePacket({
+        accountId: config.accountId,
+        facts: source.facts,
+        sourceType: config.sourceType,
+        summary: source.summary,
+        title: source.title,
+        tweetType,
+        url: source.url
+      });
+
+      // Automatically generate draft and approve in autopost mode
+      const context = await generationContext(repository, packet.accountId);
+      const candidates = await generationProvider.generateDraftCandidates({
+        idea: sourcePacketIdea(packet),
+        count: 1,
+        ...context,
+        tweetType: packet.tweetType
+      });
+
+      const draft = await repository.createDraft({
+        accountId: packet.accountId,
+        sourceInput: sourcePacketIdea(packet),
+        candidates: candidates.map((candidate) => ({
+          text: candidate.text,
+          score: { ...candidate.score, sourcePacketId: packet.id, sourceType: packet.sourceType, tweetType: packet.tweetType }
+        }))
+      });
+
+      const selectedText = draft.candidates[0]?.text;
+      if (selectedText) {
+        const approved = await repository.approveDraft({
+          draftId: draft.draft.id,
+          editedText: selectedText,
+          mode: "autopost"
+        });
+        await repository.markSourcePacketDrafted(packet.id);
+        results.push({ configId: config.id, packetId: packet.id, jobId: approved.job.id });
+      }
+    }
+
+    return { processed: results.length, results };
   });
 
   app.get("/style-profiles/:id", async (request, reply) => {

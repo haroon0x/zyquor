@@ -66,6 +66,13 @@ async function api<T>(apiUrl: string, path: string, init?: RequestInit): Promise
 }
 
 export async function processApprovedJobs(options: WorkerOptions) {
+  // Run ingest run
+  try {
+    await api(options.apiUrl, "/ingest-run", { method: "POST" });
+  } catch (error) {
+    console.error(`Ingest run failed: ${error instanceof Error ? error.message : error}`);
+  }
+
   const [{ jobs }, { accounts }] = await Promise.all([
     api<{ jobs: PostJob[] }>(options.apiUrl, "/jobs"),
     api<{ accounts: Account[] }>(options.apiUrl, "/accounts")

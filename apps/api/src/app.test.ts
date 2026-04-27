@@ -644,4 +644,49 @@ describe("api workflow", () => {
 
     await app.close();
   });
+
+  it("runs ingest runner and creates automated jobs", async () => {
+    const app = buildApp({
+      generationEnv: { ZYQUOR_LLM_PROVIDER: "mock" },
+      repository: createMemoryRepository({
+        now: () => "2026-04-24T17:00:00.000Z"
+      })
+    });
+
+    // Create enabled ingest config
+    await app.inject({
+      method: "POST",
+      url: "/ingest-configs",
+      payload: {
+        accountId: "account_personal",
+        sourceType: "news",
+        maxPacketsPerDay: 5,
+        tweetTypeMix: { useful_info: 100 },
+        scheduleWindowStart: "09:00",
+        scheduleWindowEnd: "21:00",
+        enabled: true
+      }
+    });
+
+    // Run ingest
+    const runResponse = await app.inject({
+      method: "POST",
+      url: "/ingest-run"
+    });
+
+    expect(runResponse.statusCode).toBe(200);
+    expect(runResponse.json().processed).toBe(1);
+
+    // Verify job created
+    const jobsResponse = await app.inject({
+      method: "GET",
+      url: "/jobs?accountId=account_personal"
+    });
+
+    expect(jobsResponse.json().jobs).toHaveLength(1);
+    expect(jobsResponse.json().jobs[0].status).toBe("approved");
+    expect(jobsResponse.json().jobs[0].mode).toBe("autopost");
+
+    await app.close();
+  });
 });
