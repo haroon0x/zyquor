@@ -384,9 +384,9 @@ const mockAdapter: SourceAdapter = {
         content: "Playwright v2.0 is coming with a major focus on native mobile emulation. It will support multi-page debugging in a single trace and a unified API for cross-device testing."
       },
       {
-        title: "The Rise of Local-First AI Agents",
-        url: "https://example.com/local-ai-agents",
-        content: "Local-first AI agents like Zyquor are changing how we interact with social platforms. By keeping data on-device and using browser automation, they provide maximum privacy and control."
+        title: "YC Hacker News: The Future of AI Agents",
+        url: "https://news.ycombinator.com/item?id=40000000",
+        content: "Hacker News discussion on the rise of autonomous agentic workflows. Many developers are shifting from simple chatbots to persistent, background-running agents that handle complex pipelines."
       }
     ];
   }
@@ -711,8 +711,7 @@ export function buildApp(options: BuildAppOptions = {}) {
             await repository.markSourcePacketDrafted(packet.id);
             results.push({ configId: config.id, packetId: packet.id, jobId: approved.job.id });
 
-            // Only process ONE item per run per config to stay within limits and spacing
-            break;
+            // results.push({ configId: config.id, packetId: packet.id, jobId: approved.job.id });
           }
         }
       } catch (error) {
@@ -927,8 +926,8 @@ export function buildApp(options: BuildAppOptions = {}) {
     }
     const repository = await repositoryPromise;
     const now = Date.now();
-    const readyJobs = shuffleJobs(
-      (await repository.listJobs()).filter((job) => {
+    const readyJobs = (await repository.listJobs())
+      .filter((job) => {
         if (job.accountId !== accountId) {
           return false;
         }
@@ -940,7 +939,11 @@ export function buildApp(options: BuildAppOptions = {}) {
         }
         return Date.parse(job.scheduledFor) <= now;
       })
-    );
+      .sort((a, b) => {
+        const timeA = Date.parse(a.scheduledFor || a.createdAt);
+        const timeB = Date.parse(b.scheduledFor || b.createdAt);
+        return timeA - timeB;
+      });
     const results = [];
 
     for (const job of readyJobs) {

@@ -655,7 +655,7 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
     },
 
     async listJobs() {
-      return rows(db.prepare("SELECT * FROM post_jobs ORDER BY created_at DESC").all()).map(toJob);
+      return rows(db.prepare("SELECT * FROM post_jobs ORDER BY created_at ASC").all()).map(toJob);
     },
 
     async getJob(jobId) {

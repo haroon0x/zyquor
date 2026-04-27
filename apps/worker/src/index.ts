@@ -146,7 +146,7 @@ export async function processIngest(options: WorkerOptions) {
 export async function runWorker(options: WorkerOptions) {
   console.log(describeWorker());
   let lastIngestMs = 0;
-  const INGEST_INTERVAL_MS = 5 * 60 * 1000;
+  const INGEST_INTERVAL_MS = 1 * 60 * 1000;
 
   for (;;) {
     try {

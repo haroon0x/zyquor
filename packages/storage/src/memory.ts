@@ -383,7 +383,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
     },
 
     async listJobs() {
-      return [...jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      return [...jobs.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     },
 
     async getJob(id) {
