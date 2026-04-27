@@ -42,6 +42,7 @@ export interface ZyquorRepository {
     tweetType: SourcePacket["tweetType"];
   }): Promise<SourcePacket>;
   getSourcePacket(id: string): Promise<SourcePacket | null>;
+  getSourcePacketByUrl(url: string, accountId?: string): Promise<SourcePacket | null>;
   listSourcePackets(accountId?: string): Promise<SourcePacket[]>;
   markSourcePacketDrafted(id: string): Promise<SourcePacket>;
   getDraft(id: string): Promise<DraftWithCandidates | null>;
@@ -614,6 +615,16 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
       return packet ? toSourcePacket(packet) : null;
     },
 
+    async getSourcePacketByUrl(url, accountId) {
+      const sql = accountId
+        ? "SELECT * FROM source_packets WHERE url = ? AND account_id = ?"
+        : "SELECT * FROM source_packets WHERE url = ?";
+      const packet = accountId
+        ? row(db.prepare(sql).get(url, accountId))
+        : row(db.prepare(sql).get(url));
+      return packet ? toSourcePacket(packet) : null;
+    },
+
     async listSourcePackets(accountId) {
       const packetRows = accountId
         ? rows(db.prepare("SELECT * FROM source_packets WHERE account_id = ? ORDER BY created_at DESC").all(accountId))
@@ -1151,6 +1162,13 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
 
     async getSourcePacket(id) {
       return sourcePackets.get(id) ?? null;
+    },
+
+    async getSourcePacketByUrl(url, accountId) {
+      return (
+        [...sourcePackets.values()].find((packet) => packet.url === url && (!accountId || packet.accountId === accountId)) ??
+        null
+      );
     },
 
     async listSourcePackets(accountId) {

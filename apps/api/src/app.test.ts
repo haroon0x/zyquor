@@ -677,13 +677,33 @@ describe("api workflow", () => {
     expect(runResponse.statusCode).toBe(200);
     expect(runResponse.json().processed).toBe(1);
 
-    // Verify job created
+    // Run ingest AGAIN - should process second mock item
+    const runResponse2 = await app.inject({
+      method: "POST",
+      url: "/ingest-run"
+    });
+
+    expect(runResponse2.statusCode).toBe(200);
+    expect(runResponse2.json().processed).toBe(1);
+
+    // Run ingest 3rd time - should process third mock item
+    await app.inject({ method: "POST", url: "/ingest-run" });
+
+    // Run ingest 4th time - should process 0 items as all 3 mock items are processed
+    const runResponse4 = await app.inject({
+      method: "POST",
+      url: "/ingest-run"
+    });
+
+    expect(runResponse4.json().processed).toBe(0);
+
+    // Verify jobs created
     const jobsResponse = await app.inject({
       method: "GET",
       url: "/jobs?accountId=account_personal"
     });
 
-    expect(jobsResponse.json().jobs).toHaveLength(1);
+    expect(jobsResponse.json().jobs).toHaveLength(3);
     expect(jobsResponse.json().jobs[0].status).toBe("approved");
     expect(jobsResponse.json().jobs[0].mode).toBe("autopost");
 

@@ -596,6 +596,39 @@ export function buildApp(options: BuildAppOptions = {}) {
     }
   });
 
+interface SourceItem {
+  title: string;
+  url: string;
+  content: string; // Raw text or HTML
+}
+
+interface SourceAdapter {
+  fetch(sourceType: string): Promise<SourceItem[]>;
+}
+
+const mockAdapter: SourceAdapter = {
+  async fetch(sourceType) {
+    if (sourceType !== "news") return [];
+    return [
+      {
+        title: "TypeScript 6.0: The Future of Static Typing",
+        url: "https://dev.to/typescript/ts-6-preview",
+        content: "TypeScript 6.0 introduces higher-order type guards and improved recursive type inference. The beta is expected in late Q3 2026. This release focuses on developer productivity and large codebase performance."
+      },
+      {
+        title: "Playwright v2.0: Native Mobile Emulation",
+        url: "https://playwright.dev/blog/v2-roadmap",
+        content: "Playwright v2.0 is coming with a major focus on native mobile emulation. It will support multi-page debugging in a single trace and a unified API for cross-device testing."
+      },
+      {
+        title: "The Rise of Local-First AI Agents",
+        url: "https://example.com/local-ai-agents",
+        content: "Local-first AI agents like Zyquor are changing how we interact with social platforms. By keeping data on-device and using browser automation, they provide maximum privacy and control."
+      }
+    ];
+  }
+};
+
   app.post("/ingest-run", async (request, reply) => {
     const repository = await repositoryPromise;
     const configs = await repository.listIngestConfigs();
@@ -604,72 +637,84 @@ export function buildApp(options: BuildAppOptions = {}) {
     const today = new Date().toISOString().slice(0, 10);
 
     for (const config of enabled) {
-      if (!isWithinScheduleWindow(config.scheduleWindowStart, config.scheduleWindowEnd)) {
-        continue;
-      }
-
-      const packets = await repository.listSourcePackets(config.accountId);
-      const todayPackets = packets.filter((p) => p.sourceType === config.sourceType && p.createdAt.startsWith(today));
-      if (todayPackets.length >= config.maxPacketsPerDay) {
-        continue;
-      }
-
-      // Mock source fetch logic - in real usage this would call an adapter
-      const mockNews = [
-        {
-          title: "New TypeScript 6.0 Features Leak",
-          summary: "Community is buzzing about the potential for higher-order type guards and better inference for recursive types.",
-          facts: ["Higher-order type guards", "Recursive type inference", "Beta expected Q3"],
-          url: "https://example.com/ts6-leak"
-        },
-        {
-          title: "Playwright v2.0 Roadmap Revealed",
-          summary: "The next major version focuses on native mobile emulation and a unified trace viewer that supports multi-page debugging.",
-          facts: ["Native mobile emulation", "Unified trace viewer", "Multi-page debugging support"],
-          url: "https://example.com/playwright-v2"
+      try {
+        if (!isWithinScheduleWindow(config.scheduleWindowStart, config.scheduleWindowEnd)) {
+          continue;
         }
-      ];
 
-      const source = mockNews[Math.floor(Math.random() * mockNews.length)]!;
-      const tweetType = pickTweetType(config.tweetTypeMix) as any;
+        const packets = await repository.listSourcePackets(config.accountId);
+        const todayPackets = packets.filter((p) => p.sourceType === config.sourceType && p.createdAt.startsWith(today));
+        if (todayPackets.length >= config.maxPacketsPerDay) {
+          continue;
+        }
 
-      const packet = await repository.createSourcePacket({
-        accountId: config.accountId,
-        facts: source.facts,
-        sourceType: config.sourceType,
-        summary: source.summary,
-        title: source.title,
-        tweetType,
-        url: source.url
-      });
+        // Fetch from adapter
+        const items = await mockAdapter.fetch(config.sourceType);
 
-      // Automatically generate draft and approve in autopost mode
-      const context = await generationContext(repository, packet.accountId);
-      const candidates = await generationProvider.generateDraftCandidates({
-        idea: sourcePacketIdea(packet),
-        count: 1,
-        ...context,
-        tweetType: packet.tweetType
-      });
+        for (const item of items) {
+          // Deduplication: check if URL already exists for this account
+          const existing = await repository.getSourcePacketByUrl(item.url, config.accountId);
+          if (existing) {
+            continue;
+          }
 
-      const draft = await repository.createDraft({
-        accountId: packet.accountId,
-        sourceInput: sourcePacketIdea(packet),
-        candidates: candidates.map((candidate) => ({
-          text: candidate.text,
-          score: { ...candidate.score, sourcePacketId: packet.id, sourceType: packet.sourceType, tweetType: packet.tweetType }
-        }))
-      });
+          // Distill item into SourcePacket using LLM
+          const context = await generationContext(repository, config.accountId);
+          const distillation = await generationProvider.generateDraftCandidates({
+            idea: `Distill this article into a SourcePacket with summary and key facts.\n\nTitle: ${item.title}\nURL: ${item.url}\nContent: ${item.content}`,
+            count: 1,
+            ...context,
+            tweetType: pickTweetType(config.tweetTypeMix)
+          });
 
-      const selectedText = draft.candidates[0]?.text;
-      if (selectedText) {
-        const approved = await repository.approveDraft({
-          draftId: draft.draft.id,
-          editedText: selectedText,
-          mode: "autopost"
-        });
-        await repository.markSourcePacketDrafted(packet.id);
-        results.push({ configId: config.id, packetId: packet.id, jobId: approved.job.id });
+          const distilledText = distillation[0]?.text;
+          if (!distilledText) continue;
+
+          // Simple parsing of distilled text - production version would use structured output
+          const summary = distilledText.split("\n")[0] || item.title;
+          const facts = distilledText.split("\n").slice(1).filter(f => f.startsWith("-")).map(f => f.replace("- ", "")) || [];
+
+          const packet = await repository.createSourcePacket({
+            accountId: config.accountId,
+            facts: facts.length ? facts : [summary],
+            sourceType: config.sourceType as any,
+            summary,
+            title: item.title,
+            tweetType: pickTweetType(config.tweetTypeMix) as any,
+            url: item.url
+          });
+
+          // Generate draft and approve
+          const draftCandidates = await generationProvider.generateDraftCandidates({
+            idea: sourcePacketIdea(packet),
+            count: 1,
+            ...context,
+            tweetType: packet.tweetType
+          });
+
+          const selectedText = draftCandidates[0]?.text;
+          if (selectedText) {
+            const approved = await repository.approveDraft({
+              draftId: (await repository.createDraft({
+                accountId: packet.accountId,
+                sourceInput: sourcePacketIdea(packet),
+                candidates: draftCandidates.map(c => ({
+                  text: c.text,
+                  score: { ...c.score, sourcePacketId: packet.id, sourceType: packet.sourceType, tweetType: packet.tweetType }
+                }))
+              })).draft.id,
+              editedText: selectedText,
+              mode: "autopost"
+            });
+            await repository.markSourcePacketDrafted(packet.id);
+            results.push({ configId: config.id, packetId: packet.id, jobId: approved.job.id });
+
+            // Only process ONE item per run per config to stay within limits and spacing
+            break;
+          }
+        }
+      } catch (error) {
+        app.log.error(`Ingest run failed for config ${config.id}: ${error instanceof Error ? error.message : error}`);
       }
     }
 
