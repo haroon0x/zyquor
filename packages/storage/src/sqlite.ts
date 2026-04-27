@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS drafts (
   generated_text TEXT,
   edited_text TEXT,
   reply_to_url TEXT,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
   status TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -436,7 +437,7 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
         }
 
         const timestamp = now();
-        const firstCandidate = input.candidates[0]?.text ?? null;
+        const firstCandidate = input.candidates && input.candidates.length > 0 ? (input.candidates[0]?.text ?? null) : null;
         const draft: Draft = {
           id: id("draft"),
           accountId: input.accountId,
@@ -445,15 +446,16 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
           generatedText: firstCandidate,
           editedText: firstCandidate,
           replyToUrl: input.replyToUrl ?? null,
-          status: firstCandidate ? "selected" : "generated",
+          metadata: input.metadata ?? {},
+          status: firstCandidate ? "selected" : "created",
           createdAt: timestamp,
           updatedAt: timestamp
         };
 
         db.prepare(
           `INSERT INTO drafts (
-            id, account_id, source_type, source_input, generated_text, edited_text, reply_to_url, status, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            id, account_id, source_type, source_input, generated_text, edited_text, reply_to_url, metadata_json, status, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
           draft.id,
           draft.accountId,
@@ -462,12 +464,13 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
           draft.generatedText,
           draft.editedText,
           draft.replyToUrl,
+          JSON.stringify(draft.metadata),
           draft.status,
           draft.createdAt,
           draft.updatedAt
         );
 
-        const createdCandidates = input.candidates.map((candidate, index): DraftCandidate => {
+        const createdCandidates = (input.candidates ?? []).map((candidate, index): DraftCandidate => {
           const draftCandidate: DraftCandidate = {
             id: id("candidate"),
             draftId: draft.id,
@@ -496,9 +499,61 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
       });
     },
 
+    async listPendingDrafts() {
+      return rows(db.prepare("SELECT * FROM drafts WHERE status = 'created' ORDER BY created_at ASC").all()).map(toDraft);
+    },
+
     async getDraft(draftId) {
       const draft = row(db.prepare("SELECT * FROM drafts WHERE id = ?").get(draftId));
       return draft ? { draft: toDraft(draft), candidates: candidatesForDraft(draftId) } : null;
+    },
+
+    async saveDraftCandidates(draftId, candidates) {
+      return runTransaction(db, () => {
+        const draft = requireDraft(draftId);
+        if (draft.status !== "created") {
+          throw new Error(`Cannot save candidates for draft with status: ${draft.status}`);
+        }
+
+        const timestamp = now();
+        const firstCandidate = candidates[0]?.text ?? null;
+
+        db.prepare("UPDATE drafts SET generated_text = ?, edited_text = ?, status = ?, updated_at = ? WHERE id = ?").run(
+          firstCandidate,
+          firstCandidate,
+          firstCandidate ? "selected" : "generated",
+          timestamp,
+          draftId
+        );
+
+        candidates.forEach((candidate, index) => {
+          const draftCandidate = {
+            id: id("candidate"),
+            draftId,
+            text: candidate.text,
+            score: { ...candidate.score, index },
+            selected: index === 0,
+            createdAt: timestamp
+          };
+
+          db.prepare(
+            `INSERT INTO draft_candidates (id, draft_id, text, score_json, selected, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)`
+          ).run(
+            draftCandidate.id,
+            draftCandidate.draftId,
+            draftCandidate.text,
+            JSON.stringify(draftCandidate.score),
+            draftCandidate.selected ? 1 : 0,
+            draftCandidate.createdAt
+          );
+        });
+
+        return {
+          draft: requireDraft(draftId),
+          candidates: candidatesForDraft(draftId)
+        };
+      });
     },
 
     async selectCandidate(input) {

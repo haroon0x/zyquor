@@ -37,6 +37,7 @@ export function toDraft(row: Record<string, unknown>): Draft {
     generatedText: row.generated_text === null ? null : String(row.generated_text),
     editedText: row.edited_text === null ? null : String(row.edited_text),
     replyToUrl: row.reply_to_url === null ? null : String(row.reply_to_url),
+    metadata: JSON.parse(String(row.metadata_json || "{}")) as Record<string, unknown>,
     status: row.status as Draft["status"],
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)

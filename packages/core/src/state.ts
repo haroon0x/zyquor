@@ -1,7 +1,7 @@
 import type { DraftStatus, PostJobStatus } from "./index.js";
 
 const draftTransitions: Record<DraftStatus, readonly DraftStatus[]> = {
-  created: ["generated", "archived"],
+  created: ["generated", "approved", "archived"],
   generated: ["selected", "archived"],
   selected: ["approved", "archived"],
   approved: ["archived"],

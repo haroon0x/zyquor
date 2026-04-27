@@ -24,8 +24,9 @@ export interface ZyquorRepository {
   createDraft(input: {
     accountId: string;
     sourceInput: string;
-    candidates: Array<{ text: string; score: Record<string, unknown> }>;
+    candidates?: Array<{ text: string; score: Record<string, unknown> }>;
     replyToUrl?: string | null;
+    metadata?: Record<string, unknown>;
   }): Promise<DraftWithCandidates>;
   createSourcePacket(input: {
     accountId: string;
@@ -40,7 +41,9 @@ export interface ZyquorRepository {
   getSourcePacketByUrl(url: string, accountId?: string): Promise<SourcePacket | null>;
   listSourcePackets(accountId?: string): Promise<SourcePacket[]>;
   markSourcePacketDrafted(id: string): Promise<SourcePacket>;
+  listPendingDrafts(): Promise<Draft[]>;
   getDraft(id: string): Promise<DraftWithCandidates | null>;
+  saveDraftCandidates(draftId: string, candidates: Array<{ text: string; score: Record<string, unknown> }>): Promise<DraftWithCandidates>;
   selectCandidate(input: { draftId: string; candidateId: string; editedText?: string }): Promise<DraftWithCandidates>;
   approveDraft(input: {
     draftId: string;

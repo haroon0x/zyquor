@@ -758,40 +758,66 @@ export function buildApp(options: BuildAppOptions = {}) {
     };
   });
 
+  app.get("/drafts/pending", async () => {
+    const repository = await repositoryPromise;
+    return { drafts: await repository.listPendingDrafts() };
+  });
+
+  app.post("/drafts/:id/generate", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const repository = await repositoryPromise;
+    const existing = await repository.getDraft(id);
+    if (!existing || existing.draft.status !== "created") {
+      return reply.code(404).send({ error: "Draft not found or already generated" });
+    }
+
+    const draft = existing.draft;
+    const metadata = draft.metadata as Record<string, unknown>;
+    const context = await generationContext(repository, draft.accountId);
+    const count = metadata.yolo ? 1 : (Number(metadata.count) || 3);
+
+    const candidates = await generationProvider.generateDraftCandidates({
+      idea: draft.sourceInput,
+      count,
+      ...context,
+      ...(metadata.tweetType ? { tweetType: metadata.tweetType as string } : {})
+    });
+
+    const updated = await repository.saveDraftCandidates(draft.id, candidates);
+
+    if (metadata.yolo) {
+      const selectedText = updated.candidates[0]?.text;
+      if (selectedText) {
+        const mode = metadata.autopost ? "autopost" : (metadata.mode as string | undefined || "prepare_only");
+        const approved = await repository.approveDraft({
+          draftId: draft.id,
+          editedText: selectedText,
+          mode: mode as any,
+          replyToUrl: draft.replyToUrl ?? null,
+          scheduledFor: (metadata.scheduleStart as string | null | undefined) ?? null
+        });
+        return reply.code(201).send({ ...approved, candidates: updated.candidates });
+      }
+    }
+
+    return reply.code(201).send(updated);
+  });
+
   app.post("/drafts", async (request, reply) => {
     const input = createDraftRequestSchema.parse(request.body);
     const repository = await repositoryPromise;
-    const context = await generationContext(repository, input.accountId);
-    const count = input.yolo ? 1 : (input.count ?? 3);
 
-    const candidates = await generationProvider.generateDraftCandidates({
-      idea: input.idea,
-      count,
-      ...context,
-      ...(input.tweetType ? { tweetType: input.tweetType } : {})
-    });
     const result = await repository.createDraft({
       accountId: input.accountId,
       sourceInput: input.idea,
       replyToUrl: input.replyToUrl ?? null,
-      candidates
-    });
-
-    if (input.yolo) {
-      const draft = result;
-      const selectedText = draft.candidates[0]?.text;
-      if (!selectedText) {
-        throw new Error("YOLO generation returned no candidates");
+      metadata: {
+        yolo: input.yolo,
+        autopost: input.autopost,
+        count: input.count ?? 3,
+        tweetType: input.tweetType
       }
-      const mode = input.autopost ? "autopost" : "prepare_only";
-      const approved = await repository.approveDraft({
-        draftId: draft.draft.id,
-        editedText: selectedText,
-        mode,
-        replyToUrl: draft.draft.replyToUrl ?? null
-      });
-      return reply.code(201).send({ ...approved, candidates: draft.candidates });
-    }
+    });
 
     return reply.code(201).send(result);
   });
@@ -802,45 +828,26 @@ export function buildApp(options: BuildAppOptions = {}) {
       return reply.code(400).send({ error: "scheduleStart is required for scheduled batch jobs" });
     }
     const repository = await repositoryPromise;
-    const context = await generationContext(repository, input.accountId);
     const scheduleSpacingMinutes = input.scheduleSpacingMinutes ?? 90;
     const defaultMode = input.mode ?? (input.scheduleStart ? "scheduled" : "prepare_only");
     const mode = input.yolo && input.autopost ? "autopost" : (input.yolo ? "prepare_only" : defaultMode);
     const created = [];
 
     for (const [index, idea] of input.ideas.entries()) {
-      const candidates = await generationProvider.generateDraftCandidates({
-        idea,
-        count: 1,
-        ...context,
-        ...(input.tweetType ? { tweetType: input.tweetType } : {})
-      });
       const draft = await repository.createDraft({
         accountId: input.accountId,
         sourceInput: idea,
         replyToUrl: input.replyToUrl ?? null,
-        candidates: candidates.map((candidate) => ({
-          text: candidate.text,
-          score: {
-            ...candidate.score,
-            lane: "batch",
-            ...(input.tweetType ? { tweetType: input.tweetType } : {})
-          }
-        }))
+        metadata: {
+          lane: "batch",
+          yolo: input.yolo,
+          autopost: input.autopost,
+          mode,
+          tweetType: input.tweetType,
+          scheduleStart: input.scheduleStart ? addMinutes(input.scheduleStart, index * scheduleSpacingMinutes) : null
+        }
       });
-      const selectedText = draft.draft.editedText ?? draft.candidates[0]?.text;
-      if (!selectedText) {
-        throw new Error("Batch generation returned no selected text");
-      }
-      const approved = await repository.approveDraft({
-        draftId: draft.draft.id,
-        editedText: selectedText,
-        mode,
-        scheduledFor: input.scheduleStart ? addMinutes(input.scheduleStart, index * scheduleSpacingMinutes) : null,
-        replyToUrl: draft.draft.replyToUrl ?? null
-      });
-
-      created.push({ ...approved, candidates: draft.candidates });
+      created.push(draft);
     }
 
     return reply.code(201).send({ items: created });

@@ -45,7 +45,7 @@ describe("api workflow", () => {
       method: "POST",
       url: `/drafts/${draftBody.draft.id}/approve`,
       payload: {
-        editedText: draftBody.draft.editedText
+        editedText: "Make local automation auditable."
       }
     });
 
@@ -394,15 +394,19 @@ describe("api workflow", () => {
     expect(response.json()).toMatchObject({
       items: [
         {
-          job: {
-            mode: "scheduled",
-            scheduledFor: "2999-04-25T15:30:00.000Z"
+          draft: {
+            status: "created",
+            metadata: expect.objectContaining({
+              scheduleStart: "2999-04-25T15:30:00.000Z"
+            })
           }
         },
         {
-          job: {
-            mode: "scheduled",
-            scheduledFor: "2999-04-25T16:30:00.000Z"
+          draft: {
+            status: "created",
+            metadata: expect.objectContaining({
+              scheduleStart: "2999-04-25T16:30:00.000Z"
+            })
           }
         }
       ]

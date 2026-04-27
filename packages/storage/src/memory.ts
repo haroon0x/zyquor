@@ -223,7 +223,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       }
 
       const timestamp = now();
-      const firstCandidate = input.candidates[0]?.text ?? null;
+      const firstCandidate = input.candidates && input.candidates.length > 0 ? (input.candidates[0]?.text ?? null) : null;
       const draft: Draft = {
         id: id("draft"),
         accountId: input.accountId,
@@ -231,14 +231,16 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
         sourceInput: input.sourceInput,
         generatedText: firstCandidate,
         editedText: firstCandidate,
-        status: firstCandidate ? "selected" : "generated",
+        replyToUrl: input.replyToUrl ?? null,
+        metadata: input.metadata ?? {},
+        status: firstCandidate ? "selected" : "created",
         createdAt: timestamp,
         updatedAt: timestamp
       };
 
       drafts.set(draft.id, draft);
 
-      const createdCandidates = input.candidates.map((candidate, index): DraftCandidate => {
+      const createdCandidates = (input.candidates ?? []).map((candidate, index): DraftCandidate => {
         const draftCandidate = {
           id: id("candidate"),
           draftId: draft.id,
@@ -258,6 +260,45 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
     async getDraft(id) {
       const draft = drafts.get(id);
       return draft ? { draft, candidates: candidatesForDraft(id) } : null;
+    },
+
+    async listPendingDrafts() {
+      return [...drafts.values()]
+        .filter((draft) => draft.status === "created")
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    },
+
+    async saveDraftCandidates(draftId, inputCandidates) {
+      const draft = requireDraft(draftId);
+      if (draft.status !== "created") {
+        throw new Error(`Cannot save candidates for draft with status: ${draft.status}`);
+      }
+
+      const timestamp = now();
+      const firstCandidate = inputCandidates.length > 0 ? (inputCandidates[0]?.text ?? null) : null;
+      const updatedDraft: Draft = {
+        ...draft,
+        generatedText: firstCandidate,
+        editedText: firstCandidate,
+        status: firstCandidate ? "selected" : "generated",
+        updatedAt: timestamp
+      };
+      drafts.set(draftId, updatedDraft);
+
+      inputCandidates.forEach((candidate, index) => {
+        const draftCandidate = {
+          id: id("candidate"),
+          draftId,
+          text: candidate.text,
+          score: { ...candidate.score, index },
+          selected: index === 0,
+          createdAt: timestamp
+        };
+        candidates.set(draftCandidate.id, draftCandidate);
+      });
+
+      persist();
+      return { draft: updatedDraft, candidates: candidatesForDraft(draftId) };
     },
 
     async selectCandidate(input) {

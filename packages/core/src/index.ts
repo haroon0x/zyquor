@@ -112,6 +112,7 @@ export const draftSchema = z.object({
   generatedText: z.string().max(X_FREE_POST_CHARACTER_LIMIT).nullable(),
   editedText: z.string().max(X_FREE_POST_CHARACTER_LIMIT).nullable(),
   replyToUrl: z.string().url().nullable().optional(),
+  metadata: z.record(z.unknown()),
   status: z.enum(DRAFT_STATUSES),
   createdAt: isoTimestampSchema,
   updatedAt: isoTimestampSchema
@@ -180,8 +181,8 @@ export const createDraftRequestSchema = z.object({
   count: z.number().int().min(1).max(5).optional(),
   tweetType: z.enum(TWEET_TYPES).optional(),
   replyToUrl: z.string().url().optional(),
-  yolo: z.boolean().optional(),
-  autopost: z.boolean().optional()
+  yolo: z.boolean().optional().default(true),
+  autopost: z.boolean().optional().default(true)
 });
 
 export const createDraftBatchRequestSchema = z.object({
@@ -192,8 +193,8 @@ export const createDraftBatchRequestSchema = z.object({
   scheduleStart: isoTimestampSchema.nullable().optional(),
   replyToUrl: z.string().url().optional(),
   tweetType: z.enum(TWEET_TYPES).optional(),
-  yolo: z.boolean().optional(),
-  autopost: z.boolean().optional()
+  yolo: z.boolean().optional().default(true),
+  autopost: z.boolean().optional().default(true)
 });
 
 export const createSourcePacketRequestSchema = z.object({

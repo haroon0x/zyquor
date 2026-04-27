@@ -1,4 +1,4 @@
-import { loadDotEnv, POST_JOB_STATUSES, type Account, type PostJob } from "@zyquor/core";
+import { loadDotEnv, POST_JOB_STATUSES, type Account, type PostJob, type Draft } from "@zyquor/core";
 
 loadDotEnv();
 
@@ -118,14 +118,55 @@ export async function processApprovedJobs(options: WorkerOptions) {
   return approvedJobs.length;
 }
 
+export async function processPendingDrafts(options: WorkerOptions) {
+  const { drafts } = await api<{ drafts: Draft[] }>(options.apiUrl, "/drafts/pending");
+  if (drafts.length === 0) return 0;
+
+  for (const draft of drafts) {
+    try {
+      await api(options.apiUrl, `/drafts/${draft.id}/generate`, { method: "POST" });
+    } catch (error) {
+      console.error(`Failed to generate draft ${draft.id}:`, error instanceof Error ? error.message : error);
+    }
+  }
+
+  return drafts.length;
+}
+
+export async function processIngest(options: WorkerOptions) {
+  try {
+    const result = await api<{ processed: number }>(options.apiUrl, "/ingest-run", { method: "POST" });
+    return result.processed;
+  } catch (error) {
+    console.error(`Failed to run ingest:`, error instanceof Error ? error.message : error);
+    return 0;
+  }
+}
+
 export async function runWorker(options: WorkerOptions) {
   console.log(describeWorker());
+  let lastIngestMs = 0;
+  const INGEST_INTERVAL_MS = 5 * 60 * 1000;
 
   for (;;) {
     try {
-      const processed = await processApprovedJobs(options);
-      if (processed > 0) {
-        console.log(`Prepared ${processed} approved job(s)`);
+      const pendingProcessed = await processPendingDrafts(options);
+      if (pendingProcessed > 0) {
+        console.log(`Generated ${pendingProcessed} pending draft(s)`);
+      }
+
+      const approvedProcessed = await processApprovedJobs(options);
+      if (approvedProcessed > 0) {
+        console.log(`Prepared ${approvedProcessed} approved job(s)`);
+      }
+
+      const now = Date.now();
+      if (now - lastIngestMs >= INGEST_INTERVAL_MS) {
+        lastIngestMs = now;
+        const ingestProcessed = await processIngest(options);
+        if (ingestProcessed > 0) {
+          console.log(`Ingested ${ingestProcessed} packet(s)`);
+        }
       }
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
