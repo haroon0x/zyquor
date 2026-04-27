@@ -52,14 +52,19 @@ async function api<T>(apiUrl: string, path: string, init?: RequestInit): Promise
     ...(init?.body ? { "content-type": "application/json" } : {}),
     ...init?.headers
   };
-  const response = await fetch(`${apiUrl}${path}`, {
+  const baseUrl = apiUrl.endsWith("/") ? apiUrl : `${apiUrl}/`;
+  const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
+  const url = `${baseUrl}${normalizedPath}`;
+
+  const response = await fetch(url, {
     ...init,
     headers
   });
 
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? `Worker request failed: ${response.status}`);
+    const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+    const errorDetail = body?.error ?? body?.message ?? `Status ${response.status}`;
+    throw new Error(`Worker request to ${url} failed: ${errorDetail}`);
   }
 
   return response.json() as Promise<T>;
