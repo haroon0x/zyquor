@@ -358,6 +358,39 @@ async function postBrowserJob(repository: ZyquorRepository, options: BuildAppOpt
   }
 }
 
+interface SourceItem {
+  title: string;
+  url: string;
+  content: string;
+}
+
+interface SourceAdapter {
+  fetch(sourceType: string): Promise<SourceItem[]>;
+}
+
+const mockAdapter: SourceAdapter = {
+  async fetch(sourceType) {
+    if (sourceType !== "news") return [];
+    return [
+      {
+        title: "TypeScript 6.0: The Future of Static Typing",
+        url: "https://dev.to/typescript/ts-6-preview",
+        content: "TypeScript 6.0 introduces higher-order type guards and improved recursive type inference. The beta is expected in late Q3 2026. This release focuses on developer productivity and large codebase performance."
+      },
+      {
+        title: "Playwright v2.0: Native Mobile Emulation",
+        url: "https://playwright.dev/blog/v2-roadmap",
+        content: "Playwright v2.0 is coming with a major focus on native mobile emulation. It will support multi-page debugging in a single trace and a unified API for cross-device testing."
+      },
+      {
+        title: "The Rise of Local-First AI Agents",
+        url: "https://example.com/local-ai-agents",
+        content: "Local-first AI agents like Zyquor are changing how we interact with social platforms. By keeping data on-device and using browser automation, they provide maximum privacy and control."
+      }
+    ];
+  }
+};
+
 export function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({ logger: true });
   const repositoryPromise = options.repository ? Promise.resolve(options.repository) : createLocalRepository();
@@ -482,6 +515,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     }
   });
 
+
   app.get("/accounts", async () => ({
     accounts: await (await repositoryPromise).listAccounts()
   }));
@@ -595,39 +629,6 @@ export function buildApp(options: BuildAppOptions = {}) {
       throw error;
     }
   });
-
-interface SourceItem {
-  title: string;
-  url: string;
-  content: string; // Raw text or HTML
-}
-
-interface SourceAdapter {
-  fetch(sourceType: string): Promise<SourceItem[]>;
-}
-
-const mockAdapter: SourceAdapter = {
-  async fetch(sourceType) {
-    if (sourceType !== "news") return [];
-    return [
-      {
-        title: "TypeScript 6.0: The Future of Static Typing",
-        url: "https://dev.to/typescript/ts-6-preview",
-        content: "TypeScript 6.0 introduces higher-order type guards and improved recursive type inference. The beta is expected in late Q3 2026. This release focuses on developer productivity and large codebase performance."
-      },
-      {
-        title: "Playwright v2.0: Native Mobile Emulation",
-        url: "https://playwright.dev/blog/v2-roadmap",
-        content: "Playwright v2.0 is coming with a major focus on native mobile emulation. It will support multi-page debugging in a single trace and a unified API for cross-device testing."
-      },
-      {
-        title: "The Rise of Local-First AI Agents",
-        url: "https://example.com/local-ai-agents",
-        content: "Local-first AI agents like Zyquor are changing how we interact with social platforms. By keeping data on-device and using browser automation, they provide maximum privacy and control."
-      }
-    ];
-  }
-};
 
   app.post("/ingest-run", async (request, reply) => {
     const repository = await repositoryPromise;

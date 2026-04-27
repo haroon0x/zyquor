@@ -662,8 +662,8 @@ describe("api workflow", () => {
         sourceType: "news",
         maxPacketsPerDay: 5,
         tweetTypeMix: { useful_info: 100 },
-        scheduleWindowStart: "09:00",
-        scheduleWindowEnd: "21:00",
+        scheduleWindowStart: "00:00",
+        scheduleWindowEnd: "23:59",
         enabled: true
       }
     });

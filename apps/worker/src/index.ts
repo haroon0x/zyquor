@@ -71,6 +71,17 @@ async function api<T>(apiUrl: string, path: string, init?: RequestInit): Promise
 }
 
 export async function processApprovedJobs(options: WorkerOptions) {
+  // Check health
+  try {
+    const health = await api<{ ok: boolean }>(options.apiUrl, "/health");
+    if (!health.ok) {
+      throw new Error("API health check failed");
+    }
+  } catch (error) {
+    console.error(`Cannot reach Zyquor API at ${options.apiUrl}: ${error instanceof Error ? error.message : error}`);
+    return 0;
+  }
+
   // Run ingest run
   try {
     await api(options.apiUrl, "/ingest-run", { method: "POST" });

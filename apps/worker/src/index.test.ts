@@ -41,6 +41,9 @@ describe("worker job processing", () => {
       "fetch",
       vi.fn(async (url: string, init?: RequestInit) => {
         calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.endsWith("/health")) {
+          return Response.json({ ok: true });
+        }
         if (url.endsWith("/jobs")) {
           return Response.json({
             jobs: [
@@ -75,6 +78,9 @@ describe("worker job processing", () => {
       "fetch",
       vi.fn(async (url: string, init?: RequestInit) => {
         calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.endsWith("/health")) {
+          return Response.json({ ok: true });
+        }
         if (url.endsWith("/jobs")) {
           return Response.json({
             jobs: [{ ...baseJob, id: "job_auto", mode: "autopost", scheduledFor: "2026-04-25T11:00:00.000Z" }]
@@ -103,6 +109,9 @@ describe("worker job processing", () => {
       "fetch",
       vi.fn(async (url: string, init?: RequestInit) => {
         calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.endsWith("/health")) {
+          return Response.json({ ok: true });
+        }
         if (url.endsWith("/jobs")) {
           return Response.json({
             jobs: [{ ...baseJob, id: "job_quiet", mode: "prepare_only", scheduledFor: null }]
