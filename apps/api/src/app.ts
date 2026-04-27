@@ -2,10 +2,16 @@ import cors from "@fastify/cors";
 import { assertDedicatedProfileDir, isAccountRunnable } from "@zyquor/accounts";
 import {
   approveDraftRequestSchema,
+  createDraftBatchRequestSchema,
   createDraftRequestSchema,
+  createIngestConfigRequestSchema,
+  createSourcePacketRequestSchema,
   prepareJobRequestSchema,
   selectDraftCandidateRequestSchema,
-  updateAccountRequestSchema
+  updateAccountRequestSchema,
+  updateGenerationConfigRequestSchema,
+  updateIngestConfigRequestSchema,
+  updateStyleProfileRequestSchema
 } from "@zyquor/core";
 import {
   createGenerationProviderFromEnv,
@@ -15,12 +21,14 @@ import {
 } from "@zyquor/generation";
 import { createLocalRepository, type ZyquorRepository } from "@zyquor/storage";
 import Fastify from "fastify";
-import { isAbsolute, resolve } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { ZodError } from "zod";
 
 export interface BuildAppOptions {
   repository?: ZyquorRepository;
   generationProvider?: DraftGenerationProvider;
+  generationConfigPath?: string | null;
   generationEnv?: GenerationEnvironment;
   enableBrowserPrepare?: boolean;
   enableBrowserPost?: boolean;
@@ -28,7 +36,31 @@ export interface BuildAppOptions {
   browserChannel?: string | null;
   browserCdpUrl?: string;
   browserTypingDelayMs?: number;
+  checkXLogin?: (input: { browserChannel?: string | null; cdpUrl?: string; profileDir: string }) => Promise<{
+    loggedIn: boolean;
+    url: string;
+  }>;
+  preparePost?: (input: {
+    actionDelayMs?: number;
+    browserChannel?: string | null;
+    cdpUrl?: string;
+    closeAfterPrepare?: boolean;
+    profileDir: string;
+    submit?: boolean;
+    text: string;
+    typingDelayMs?: number;
+  }) => Promise<{ postUrl: string | null }>;
   closeAfterPrepare?: boolean;
+}
+
+class HttpError extends Error {
+  constructor(
+    readonly statusCode: number,
+    message: string
+  ) {
+    super(message);
+    this.name = "HttpError";
+  }
 }
 
 function browserArtifacts(error: unknown) {
@@ -37,6 +69,10 @@ function browserArtifacts(error: unknown) {
     screenshotPath: typeof maybeError.screenshotPath === "string" ? maybeError.screenshotPath : null,
     tracePath: typeof maybeError.tracePath === "string" ? maybeError.tracePath : null
   };
+}
+
+function asHttpError(error: unknown) {
+  return error instanceof HttpError ? error : null;
 }
 
 function isConflictError(error: Error) {
@@ -76,6 +112,10 @@ function workspaceRoot() {
   return process.env.ZYQUOR_WORKSPACE_ROOT ?? resolve(process.cwd(), "../..");
 }
 
+function defaultGenerationConfigPath() {
+  return resolve(workspaceRoot(), ".zyquor/generation.json");
+}
+
 function resolveProfileDir(profileDir: string) {
   return isAbsolute(profileDir) ? profileDir : resolve(workspaceRoot(), profileDir);
 }
@@ -98,11 +138,214 @@ async function hasRunningJobForAccount(repository: ZyquorRepository, accountId: 
   );
 }
 
+function isScheduledForFuture(job: { scheduledFor: string | null }) {
+  return job.scheduledFor ? Date.parse(job.scheduledFor) > Date.now() : false;
+}
+
+function addMinutes(timestamp: string, minutes: number) {
+  return new Date(Date.parse(timestamp) + minutes * 60_000).toISOString();
+}
+
+function shuffleJobs<T>(items: T[]) {
+  const shuffled = [...items];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex]!, shuffled[index]!];
+  }
+  return shuffled;
+}
+
+const STALE_RUNNING_JOB_MS = 10 * 60 * 1000;
+
+async function recoverStaleRunningJobs(repository: ZyquorRepository, accountId: string, currentJobId: string) {
+  const jobs = await repository.listJobs();
+  const now = Date.now();
+  const staleJobs = jobs.filter(
+    (job) =>
+      job.accountId === accountId &&
+      job.id !== currentJobId &&
+      job.status === "running" &&
+      now - Date.parse(job.updatedAt) > STALE_RUNNING_JOB_MS
+  );
+
+  for (const job of staleJobs) {
+    await repository.updateJobStatus(job.id, "failed");
+    await repository.createAttempt({
+      jobId: job.id,
+      status: "failed",
+      errorCode: "stale_running_job",
+      errorMessage: "Recovered stale running job before starting another browser job"
+    });
+  }
+}
+
+function sourcePacketIdea(packet: {
+  title: string;
+  url: string | null;
+  summary: string;
+  facts: string[];
+  sourceType: string;
+}) {
+  return [
+    `Source type: ${packet.sourceType}`,
+    `Title: ${packet.title}`,
+    packet.url ? `URL: ${packet.url}` : null,
+    `Summary: ${packet.summary}`,
+    packet.facts.length ? `Facts:\n${packet.facts.map((fact) => `- ${fact}`).join("\n")}` : null
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function readSavedGenerationEnv(configPath: string | null): GenerationEnvironment {
+  if (!configPath) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(readFileSync(configPath, "utf8")) as {
+      model?: unknown;
+      provider?: unknown;
+    };
+    const provider = typeof parsed.provider === "string" ? parsed.provider : undefined;
+    const model = typeof parsed.model === "string" ? parsed.model : undefined;
+
+    if (!provider || !model) {
+      return {};
+    }
+
+    return {
+      ZYQUOR_LLM_PROVIDER: provider,
+      ...(provider === "ollama" ? { ZYQUOR_OLLAMA_MODEL: model } : {}),
+      ...(provider === "gemini" ? { ZYQUOR_GEMINI_MODEL: model } : {})
+    };
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    if (code === "ENOENT") {
+      return {};
+    }
+    throw error;
+  }
+}
+
+function writeSavedGenerationEnv(configPath: string | null, env: GenerationEnvironment) {
+  if (!configPath) {
+    return;
+  }
+
+  const config = resolveGenerationProviderConfig(env);
+  mkdirSync(dirname(configPath), { recursive: true });
+  writeFileSync(
+    configPath,
+    `${JSON.stringify({ provider: config.provider, model: config.model }, null, 2)}\n`,
+    "utf8"
+  );
+}
+
+async function generationContext(repository: ZyquorRepository, accountId: string) {
+  const account = await repository.getAccount(accountId);
+  const styleProfile = account ? await repository.getStyleProfile(account.styleProfileId) : null;
+  const rules = styleProfile?.rules ?? {};
+  return {
+    ...(styleProfile?.bannedPhrases ? { bannedPhrases: styleProfile.bannedPhrases } : {}),
+    ...(typeof rules.objective === "string" ? { objective: rules.objective } : {}),
+    ...(typeof rules.systemPromptExtra === "string" ? { systemPromptExtra: rules.systemPromptExtra } : {}),
+    tone: styleProfile?.tone ?? null
+  };
+}
+
+async function postBrowserJob(repository: ZyquorRepository, options: BuildAppOptions, jobId: string) {
+  prepareJobRequestSchema.parse({ jobId });
+
+  if (!options.enableBrowserPost) {
+    throw new HttpError(403, "Browser post action is disabled");
+  }
+
+  const job = await repository.getJob(jobId);
+  if (!job) {
+    throw new HttpError(404, "Job not found");
+  }
+  if (job.status !== "approved" && job.status !== "prepared" && job.status !== "failed") {
+    throw new HttpError(409, `Job must be approved, prepared, or failed before posting: ${job.status}`);
+  }
+
+  const account = await repository.getAccount(job.accountId);
+  const draftWithCandidates = await repository.getDraft(job.draftId);
+  if (!account || !draftWithCandidates?.draft.editedText) {
+    throw new HttpError(409, "Job is missing account or approved text");
+  }
+  if (isScheduledForFuture(job)) {
+    throw new HttpError(409, `Job is scheduled for ${job.scheduledFor}`);
+  }
+  if (!isAccountRunnable(account)) {
+    throw new HttpError(409, "Account is not enabled for browser jobs");
+  }
+  if (await isDailyLimitReached(repository, account.id, account.dailyPostLimit)) {
+    throw new HttpError(409, "Daily post limit reached for this account");
+  }
+  await recoverStaleRunningJobs(repository, account.id, job.id);
+  if (await hasRunningJobForAccount(repository, account.id, job.id)) {
+    throw new HttpError(409, "Another browser job is already running for this account");
+  }
+  assertDedicatedProfileDir(account.profileDir);
+
+  if (job.status === "approved" || job.status === "failed") {
+    await repository.updateJobStatus(job.id, "queued");
+    await repository.updateJobStatus(job.id, "running");
+  } else {
+    await repository.updateJobStatus(job.id, "running");
+  }
+  await repository.createAttempt({ jobId: job.id, status: "started" });
+
+  try {
+    const preparePost = options.preparePost ?? (await import("@zyquor/browser")).preparePost;
+    const result = await preparePost({
+      profileDir: resolveProfileDir(account.profileDir),
+      text: draftWithCandidates.draft.editedText,
+      ...browserOptions(options),
+      submit: true
+    });
+    await repository.createAttempt({ jobId: job.id, status: "post_clicked" });
+    const posted = await repository.updateJobStatus(job.id, "posted");
+    const history = await repository.createPostHistory({
+      accountId: job.accountId,
+      draftId: job.draftId,
+      postedText: draftWithCandidates.draft.editedText,
+      postUrl: result.postUrl
+    });
+    await repository.createAttempt({ jobId: job.id, status: "verified" });
+    return { job: posted, history };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown browser error";
+    const artifacts = browserArtifacts(error);
+    await repository.updateJobStatus(job.id, "failed");
+    await repository.createAttempt({
+      jobId: job.id,
+      status: "failed",
+      errorCode: "browser_post_failed",
+      errorMessage: message,
+      screenshotPath: artifacts.screenshotPath,
+      tracePath: artifacts.tracePath
+    });
+    throw new HttpError(500, message);
+  }
+}
+
 export function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({ logger: true });
   const repositoryPromise = options.repository ? Promise.resolve(options.repository) : createLocalRepository();
-  const generationEnv = options.generationEnv ?? process.env;
-  const generationProvider = options.generationProvider ?? createGenerationProviderFromEnv(generationEnv);
+  const baseGenerationEnv = options.generationEnv ?? process.env;
+  const generationConfigPath =
+    options.generationConfigPath === undefined
+      ? options.repository
+        ? null
+        : defaultGenerationConfigPath()
+      : options.generationConfigPath;
+  let generationEnv = {
+    ...baseGenerationEnv,
+    ...readSavedGenerationEnv(generationConfigPath)
+  };
+  let generationProvider = options.generationProvider ?? createGenerationProviderFromEnv(generationEnv);
 
   app.register(cors, {
     origin: true
@@ -118,6 +361,9 @@ export function buildApp(options: BuildAppOptions = {}) {
           message: issue.message
         }))
       });
+    }
+    if (error instanceof HttpError) {
+      return reply.code(error.statusCode).send({ error: error.message });
     }
 
     app.log.error(error);
@@ -143,9 +389,206 @@ export function buildApp(options: BuildAppOptions = {}) {
     generation: resolveGenerationProviderConfig(generationEnv)
   }));
 
+  app.patch("/generation", async (request) => {
+    const input = updateGenerationConfigRequestSchema.parse(request.body);
+    const nextEnv: GenerationEnvironment = {
+      ...generationEnv,
+      ZYQUOR_LLM_PROVIDER: input.provider,
+      ...(input.provider === "ollama" ? { ZYQUOR_OLLAMA_MODEL: input.model } : {}),
+      ...(input.provider === "gemini" ? { ZYQUOR_GEMINI_MODEL: input.model } : {})
+    };
+    const nextProvider = options.generationProvider ?? createGenerationProviderFromEnv(nextEnv);
+    generationEnv = nextEnv;
+    generationProvider = nextProvider;
+    writeSavedGenerationEnv(generationConfigPath, generationEnv);
+
+    return {
+      generation: resolveGenerationProviderConfig(generationEnv)
+    };
+  });
+
+  app.get("/browser/x-session", async (request, reply) => {
+    const repository = await repositoryPromise;
+    const { accountId } = request.query as { accountId?: string };
+    const accounts = await repository.listAccounts();
+    const account = accounts.find((item) => item.id === (accountId ?? "account_personal")) ?? accounts[0];
+
+    if (!account) {
+      return reply.code(404).send({ error: "Account not found" });
+    }
+
+    assertDedicatedProfileDir(account.profileDir);
+    const profileDir = resolveProfileDir(account.profileDir);
+
+    try {
+      const checkXLogin =
+        options.checkXLogin ??
+        (async (input: { browserChannel?: string | null; cdpUrl?: string; profileDir: string }) => {
+          const browser = await import("@zyquor/browser");
+          return browser.checkXLogin(input);
+        });
+      const result = await checkXLogin({
+        profileDir,
+        ...browserOptions(options)
+      });
+
+      return {
+        accountId: account.id,
+        cdpUrl: options.browserCdpUrl ?? null,
+        enabled: options.enableBrowserPrepare === true,
+        error: null,
+        loggedIn: result.loggedIn,
+        profileDir,
+        url: result.url
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown browser session error";
+      return {
+        accountId: account.id,
+        cdpUrl: options.browserCdpUrl ?? null,
+        enabled: options.enableBrowserPrepare === true,
+        error: message,
+        loggedIn: false,
+        profileDir,
+        url: null
+      };
+    }
+  });
+
   app.get("/accounts", async () => ({
     accounts: await (await repositoryPromise).listAccounts()
   }));
+
+  app.get("/source-packets", async (request) => {
+    const { accountId } = request.query as { accountId?: string };
+    return {
+      packets: await (await repositoryPromise).listSourcePackets(accountId)
+    };
+  });
+
+  app.post("/source-packets", async (request, reply) => {
+    const input = createSourcePacketRequestSchema.parse(request.body);
+    const repository = await repositoryPromise;
+    const packet = await repository.createSourcePacket({
+      accountId: input.accountId,
+      facts: input.facts,
+      sourceType: input.sourceType,
+      summary: input.summary,
+      title: input.title,
+      tweetType: input.tweetType,
+      url: input.url ?? null
+    });
+
+    return reply.code(201).send({ packet });
+  });
+
+  app.post("/source-packets/:id/draft", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const repository = await repositoryPromise;
+    const packet = await repository.getSourcePacket(id);
+    if (!packet) {
+      return reply.code(404).send({ error: "Source packet not found" });
+    }
+
+    const context = await generationContext(repository, packet.accountId);
+    const candidates = await generationProvider.generateDraftCandidates({
+      idea: sourcePacketIdea(packet),
+      count: 3,
+      ...context,
+      tweetType: packet.tweetType
+    });
+    const draft = await repository.createDraft({
+      accountId: packet.accountId,
+      sourceInput: sourcePacketIdea(packet),
+      candidates: candidates.map((candidate) => ({
+        text: candidate.text,
+        score: {
+          ...candidate.score,
+          sourcePacketId: packet.id,
+          sourceType: packet.sourceType,
+          tweetType: packet.tweetType
+        }
+      }))
+    });
+    const updatedPacket = await repository.markSourcePacketDrafted(packet.id);
+
+    return reply.code(201).send({ ...draft, packet: updatedPacket });
+  });
+
+  app.get("/ingest-configs", async (request) => {
+    const { accountId } = request.query as { accountId?: string };
+    return {
+      configs: await (await repositoryPromise).listIngestConfigs(accountId)
+    };
+  });
+
+  app.post("/ingest-configs", async (request, reply) => {
+    const input = createIngestConfigRequestSchema.parse(request.body);
+    const repository = await repositoryPromise;
+    const config = await repository.createIngestConfig({
+      accountId: input.accountId,
+      sourceType: input.sourceType,
+      maxPacketsPerDay: input.maxPacketsPerDay,
+      tweetTypeMix: input.tweetTypeMix,
+      scheduleWindowStart: input.scheduleWindowStart,
+      scheduleWindowEnd: input.scheduleWindowEnd,
+      enabled: input.enabled
+    });
+
+    return reply.code(201).send({ config });
+  });
+
+  app.patch("/ingest-configs/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const input = updateIngestConfigRequestSchema.parse(request.body);
+    const repository = await repositoryPromise;
+
+    try {
+      return {
+        config: await repository.updateIngestConfig(id, definedEntries(input))
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("not found")) {
+        return reply.code(404).send({ error: "Ingest config not found" });
+      }
+      throw error;
+    }
+  });
+
+  app.delete("/ingest-configs/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const repository = await repositoryPromise;
+
+    try {
+      return { config: await repository.deleteIngestConfig(id) };
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("not found")) {
+        return reply.code(404).send({ error: "Ingest config not found" });
+      }
+      throw error;
+    }
+  });
+
+  app.get("/style-profiles/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const repository = await repositoryPromise;
+    const profile = await repository.getStyleProfile(id);
+    if (!profile) {
+      return reply.code(404).send({ error: "Style profile not found" });
+    }
+
+    return { profile };
+  });
+
+  app.patch("/style-profiles/:id", async (request) => {
+    const { id } = request.params as { id: string };
+    const input = updateStyleProfileRequestSchema.parse(request.body);
+    const repository = await repositoryPromise;
+
+    return {
+      profile: await repository.updateStyleProfile(id, definedEntries(input))
+    };
+  });
 
   app.patch("/accounts/:id", async (request) => {
     const { id } = request.params as { id: string };
@@ -164,9 +607,12 @@ export function buildApp(options: BuildAppOptions = {}) {
   app.post("/drafts", async (request, reply) => {
     const input = createDraftRequestSchema.parse(request.body);
     const repository = await repositoryPromise;
+    const context = await generationContext(repository, input.accountId);
     const candidates = await generationProvider.generateDraftCandidates({
       idea: input.idea,
-      ...(input.count ? { count: input.count } : {})
+      ...(input.count ? { count: input.count } : {}),
+      ...context,
+      ...(input.tweetType ? { tweetType: input.tweetType } : {})
     });
     const result = await repository.createDraft({
       accountId: input.accountId,
@@ -175,6 +621,53 @@ export function buildApp(options: BuildAppOptions = {}) {
     });
 
     return reply.code(201).send(result);
+  });
+
+  app.post("/draft-batches", async (request, reply) => {
+    const input = createDraftBatchRequestSchema.parse(request.body);
+    if (input.mode === "scheduled" && !input.scheduleStart) {
+      return reply.code(400).send({ error: "scheduleStart is required for scheduled batch jobs" });
+    }
+    const repository = await repositoryPromise;
+    const context = await generationContext(repository, input.accountId);
+    const scheduleSpacingMinutes = input.scheduleSpacingMinutes ?? 90;
+    const mode = input.mode ?? (input.scheduleStart ? "scheduled" : "prepare_only");
+    const created = [];
+
+    for (const [index, idea] of input.ideas.entries()) {
+      const candidates = await generationProvider.generateDraftCandidates({
+        idea,
+        count: 1,
+        ...context,
+        ...(input.tweetType ? { tweetType: input.tweetType } : {})
+      });
+      const draft = await repository.createDraft({
+        accountId: input.accountId,
+        sourceInput: idea,
+        candidates: candidates.map((candidate) => ({
+          text: candidate.text,
+          score: {
+            ...candidate.score,
+            lane: "batch",
+            ...(input.tweetType ? { tweetType: input.tweetType } : {})
+          }
+        }))
+      });
+      const selectedText = draft.draft.editedText ?? draft.candidates[0]?.text;
+      if (!selectedText) {
+        throw new Error("Batch generation returned no selected text");
+      }
+      const approved = await repository.approveDraft({
+        draftId: draft.draft.id,
+        editedText: selectedText,
+        mode,
+        scheduledFor: input.scheduleStart ? addMinutes(input.scheduleStart, index * scheduleSpacingMinutes) : null
+      });
+
+      created.push({ ...approved, candidates: draft.candidates });
+    }
+
+    return reply.code(201).send({ items: created });
   });
 
   app.get("/drafts/:id", async (request, reply) => {
@@ -204,15 +697,27 @@ export function buildApp(options: BuildAppOptions = {}) {
   app.post("/drafts/:id/approve", async (request, reply) => {
     const { id } = request.params as { id: string };
     const input = approveDraftRequestSchema.parse(request.body);
+    if (input.mode === "scheduled" && !input.scheduledFor) {
+      return reply.code(400).send({ error: "scheduledFor is required for scheduled jobs" });
+    }
     const repository = await repositoryPromise;
-    const result = await repository.approveDraft({ draftId: id, editedText: input.editedText });
+    const result = await repository.approveDraft({
+      draftId: id,
+      editedText: input.editedText,
+      ...(input.mode ? { mode: input.mode } : {}),
+      scheduledFor: input.scheduledFor ?? null
+    });
 
     return reply.code(201).send(result);
   });
 
-  app.get("/jobs", async () => ({
-    jobs: await (await repositoryPromise).listJobs()
-  }));
+  app.get("/jobs", async (request) => {
+    const { accountId } = request.query as { accountId?: string };
+    const jobs = await (await repositoryPromise).listJobs();
+    return {
+      jobs: accountId ? jobs.filter((job) => job.accountId === accountId) : jobs
+    };
+  });
 
   app.get("/history", async () => ({
     history: await (await repositoryPromise).listPostHistory()
@@ -224,6 +729,72 @@ export function buildApp(options: BuildAppOptions = {}) {
     return {
       attempts: await repository.listAttempts(id)
     };
+  });
+
+  app.post("/jobs/post-ready", async (request) => {
+    const { accountId } = request.body as { accountId?: string };
+    if (!accountId) {
+      throw new HttpError(400, "accountId is required");
+    }
+    const repository = await repositoryPromise;
+    const now = Date.now();
+    const readyJobs = shuffleJobs(
+      (await repository.listJobs()).filter((job) => {
+        if (job.accountId !== accountId) {
+          return false;
+        }
+        if (job.status !== "approved" && job.status !== "prepared" && job.status !== "failed") {
+          return false;
+        }
+        if (!job.scheduledFor) {
+          return true;
+        }
+        return Date.parse(job.scheduledFor) <= now;
+      })
+    );
+    const results = [];
+
+    for (const job of readyJobs) {
+      try {
+        const result = await postBrowserJob(repository, options, job.id);
+        results.push({
+          jobId: job.id,
+          status: "posted",
+          job: result.job,
+          history: result.history,
+          error: null
+        });
+      } catch (error) {
+        results.push({
+          jobId: job.id,
+          status: "failed",
+          job: await repository.getJob(job.id),
+          history: null,
+          error: error instanceof Error ? error.message : "Unknown post error"
+        });
+      }
+    }
+
+    return {
+      posted: results.filter((result) => result.status === "posted").length,
+      failed: results.filter((result) => result.status === "failed").length,
+      total: results.length,
+      results
+    };
+  });
+
+  app.delete("/jobs/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const repository = await repositoryPromise;
+    const job = await repository.getJob(id);
+    if (!job) {
+      return reply.code(404).send({ error: "Job not found" });
+    }
+    if (job.status === "running") {
+      return reply.code(409).send({ error: "Cannot delete a running job" });
+    }
+
+    return { job: await repository.deleteJob(id) };
   });
 
   app.post("/jobs/:id/prepare", async (request, reply) => {
@@ -241,9 +812,13 @@ export function buildApp(options: BuildAppOptions = {}) {
     if (!account || !draftWithCandidates?.draft.editedText) {
       return reply.code(409).send({ error: "Job is missing account or approved text" });
     }
+    if (isScheduledForFuture(job)) {
+      return reply.code(409).send({ error: `Job is scheduled for ${job.scheduledFor}` });
+    }
     if (!isAccountRunnable(account)) {
       return reply.code(409).send({ error: "Account is not enabled for browser jobs" });
     }
+    await recoverStaleRunningJobs(repository, account.id, job.id);
     if (await hasRunningJobForAccount(repository, account.id, job.id)) {
       return reply.code(409).send({ error: "Another browser job is already running for this account" });
     }
@@ -260,7 +835,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     }
 
     try {
-      const { preparePost } = await import("@zyquor/browser");
+      const preparePost = options.preparePost ?? (await import("@zyquor/browser")).preparePost;
       await preparePost({
         profileDir: resolveProfileDir(account.profileDir),
         text: draftWithCandidates.draft.editedText,
@@ -289,75 +864,14 @@ export function buildApp(options: BuildAppOptions = {}) {
   app.post("/jobs/:id/post", async (request, reply) => {
     const { id } = request.params as { id: string };
     const repository = await repositoryPromise;
-    prepareJobRequestSchema.parse({ jobId: id });
-
-    if (!options.enableBrowserPost) {
-      return reply.code(403).send({ error: "Browser post action is disabled" });
-    }
-
-    const job = await repository.getJob(id);
-    if (!job) {
-      return reply.code(404).send({ error: "Job not found" });
-    }
-    if (job.status !== "approved" && job.status !== "prepared") {
-      return reply.code(409).send({ error: `Job must be approved or prepared before posting: ${job.status}` });
-    }
-
-    const account = await repository.getAccount(job.accountId);
-    const draftWithCandidates = await repository.getDraft(job.draftId);
-    if (!account || !draftWithCandidates?.draft.editedText) {
-      return reply.code(409).send({ error: "Job is missing account or approved text" });
-    }
-    if (!isAccountRunnable(account)) {
-      return reply.code(409).send({ error: "Account is not enabled for browser jobs" });
-    }
-    if (await isDailyLimitReached(repository, account.id, account.dailyPostLimit)) {
-      return reply.code(409).send({ error: "Daily post limit reached for this account" });
-    }
-    if (await hasRunningJobForAccount(repository, account.id, job.id)) {
-      return reply.code(409).send({ error: "Another browser job is already running for this account" });
-    }
-    assertDedicatedProfileDir(account.profileDir);
-
-    if (job.status === "approved") {
-      await repository.updateJobStatus(job.id, "queued");
-      await repository.updateJobStatus(job.id, "running");
-    } else {
-      await repository.updateJobStatus(job.id, "running");
-    }
-    await repository.createAttempt({ jobId: job.id, status: "started" });
 
     try {
-      const { preparePost } = await import("@zyquor/browser");
-      const result = await preparePost({
-        profileDir: resolveProfileDir(account.profileDir),
-        text: draftWithCandidates.draft.editedText,
-        ...browserOptions(options),
-        submit: true
-      });
-      await repository.createAttempt({ jobId: job.id, status: "post_clicked" });
-      const posted = await repository.updateJobStatus(job.id, "posted");
-      const history = await repository.createPostHistory({
-        accountId: job.accountId,
-        draftId: job.draftId,
-        postedText: draftWithCandidates.draft.editedText,
-        postUrl: result.postUrl
-      });
-      await repository.createAttempt({ jobId: job.id, status: "verified" });
-      return { job: posted, history };
+      return await postBrowserJob(repository, options, id);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown browser error";
-      const artifacts = browserArtifacts(error);
-      await repository.updateJobStatus(job.id, "failed");
-      await repository.createAttempt({
-        jobId: job.id,
-        status: "failed",
-        errorCode: "browser_post_failed",
-        errorMessage: message,
-        screenshotPath: artifacts.screenshotPath,
-        tracePath: artifacts.tracePath
+      const httpError = asHttpError(error);
+      return reply.code(httpError?.statusCode ?? 500).send({
+        error: error instanceof Error ? error.message : "Unknown browser error"
       });
-      return reply.code(500).send({ error: message });
     }
   });
 

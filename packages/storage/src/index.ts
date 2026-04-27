@@ -1,4 +1,13 @@
-import type { Account, Draft, DraftCandidate, PostAttempt, PostHistory, PostJob, StyleProfile } from "@zyquor/core";
+import type {
+  Account,
+  Draft,
+  DraftCandidate,
+  PostAttempt,
+  PostHistory,
+  PostJob,
+  SourcePacket,
+  StyleProfile
+} from "@zyquor/core";
 import { canTransitionDraft, canTransitionPostJob } from "@zyquor/core";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -16,16 +25,36 @@ export interface ZyquorRepository {
   listAccounts(): Promise<Account[]>;
   getAccount(id: string): Promise<Account | null>;
   updateAccount(id: string, input: Partial<Omit<Account, "id" | "createdAt" | "updatedAt">>): Promise<Account>;
+  getStyleProfile(id: string): Promise<StyleProfile | null>;
+  updateStyleProfile(id: string, input: Partial<Omit<StyleProfile, "id" | "createdAt" | "updatedAt">>): Promise<StyleProfile>;
   createDraft(input: {
     accountId: string;
     sourceInput: string;
     candidates: Array<{ text: string; score: Record<string, unknown> }>;
   }): Promise<DraftWithCandidates>;
+  createSourcePacket(input: {
+    accountId: string;
+    sourceType: SourcePacket["sourceType"];
+    title: string;
+    url?: string | null;
+    summary: string;
+    facts: string[];
+    tweetType: SourcePacket["tweetType"];
+  }): Promise<SourcePacket>;
+  getSourcePacket(id: string): Promise<SourcePacket | null>;
+  listSourcePackets(accountId?: string): Promise<SourcePacket[]>;
+  markSourcePacketDrafted(id: string): Promise<SourcePacket>;
   getDraft(id: string): Promise<DraftWithCandidates | null>;
   selectCandidate(input: { draftId: string; candidateId: string; editedText?: string }): Promise<DraftWithCandidates>;
-  approveDraft(input: { draftId: string; editedText: string }): Promise<{ draft: Draft; job: PostJob }>;
+  approveDraft(input: {
+    draftId: string;
+    editedText: string;
+    mode?: PostJob["mode"];
+    scheduledFor?: string | null;
+  }): Promise<{ draft: Draft; job: PostJob }>;
   listJobs(): Promise<PostJob[]>;
   getJob(id: string): Promise<PostJob | null>;
+  deleteJob(id: string): Promise<PostJob>;
   updateJobStatus(id: string, status: PostJob["status"]): Promise<PostJob>;
   createAttempt(input: {
     jobId: string;
@@ -43,6 +72,19 @@ export interface ZyquorRepository {
     postUrl: string | null;
   }): Promise<PostHistory>;
   listPostHistory(): Promise<PostHistory[]>;
+  createIngestConfig(input: {
+    accountId: string;
+    sourceType: SourcePacket["sourceType"];
+    maxPacketsPerDay: number;
+    tweetTypeMix: Record<string, number>;
+    scheduleWindowStart: string;
+    scheduleWindowEnd: string;
+    enabled: boolean;
+  }): Promise<import("@zyquor/core").IngestConfig>;
+  getIngestConfig(id: string): Promise<import("@zyquor/core").IngestConfig | null>;
+  listIngestConfigs(accountId?: string): Promise<import("@zyquor/core").IngestConfig[]>;
+  updateIngestConfig(id: string, input: Partial<Omit<import("@zyquor/core").IngestConfig, "id" | "accountId" | "createdAt" | "updatedAt">>): Promise<import("@zyquor/core").IngestConfig>;
+  deleteIngestConfig(id: string): Promise<import("@zyquor/core").IngestConfig>;
 }
 
 export interface ContentFingerprint {
@@ -161,11 +203,41 @@ CREATE TABLE IF NOT EXISTS content_fingerprints (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS source_packets (
+  id TEXT PRIMARY KEY NOT NULL,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  source_type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  url TEXT,
+  summary TEXT NOT NULL,
+  facts_json TEXT NOT NULL,
+  tweet_type TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_drafts_account_id ON drafts(account_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_account_status ON post_jobs(account_id, status);
 CREATE INDEX IF NOT EXISTS idx_attempts_job_id ON post_attempts(job_id);
 CREATE INDEX IF NOT EXISTS idx_history_account_id ON post_history(account_id);
 CREATE INDEX IF NOT EXISTS idx_fingerprints_hash ON content_fingerprints(text_hash);
+CREATE INDEX IF NOT EXISTS idx_source_packets_account_status ON source_packets(account_id, status);
+
+CREATE TABLE IF NOT EXISTS ingest_configs (
+  id TEXT PRIMARY KEY NOT NULL,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  source_type TEXT NOT NULL,
+  max_packets_per_day INTEGER NOT NULL,
+  tweet_type_mix_json TEXT NOT NULL,
+  schedule_window_start TEXT NOT NULL,
+  schedule_window_end TEXT NOT NULL,
+  enabled INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ingest_configs_account_id ON ingest_configs(account_id);
 `;
 
 function toAccount(row: Record<string, unknown>): Account {
@@ -249,6 +321,51 @@ function toPostHistory(row: Record<string, unknown>): PostHistory {
   };
 }
 
+function toStyleProfile(row: Record<string, unknown>): StyleProfile {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    description: row.description === null ? null : String(row.description),
+    tone: row.tone === null ? null : String(row.tone),
+    rules: JSON.parse(String(row.rules_json)) as Record<string, unknown>,
+    bannedPhrases: JSON.parse(String(row.banned_phrases_json)) as string[],
+    examplePosts: JSON.parse(String(row.example_posts_json)) as string[],
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  };
+}
+
+function toSourcePacket(row: Record<string, unknown>): SourcePacket {
+  return {
+    id: String(row.id),
+    accountId: String(row.account_id),
+    sourceType: row.source_type as SourcePacket["sourceType"],
+    title: String(row.title),
+    url: row.url === null ? null : String(row.url),
+    summary: String(row.summary),
+    facts: JSON.parse(String(row.facts_json)) as string[],
+    tweetType: row.tweet_type as SourcePacket["tweetType"],
+    status: row.status as SourcePacket["status"],
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  };
+}
+
+function toIngestConfig(row: Record<string, unknown>): import("@zyquor/core").IngestConfig {
+  return {
+    id: String(row.id),
+    accountId: String(row.account_id),
+    sourceType: row.source_type as import("@zyquor/core").SourceType,
+    maxPacketsPerDay: Number(row.max_packets_per_day),
+    tweetTypeMix: JSON.parse(String(row.tweet_type_mix_json)) as Record<string, number>,
+    scheduleWindowStart: String(row.schedule_window_start),
+    scheduleWindowEnd: String(row.schedule_window_end),
+    enabled: Boolean(row.enabled),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  };
+}
+
 function row(value: unknown): Record<string, unknown> | null {
   return value ? (value as Record<string, unknown>) : null;
 }
@@ -326,7 +443,7 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
       "style_default",
       "prepare_only",
       1,
-      5,
+      1000,
       null,
       null,
       timestamp,
@@ -407,6 +524,112 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
       );
 
       return updated;
+    },
+
+    async getStyleProfile(styleProfileId) {
+      const profile = row(db.prepare("SELECT * FROM style_profiles WHERE id = ?").get(styleProfileId));
+      return profile ? toStyleProfile(profile) : null;
+    },
+
+    async updateStyleProfile(styleProfileId, input) {
+      const profileRow = row(db.prepare("SELECT * FROM style_profiles WHERE id = ?").get(styleProfileId));
+      if (!profileRow) {
+        throw new Error(`Style profile not found: ${styleProfileId}`);
+      }
+      const profile = toStyleProfile(profileRow);
+      const updated: StyleProfile = {
+        ...profile,
+        ...input,
+        updatedAt: now()
+      };
+
+      db.prepare(
+        `UPDATE style_profiles SET
+          name = ?,
+          description = ?,
+          tone = ?,
+          rules_json = ?,
+          banned_phrases_json = ?,
+          example_posts_json = ?,
+          updated_at = ?
+         WHERE id = ?`
+      ).run(
+        updated.name,
+        updated.description,
+        updated.tone,
+        JSON.stringify(updated.rules),
+        JSON.stringify(updated.bannedPhrases),
+        JSON.stringify(updated.examplePosts),
+        updated.updatedAt,
+        updated.id
+      );
+
+      return updated;
+    },
+
+    async createSourcePacket(input) {
+      const account = row(db.prepare("SELECT id FROM accounts WHERE id = ?").get(input.accountId));
+      if (!account) {
+        throw new Error(`Account not found: ${input.accountId}`);
+      }
+
+      const timestamp = now();
+      const packet: SourcePacket = {
+        id: id("packet"),
+        accountId: input.accountId,
+        sourceType: input.sourceType,
+        title: input.title,
+        url: input.url ?? null,
+        summary: input.summary,
+        facts: input.facts,
+        tweetType: input.tweetType,
+        status: "new",
+        createdAt: timestamp,
+        updatedAt: timestamp
+      };
+
+      db.prepare(
+        `INSERT INTO source_packets (
+          id, account_id, source_type, title, url, summary, facts_json, tweet_type, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        packet.id,
+        packet.accountId,
+        packet.sourceType,
+        packet.title,
+        packet.url,
+        packet.summary,
+        JSON.stringify(packet.facts),
+        packet.tweetType,
+        packet.status,
+        packet.createdAt,
+        packet.updatedAt
+      );
+
+      return packet;
+    },
+
+    async getSourcePacket(id) {
+      const packet = row(db.prepare("SELECT * FROM source_packets WHERE id = ?").get(id));
+      return packet ? toSourcePacket(packet) : null;
+    },
+
+    async listSourcePackets(accountId) {
+      const packetRows = accountId
+        ? rows(db.prepare("SELECT * FROM source_packets WHERE account_id = ? ORDER BY created_at DESC").all(accountId))
+        : rows(db.prepare("SELECT * FROM source_packets ORDER BY created_at DESC").all());
+      return packetRows.map(toSourcePacket);
+    },
+
+    async markSourcePacketDrafted(id) {
+      const packet = row(db.prepare("SELECT * FROM source_packets WHERE id = ?").get(id));
+      if (!packet) {
+        throw new Error(`Source packet not found: ${id}`);
+      }
+
+      const timestamp = now();
+      db.prepare("UPDATE source_packets SET status = ?, updated_at = ? WHERE id = ?").run("drafted", timestamp, id);
+      return toSourcePacket(row(db.prepare("SELECT * FROM source_packets WHERE id = ?").get(id))!);
     },
 
     async createDraft(input) {
@@ -537,13 +760,14 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
           input.draftId
         );
 
+        const jobMode = input.mode ?? (input.scheduledFor ? "scheduled" : "prepare_only");
         const job: PostJob = {
           id: id("job"),
           accountId: draft.accountId,
           draftId: draft.id,
           status: "approved",
-          mode: "prepare_only",
-          scheduledFor: null,
+          mode: jobMode,
+          scheduledFor: input.scheduledFor ?? null,
           approvedAt: timestamp,
           createdAt: timestamp,
           updatedAt: timestamp
@@ -582,6 +806,18 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
     async getJob(jobId) {
       const job = row(db.prepare("SELECT * FROM post_jobs WHERE id = ?").get(jobId));
       return job ? toJob(job) : null;
+    },
+
+    async deleteJob(jobId) {
+      return runTransaction(db, () => {
+        const job = requireJob(jobId);
+        if (job.status === "running") {
+          throw new Error("Cannot delete a running job");
+        }
+        db.prepare("DELETE FROM post_attempts WHERE job_id = ?").run(jobId);
+        db.prepare("DELETE FROM post_jobs WHERE id = ?").run(jobId);
+        return job;
+      });
     },
 
     async updateJobStatus(jobId, status) {
@@ -654,6 +890,77 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
 
     async listPostHistory() {
       return rows(db.prepare("SELECT * FROM post_history ORDER BY posted_at DESC").all()).map(toPostHistory);
+    },
+
+    async createIngestConfig(input) {
+      const nowStr = now();
+      const config: import("@zyquor/core").IngestConfig = {
+        id: id("ingest"),
+        accountId: input.accountId,
+        sourceType: input.sourceType,
+        maxPacketsPerDay: input.maxPacketsPerDay,
+        tweetTypeMix: input.tweetTypeMix,
+        scheduleWindowStart: input.scheduleWindowStart,
+        scheduleWindowEnd: input.scheduleWindowEnd,
+        enabled: input.enabled,
+        createdAt: nowStr,
+        updatedAt: nowStr
+      };
+      db.prepare(
+        `INSERT INTO ingest_configs (id, account_id, source_type, max_packets_per_day, tweet_type_mix_json, schedule_window_start, schedule_window_end, enabled, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        config.id, config.accountId, config.sourceType, config.maxPacketsPerDay,
+        JSON.stringify(config.tweetTypeMix), config.scheduleWindowStart, config.scheduleWindowEnd,
+        config.enabled ? 1 : 0, config.createdAt, config.updatedAt
+      );
+      return config;
+    },
+
+    async getIngestConfig(id) {
+      const rowData = db.prepare("SELECT * FROM ingest_configs WHERE id = ?").get(id);
+      const r = row(rowData);
+      return r ? toIngestConfig(r) : null;
+    },
+
+    async listIngestConfigs(accountId) {
+      const sql = accountId
+        ? "SELECT * FROM ingest_configs WHERE account_id = ? ORDER BY created_at DESC"
+        : "SELECT * FROM ingest_configs ORDER BY created_at DESC";
+      const all = accountId
+        ? db.prepare(sql).all(accountId)
+        : db.prepare(sql).all();
+      return rows(all).map(toIngestConfig);
+    },
+
+    async updateIngestConfig(id, input) {
+      const existing = db.prepare("SELECT * FROM ingest_configs WHERE id = ?").get(id);
+      const r = row(existing);
+      if (!r) throw new Error(`Ingest config ${id} not found`);
+      const current = toIngestConfig(r);
+      const updated: import("@zyquor/core").IngestConfig = {
+        ...current,
+        ...input,
+        updatedAt: now()
+      };
+      db.prepare(
+        `UPDATE ingest_configs SET max_packets_per_day = ?, tweet_type_mix_json = ?, schedule_window_start = ?, schedule_window_end = ?, enabled = ?, updated_at = ?
+         WHERE id = ?`
+      ).run(
+        updated.maxPacketsPerDay, JSON.stringify(updated.tweetTypeMix),
+        updated.scheduleWindowStart, updated.scheduleWindowEnd,
+        updated.enabled ? 1 : 0, updated.updatedAt, id
+      );
+      return updated;
+    },
+
+    async deleteIngestConfig(id) {
+      const existing = db.prepare("SELECT * FROM ingest_configs WHERE id = ?").get(id);
+      const r = row(existing);
+      if (!r) throw new Error(`Ingest config ${id} not found`);
+      const config = toIngestConfig(r);
+      db.prepare("DELETE FROM ingest_configs WHERE id = ?").run(id);
+      return config;
     }
   };
 }
@@ -666,6 +973,8 @@ export interface RepositorySnapshot {
   attempts: PostAttempt[];
   history: PostHistory[];
   fingerprints: ContentFingerprint[];
+  sourcePackets: SourcePacket[];
+  styleProfiles: StyleProfile[];
   sequence: number;
 }
 
@@ -698,7 +1007,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       styleProfileId: styleProfile.id,
       postingMode: "prepare_only",
       enabled: true,
-      dailyPostLimit: 5,
+      dailyPostLimit: 1000,
       quietHoursStart: null,
       quietHoursEnd: null,
       createdAt: now(),
@@ -707,6 +1016,9 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
   ];
 
   const accounts = new Map<string, Account>((options.snapshot?.accounts ?? defaultAccounts).map((account) => [account.id, account]));
+  const styleProfiles = new Map<string, StyleProfile>(
+    (options.snapshot?.styleProfiles ?? [styleProfile]).map((profile) => [profile.id, profile])
+  );
   const drafts = new Map<string, Draft>((options.snapshot?.drafts ?? []).map((draft) => [draft.id, draft]));
   const candidates = new Map<string, DraftCandidate>(
     (options.snapshot?.candidates ?? []).map((candidate) => [candidate.id, candidate])
@@ -717,6 +1029,10 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
   const fingerprints = new Map<string, ContentFingerprint>(
     (options.snapshot?.fingerprints ?? []).map((item) => [item.id, item])
   );
+  const sourcePackets = new Map<string, SourcePacket>(
+    (options.snapshot?.sourcePackets ?? []).map((packet) => [packet.id, packet])
+  );
+  const ingestConfigs = new Map<string, import("@zyquor/core").IngestConfig>();
   let sequence = options.snapshot?.sequence ?? 0;
 
   function snapshot(): RepositorySnapshot {
@@ -728,6 +1044,8 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       attempts: [...attempts.values()],
       history: [...history.values()],
       fingerprints: [...fingerprints.values()],
+      sourcePackets: [...sourcePackets.values()],
+      styleProfiles: [...styleProfiles.values()],
       sequence
     };
   }
@@ -782,6 +1100,72 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
         updatedAt: now()
       };
       accounts.set(id, updated);
+      persist();
+      return updated;
+    },
+
+    async getStyleProfile(id) {
+      return styleProfiles.get(id) ?? null;
+    },
+
+    async updateStyleProfile(id, input) {
+      const profile = styleProfiles.get(id);
+      if (!profile) {
+        throw new Error(`Style profile not found: ${id}`);
+      }
+
+      const updated: StyleProfile = {
+        ...profile,
+        ...input,
+        updatedAt: now()
+      };
+      styleProfiles.set(id, updated);
+      persist();
+      return updated;
+    },
+
+    async createSourcePacket(input) {
+      const account = accounts.get(input.accountId);
+      if (!account) {
+        throw new Error(`Account not found: ${input.accountId}`);
+      }
+
+      const timestamp = now();
+      const packet: SourcePacket = {
+        id: id("packet"),
+        accountId: input.accountId,
+        sourceType: input.sourceType,
+        title: input.title,
+        url: input.url ?? null,
+        summary: input.summary,
+        facts: input.facts,
+        tweetType: input.tweetType,
+        status: "new",
+        createdAt: timestamp,
+        updatedAt: timestamp
+      };
+      sourcePackets.set(packet.id, packet);
+      persist();
+      return packet;
+    },
+
+    async getSourcePacket(id) {
+      return sourcePackets.get(id) ?? null;
+    },
+
+    async listSourcePackets(accountId) {
+      return [...sourcePackets.values()]
+        .filter((packet) => !accountId || packet.accountId === accountId)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    },
+
+    async markSourcePacketDrafted(id) {
+      const packet = sourcePackets.get(id);
+      if (!packet) {
+        throw new Error(`Source packet not found: ${id}`);
+      }
+      const updated: SourcePacket = { ...packet, status: "drafted", updatedAt: now() };
+      sourcePackets.set(id, updated);
       persist();
       return updated;
     },
@@ -883,13 +1267,14 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       };
       drafts.set(updatedDraft.id, updatedDraft);
 
+      const jobMode = input.mode ?? (input.scheduledFor ? "scheduled" : "prepare_only");
       const job: PostJob = {
         id: id("job"),
         accountId: draft.accountId,
         draftId: draft.id,
         status: "approved",
-        mode: "prepare_only",
-        scheduledFor: null,
+        mode: jobMode,
+        scheduledFor: input.scheduledFor ?? null,
         approvedAt: timestamp,
         createdAt: timestamp,
         updatedAt: timestamp
@@ -916,6 +1301,21 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
 
     async getJob(id) {
       return jobs.get(id) ?? null;
+    },
+
+    async deleteJob(id) {
+      const job = requireJob(id);
+      if (job.status === "running") {
+        throw new Error("Cannot delete a running job");
+      }
+      jobs.delete(id);
+      for (const [attemptId, attempt] of attempts.entries()) {
+        if (attempt.jobId === id) {
+          attempts.delete(attemptId);
+        }
+      }
+      persist();
+      return job;
     },
 
     async updateJobStatus(id, status) {
@@ -968,6 +1368,51 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
 
     async listPostHistory() {
       return [...history.values()].sort((a, b) => b.postedAt.localeCompare(a.postedAt));
+    },
+
+    async createIngestConfig(input) {
+      const nowStr = now();
+      const config: import("@zyquor/core").IngestConfig = {
+        id: id("ingest"),
+        accountId: input.accountId,
+        sourceType: input.sourceType,
+        maxPacketsPerDay: input.maxPacketsPerDay,
+        tweetTypeMix: input.tweetTypeMix,
+        scheduleWindowStart: input.scheduleWindowStart,
+        scheduleWindowEnd: input.scheduleWindowEnd,
+        enabled: input.enabled,
+        createdAt: nowStr,
+        updatedAt: nowStr
+      };
+      ingestConfigs.set(config.id, config);
+      persist();
+      return config;
+    },
+
+    async getIngestConfig(id) {
+      return ingestConfigs.get(id) ?? null;
+    },
+
+    async listIngestConfigs(accountId) {
+      const all = [...ingestConfigs.values()];
+      return accountId ? all.filter((c) => c.accountId === accountId) : all;
+    },
+
+    async updateIngestConfig(id, input) {
+      const existing = ingestConfigs.get(id);
+      if (!existing) throw new Error(`Ingest config ${id} not found`);
+      const updated: import("@zyquor/core").IngestConfig = { ...existing, ...input, updatedAt: now() };
+      ingestConfigs.set(id, updated);
+      persist();
+      return updated;
+    },
+
+    async deleteIngestConfig(id) {
+      const existing = ingestConfigs.get(id);
+      if (!existing) throw new Error(`Ingest config ${id} not found`);
+      ingestConfigs.delete(id);
+      persist();
+      return existing;
     }
   };
 }

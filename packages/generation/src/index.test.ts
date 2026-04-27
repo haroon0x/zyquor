@@ -23,11 +23,11 @@ describe("mock generation", () => {
 
     expect(candidates).toEqual([
       {
-        text: "Local-first tools should expose their audit trail.\n\nThe hidden cost is not the tooling. It is losing the audit trail between idea, draft, approval, and action.",
+        text: "Local-first tools should expose their audit trail.\n\nThe useful part is the audit trail: idea, draft, approval, schedule, and browser action all stay visible.",
         score: { provider: "mock", rank: 1 }
       },
       {
-        text: "Local-first tools should expose their audit trail.\n\nGood local tools should make every step inspectable: what changed, who approved it, and what happened in the browser.",
+        text: "Local-first tools should expose their audit trail.\n\nGood automation removes repetitive work without hiding decisions. Keep inputs, rules, timing, and outcomes inspectable.",
         score: { provider: "mock", rank: 2 }
       }
     ]);

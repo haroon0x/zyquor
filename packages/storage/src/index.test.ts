@@ -64,4 +64,56 @@ describe("repository workflow", () => {
       "Duplicate post text"
     );
   });
+
+  it("stores scheduled approval metadata", async () => {
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z"
+    });
+    const scheduledFor = "2026-04-25T15:30:00.000Z";
+
+    const created = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "Schedule this",
+      candidates: [{ text: "Scheduled useful post", score: {} }]
+    });
+    const approved = await repository.approveDraft({
+      draftId: created.draft.id,
+      editedText: "Scheduled useful post",
+      mode: "scheduled",
+      scheduledFor
+    });
+
+    expect(approved.job).toMatchObject({
+      mode: "scheduled",
+      scheduledFor,
+      status: "approved"
+    });
+  });
+
+  it("stores source packets for deterministic source ingestion", async () => {
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z"
+    });
+
+    const packet = await repository.createSourcePacket({
+      accountId: "account_personal",
+      facts: ["Frontier models are becoming infrastructure.", "Capital is concentrating around compute."],
+      sourceType: "news",
+      summary: "AI funding is shifting from model demos to infrastructure scale.",
+      title: "AI infrastructure funding",
+      tweetType: "news_context",
+      url: "https://example.com/ai"
+    });
+
+    expect(packet).toMatchObject({
+      accountId: "account_personal",
+      sourceType: "news",
+      status: "new",
+      tweetType: "news_context",
+      url: "https://example.com/ai"
+    });
+    await expect(repository.getSourcePacket(packet.id)).resolves.toMatchObject({ title: "AI infrastructure funding" });
+    await expect(repository.listSourcePackets("account_personal")).resolves.toHaveLength(1);
+    await expect(repository.markSourcePacketDrafted(packet.id)).resolves.toMatchObject({ status: "drafted" });
+  });
 });

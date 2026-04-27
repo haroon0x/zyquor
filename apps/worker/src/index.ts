@@ -1,10 +1,42 @@
-import { loadDotEnv, POST_JOB_STATUSES, type PostJob } from "@zyquor/core";
+import { loadDotEnv, POST_JOB_STATUSES, type Account, type PostJob } from "@zyquor/core";
 
 loadDotEnv();
 
 export interface WorkerOptions {
   apiUrl: string;
   pollMs: number;
+}
+
+function minutesSinceMidnight(time: string) {
+  const parts = time.split(":");
+  if (parts.length !== 2) {
+    return null;
+  }
+  const hour = Number(parts[0]);
+  const minute = Number(parts[1]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) {
+    return null;
+  }
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return null;
+  }
+  return hour * 60 + minute;
+}
+
+function isWithinQuietHours(now: Date, account: Account) {
+  if (!account.quietHoursStart || !account.quietHoursEnd) {
+    return false;
+  }
+  const start = minutesSinceMidnight(account.quietHoursStart);
+  const end = minutesSinceMidnight(account.quietHoursEnd);
+  if (start === null || end === null || start === end) {
+    return false;
+  }
+  const current = now.getHours() * 60 + now.getMinutes();
+  if (start < end) {
+    return current >= start && current < end;
+  }
+  return current >= start || current < end;
 }
 
 export function describeWorker() {
@@ -16,12 +48,13 @@ export function describeWorker() {
 }
 
 async function api<T>(apiUrl: string, path: string, init?: RequestInit): Promise<T> {
+  const headers = {
+    ...(init?.body ? { "content-type": "application/json" } : {}),
+    ...init?.headers
+  };
   const response = await fetch(`${apiUrl}${path}`, {
     ...init,
-    headers: {
-      "content-type": "application/json",
-      ...init?.headers
-    }
+    headers
   });
 
   if (!response.ok) {
@@ -33,11 +66,30 @@ async function api<T>(apiUrl: string, path: string, init?: RequestInit): Promise
 }
 
 export async function processApprovedJobs(options: WorkerOptions) {
-  const { jobs } = await api<{ jobs: PostJob[] }>(options.apiUrl, "/jobs");
-  const approvedJobs = jobs.filter((job) => job.status === "approved");
+  const [{ jobs }, { accounts }] = await Promise.all([
+    api<{ jobs: PostJob[] }>(options.apiUrl, "/jobs"),
+    api<{ accounts: Account[] }>(options.apiUrl, "/accounts")
+  ]);
+  const now = new Date();
+  const nowMs = now.getTime();
+  const accountById = new Map(accounts.map((account) => [account.id, account]));
+  const approvedJobs = jobs.filter(
+    (job) => {
+      const account = accountById.get(job.accountId);
+      if (!account || isWithinQuietHours(now, account)) {
+        return false;
+      }
+      return (
+      job.status === "approved" &&
+      (!job.scheduledFor || Date.parse(job.scheduledFor) <= nowMs) &&
+      (job.mode === "prepare_only" || job.mode === "scheduled" || job.mode === "autopost")
+      );
+    }
+  );
 
   for (const job of approvedJobs) {
-    await api(options.apiUrl, `/jobs/${job.id}/prepare`, { method: "POST" });
+    const action = job.mode === "autopost" ? "post" : "prepare";
+    await api(options.apiUrl, `/jobs/${job.id}/${action}`, { method: "POST" });
   }
 
   return approvedJobs.length;

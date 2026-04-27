@@ -1,9 +1,16 @@
 export type GenerationProviderName = "mock" | "ollama" | "gemini";
 
 export interface GenerateDraftCandidatesInput {
+  bannedPhrases?: string[];
   idea: string;
   count?: number;
+  objective?: string;
+  systemPromptExtra?: string;
+  tone?: string | null;
+  tweetType?: string;
 }
+
+const DEFAULT_CHARACTER_LIMIT = 280;
 
 export interface GeneratedDraftCandidate {
   text: string;
@@ -47,15 +54,39 @@ function normalizeIdea(idea: string) {
   return idea.trim().replace(/\s+/g, " ");
 }
 
+function characterLimit(input: GenerateDraftCandidatesInput) {
+  return DEFAULT_CHARACTER_LIMIT;
+}
+
+function tweetTypeInstruction(tweetType: string | undefined) {
+  if (!tweetType) {
+    return "Tweet type: general value post.";
+  }
+
+  const labels: Record<string, string> = {
+    feed_observation: "Tweet type: feed observation. Turn a pattern or behavior into a useful takeaway.",
+    news_context: "Tweet type: news context. Explain why the event matters without sensationalism.",
+    useful_info: "Tweet type: useful info. Give a concrete fact, distinction, or practical takeaway.",
+    guide: "Tweet type: guide. Give a compact how-to or decision rule.",
+    lesson: "Tweet type: lesson. Share a learned principle with a specific implication.",
+    opinion: "Tweet type: opinion. Make a clear argument without rage bait.",
+    reply: "Tweet type: reply. Draft a useful reply to the given post. Add context or a practical point without sounding automated.",
+    tool: "Tweet type: tool. Explain what a tool is useful for and when to use it."
+  };
+
+  return labels[tweetType] ?? `Tweet type: ${tweetType}.`;
+}
+
 export function generateMockDraftCandidates(input: GenerateDraftCandidatesInput): GeneratedDraftCandidate[] {
   const count = normalizeCount(input.count);
   const base = normalizeIdea(input.idea);
+  const prefix = input.tweetType ? `[${input.tweetType}] ` : "";
   const variants = [
-    `${base}\n\nThe hidden cost is not the tooling. It is losing the audit trail between idea, draft, approval, and action.`,
-    `${base}\n\nGood local tools should make every step inspectable: what changed, who approved it, and what happened in the browser.`,
-    `${base}\n\nThe best automation still keeps the final human decision visible. Draft faster, review clearly, act deliberately.`,
-    `${base}\n\nWhen software touches a public account, invisible state is the risk. Make profiles, approvals, and attempts explicit.`,
-    `${base}\n\nSpeed matters, but traceability matters more. A posting assistant should remove copy-paste without removing control.`
+    `${prefix}${base}\n\nThe useful part is the audit trail: idea, draft, approval, schedule, and browser action all stay visible.`,
+    `${prefix}${base}\n\nGood automation removes repetitive work without hiding decisions. Keep inputs, rules, timing, and outcomes inspectable.`,
+    `${prefix}${base}\n\nThe best systems automate the boring parts and leave judgment visible: choose the source, review the draft, then schedule deliberately.`,
+    `${prefix}${base}\n\nWhen software touches a public account, invisible state is the risk. Make profiles, approvals, schedules, and attempts explicit.`,
+    `${prefix}${base}\n\nSpeed helps, but traceability compounds. A posting assistant should reduce copy-paste without reducing control.`
   ];
 
   return variants.slice(0, count).map((text, index) => ({
@@ -64,30 +95,43 @@ export function generateMockDraftCandidates(input: GenerateDraftCandidatesInput)
   }));
 }
 
-function systemPrompt(count: number) {
+function systemPrompt(input: GenerateDraftCandidatesInput) {
+  const count = normalizeCount(input.count);
+  const bannedPhrases = input.bannedPhrases?.length ? input.bannedPhrases.join(", ") : "game changer, unlock, 10x";
+  const limit = characterLimit(input);
   return [
     "You are Zyquor's draft generator for X posts.",
     "Write concrete, concise, review-ready draft candidates.",
-    "Do not use hype, clickbait, hashtags, emojis, engagement bait, or generic startup phrases.",
+    "Objective: maximize useful reach, views, and reputation by being specific, timely, clear, and valuable.",
+    "Use strong hooks and tasteful tension when useful. Do not use cheap bait, fake claims, hashtags, emojis, em dashes, or generic startup phrases.",
+    `Banned phrases: ${bannedPhrases}.`,
+    input.tone ? `Account tone: ${input.tone}.` : "Account tone: clear, useful, direct.",
+    input.objective ? `Account objective: ${input.objective}.` : "Account objective: provide meaningful posts people save, share, and remember.",
+    `Hard limit: every candidate must be ${limit} characters or fewer for X free-tier posts and replies.`,
+    "The LLM only writes candidate tweet text. Do not invent sources, browsing results, schedules, or strategy.",
     "Keep human control, auditability, local-first operation, and explicit approval visible when relevant.",
     `Return exactly ${count} non-empty candidates.`,
     "Each candidate must be 1-3 short sentences and must directly use the user's rough idea.",
     'Return strict JSON only with this shape: {"candidates":[{"text":"first draft"},{"text":"second draft"}]}.',
-    "Never return an empty candidates array."
+    "Never return an empty candidates array.",
+    input.systemPromptExtra ? `Extra user system prompt:\n${input.systemPromptExtra}` : ""
   ].join("\n");
 }
 
 function userPrompt(input: GenerateDraftCandidatesInput) {
-  return `Rough idea:\n${normalizeIdea(input.idea)}`;
+  return `${tweetTypeInstruction(input.tweetType)}\n\nCompact input:\n${normalizeIdea(input.idea)}`;
 }
 
 function linePrompt(input: GenerateDraftCandidatesInput) {
   const count = normalizeCount(input.count);
+  const limit = characterLimit(input);
   return [
     `Write exactly ${count} concise X post drafts about this idea: ${normalizeIdea(input.idea)}`,
+    tweetTypeInstruction(input.tweetType),
+    `Each draft must be ${limit} characters or fewer.`,
     "One draft per line.",
     "No numbering, no labels, no JSON.",
-    "Avoid hype, hashtags, emojis, and engagement bait.",
+    "Avoid cheap bait, fake claims, hashtags, emojis, and em dashes.",
     "Mention auditability/control/local-first only if it fits the idea."
   ].join("\n");
 }
@@ -141,12 +185,14 @@ function parseCandidateTexts(raw: string, count: number) {
 
 function candidatesFromText(raw: string, input: GenerateDraftCandidatesInput, provider: GenerationProviderName, model: string) {
   const count = normalizeCount(input.count);
-  const texts = parseCandidateTexts(raw, count);
+  const limit = characterLimit(input);
+  const texts = parseCandidateTexts(raw, count).filter((text) => text.length <= limit);
   if (texts.length === 0) {
     throw new Error(`${provider} returned no draft candidates`);
   }
   const fallbackTexts = generateMockDraftCandidates(input)
     .map((candidate) => candidate.text)
+    .filter((text) => text.length <= limit)
     .filter((text) => !texts.includes(text));
   const paddedTexts = [...texts, ...fallbackTexts].slice(0, count);
 
@@ -210,7 +256,7 @@ export function createOllamaGenerationProvider(options: {
       try {
         const body = await postJson<{ response?: unknown }>(fetchImpl, `${baseUrl}/api/generate`, {
           model,
-          system: systemPrompt(count),
+          system: systemPrompt(input),
           prompt: userPrompt(input),
           stream: false,
           format: "json",
@@ -263,7 +309,7 @@ export function createGeminiGenerationProvider(options: {
         url,
         {
           systemInstruction: {
-            parts: [{ text: systemPrompt(count) }]
+            parts: [{ text: systemPrompt(input) }]
           },
           contents: [
             {

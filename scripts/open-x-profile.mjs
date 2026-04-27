@@ -9,14 +9,23 @@ const require = createRequire(import.meta.url);
 const { chromium } = require("../packages/browser/node_modules/playwright");
 
 const profileDir = resolve(process.env.ZYQUOR_X_PROFILE_DIR ?? "profiles/personal-main");
+const chromeConfigDir = resolve(process.env.ZYQUOR_CHROME_CONFIG_DIR ?? "profiles/chrome-config");
 const browserChannel = process.env.ZYQUOR_BROWSER_CHANNEL === "chrome" ? "chrome" : undefined;
 
 mkdirSync(profileDir, { recursive: true });
+mkdirSync(chromeConfigDir, { recursive: true });
 
 const context = await chromium.launchPersistentContext(profileDir, {
   ...(browserChannel ? { channel: browserChannel } : {}),
   headless: false,
-  args: ["--disable-blink-features=AutomationControlled"],
+  args: [
+    "--disable-blink-features=AutomationControlled",
+    "--no-sandbox",
+    "--disable-crash-reporter",
+    "--disable-dev-shm-usage",
+    "--ozone-platform=x11"
+  ],
+  env: { ...process.env, XDG_CONFIG_HOME: chromeConfigDir },
   viewport: { width: 1280, height: 900 }
 });
 

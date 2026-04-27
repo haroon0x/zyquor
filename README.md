@@ -28,6 +28,7 @@ Use pnpm workspaces.
 pnpm install
 pnpm bootstrap
 pnpm smoke
+./zyquor
 pnpm dev:api
 pnpm dev:web
 pnpm dev:worker
@@ -44,6 +45,45 @@ pnpm dev:web
 ```
 
 The API reads `.env` from the repo root. The web UI uses `ZYQUOR_API_URL`, defaulting to `http://127.0.0.1:3000`.
+
+## One-command start
+
+From the repo root:
+
+```bash
+./zyquor
+```
+
+This starts or reuses:
+
+- Chrome CDP with `profiles/personal-main`.
+- API at `http://127.0.0.1:3001`.
+- Web UI at `http://127.0.0.1:5173/`.
+- Worker for due approved/scheduled jobs.
+
+Keep the terminal open while using Zyquor. To check runtime from another terminal:
+
+```bash
+./zyquor check
+```
+
+To explicitly click Post for an approved/prepared job:
+
+```bash
+./zyquor post <jobId>
+```
+
+## Posting Modes
+
+- `single`: generate candidates from one idea, then review/edit/approve.
+- `batch`: one idea per line, create multiple jobs with optional schedule spacing.
+- `yolo`: one idea in, one candidate generated, approved as `autopost`, then posted immediately when no schedule is set.
+- `prepare_only`: insert text into X compose and stop.
+- `scheduled`: wait until `scheduledFor`, then worker prepares the job.
+- `autopost`: wait until due, then worker calls the explicit post endpoint.
+- `review_required`: keep job manual.
+
+If you want bare `zyquor` instead of `./zyquor`, install/link the repo command once in your shell environment.
 
 ## Draft Generation
 
@@ -94,7 +134,7 @@ pnpm smoke:generation
 Check active provider:
 
 ```bash
-curl http://127.0.0.1:3000/generation
+curl http://127.0.0.1:3001/generation
 ```
 
 Smoke-test selected provider:
@@ -124,6 +164,9 @@ Real X browser prepare prerequisites:
 - Use only a dedicated profile under `profiles/`; never point Zyquor at an everyday browser profile.
 - Open the dedicated profile with `pnpm profile:x`, then log into X in that browser.
 - If X blocks Playwright-controlled login, use `pnpm profile:x:manual`. It opens normal Chrome with the same dedicated profile and no Playwright control.
+- For the most Chrome-like prepare flow, use `pnpm profile:x:cdp`, keep that Chrome window open, and set `ZYQUOR_BROWSER_CDP_URL=http://127.0.0.1:9222`.
+- Check whether the dedicated profile is currently logged into X with `pnpm profile:x:check`.
+- The web UI also has a `Check X` control in the account strip.
 - Keep `ZYQUOR_ENABLE_BROWSER_POST=0` until prepare-only insertion is reliable.
 - Default browser channel is bundled Chromium. Set `ZYQUOR_BROWSER_CHANNEL=chrome` only when Chrome is installed.
 - Browser actions are intentionally slow. Tune with `ZYQUOR_BROWSER_ACTION_DELAY_MS` and `ZYQUOR_BROWSER_TYPING_DELAY_MS`.
@@ -147,6 +190,8 @@ ZYQUOR_ENABLE_BROWSER_PREPARE=1 pnpm dev:api
 ```
 
 The real prepare flow opens `https://x.com/compose/post` in the account's dedicated profile directory and inserts the approved text. It leaves the browser open for manual posting. It does not click Post.
+
+If `ZYQUOR_BROWSER_CDP_URL` is set, start `pnpm profile:x:cdp` before preparing a job. This makes Zyquor connect to that already-open Chrome instance instead of launching a separate automated browser process.
 
 Enable controlled post clicking separately:
 

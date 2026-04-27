@@ -1,21 +1,41 @@
 # Zyquor TODO
 
-## E2E Core
+## Done
 
-- [x] Keep V1 scope: idea -> drafts -> review/edit -> approve -> prepare/post job.
-- [x] Preserve dry-run prepare for sandbox/dev.
-- [x] Wire generation through provider interface.
-- [x] Support `mock`, `ollama`, and `gemini` providers.
-- [x] Expose selected provider through API health/config endpoint.
-- [x] Add provider tests with fake fetch.
-- [x] Add API workflow test using real provider interface.
-- [x] Update `.env.example`, README, and dev docs.
-- [x] Run `pnpm build`, `pnpm check`, `pnpm test`, `pnpm smoke`, `pnpm smoke:http`, `pnpm smoke:generation`.
+- V1 core: idea → candidates → review/edit → approve → prepare/post
+- `mock`, `ollama`, `gemini` providers with runtime switching
+- Web/API model config for provider and model string
+- Browser prepare/post with dedicated Chrome profiles
+- Schedule support (mode: `scheduled`, `prepare_only`, `autopost`)
+- Batch jobs with deterministic spacing
+- Source packets (manual/news/feed/bookmark/note/guide) → draft workflow
+- `Yolo autopost` mode (immediate post, no schedule)
+- Post-click permalink polling (5s retry loop)
+- Ingest config system (CRUD, sourceType, maxPacketsPerDay, tweetTypeMix, scheduleWindow)
+- Quiet hours enforcement
+- `Post all ready` queue endpoint with randomized job order
+- Stale running-job recovery
+- Full test suite: 14 API, 7 core, 5 generation, 4 storage, 3 browser, 3 worker, 2 accounts
 
-## Manual Runtime
+## Next
 
-- [x] Run `pnpm dev:api`; sandbox localhost listen now works.
-- [x] Run `pnpm dev:web`; sandbox localhost listen now works.
-- [ ] Test Ollama with local model via `ZYQUOR_LLM_PROVIDER=ollama`.
-- [ ] Test Gemini with API key via `ZYQUOR_LLM_PROVIDER=gemini`.
-- [ ] Test real browser prepare only after X profile login exists.
+**Ingest runner** — next major feature. Worker polls enabled ingest configs, creates source packets on schedule, generates drafts, approves jobs. Needs:
+
+- `POST /ingest-run` endpoint (triggered by worker or cron)
+- Source adapter interface for feed/news URL inputs
+- Tweet type selection from `tweetTypeMix` weights
+- Daily packet count enforcement per config
+- Schedule window time-of-day guard
+
+**Reply drafting** — explicit reviewable job for reply tweets. Needs:
+
+- Reply target tracking (tweet ID, author handle, thread context)
+- Reply draft generation from source packet or direct idea
+- Reusable in normal single/batch/yolo flows
+
+## Deferred
+
+- Multi-account UI (accounts exist in storage, web UI uses one at a time)
+- Voice input package
+- Tauri desktop wrapper
+- E2E test suite (Playwright)

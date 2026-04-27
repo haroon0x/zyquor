@@ -7,7 +7,7 @@
     "dev": "pnpm build && node dist/server.js",
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --pool=threads --passWithNoTests"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",
