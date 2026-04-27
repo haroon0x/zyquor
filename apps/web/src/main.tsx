@@ -224,25 +224,17 @@ function App() {
       const mode = autoPost ? "autopost" : scheduledFor ? "scheduled" : "prepare_only";
 
       if (autoPost && postPlan === "single") {
-        const created = await api<DraftResponse>("/drafts", {
-          method: "POST",
-          body: JSON.stringify({ accountId: activeAccountId, idea, count: 1, tweetType })
-        });
-        const text = created.candidates[0]?.text;
-        if (!text) {
-          throw new Error("Yolo generation returned no candidate");
-        }
-        const approved = await api<{ draft: Draft; job: Job }>(`/drafts/${created.draft.id}/approve`, {
+        await api<{ draft: Draft; job: Job }>("/drafts", {
           method: "POST",
           body: JSON.stringify({
-            editedText: text,
-            mode,
-            scheduledFor: scheduledFor ? new Date(scheduledFor).toISOString() : null
+            accountId: activeAccountId,
+            idea,
+            count: 1,
+            tweetType,
+            yolo: true,
+            autopost: true
           })
         });
-        if (!scheduledFor) {
-          await api(`/jobs/${approved.job.id}/post`, { method: "POST" });
-        }
         setDraft(null);
         setEditedText("");
         await refresh();
@@ -262,7 +254,9 @@ function App() {
             mode,
             scheduleSpacingMinutes,
             scheduleStart: scheduledFor ? new Date(scheduledFor).toISOString() : null,
-            tweetType
+            tweetType,
+            yolo: autoPost,
+            autopost: autoPost
           })
         });
         setDraft(null);
@@ -342,6 +336,22 @@ function App() {
       await refresh();
       if (result.failed > 0) {
         setError(`Post all finished: ${result.posted}/${result.total} posted, ${result.failed} failed.`);
+      }
+    });
+  }
+
+  function deleteCleanupJobs() {
+    run(async () => {
+      await api("/jobs/cleanup", { method: "DELETE" });
+      await refresh();
+    });
+  }
+
+  function deleteAllJobs() {
+    run(async () => {
+      if (window.confirm("Delete ALL jobs?")) {
+        await api("/jobs", { method: "DELETE" });
+        await refresh();
       }
     });
   }
@@ -866,6 +876,16 @@ function App() {
         {readyForBulkPrepare.length ? (
           <button className="secondary queue-action" disabled={busy} onClick={prepareAllReadyJobs}>
             Prepare all ready
+          </button>
+        ) : null}
+        {postedJobs.length || failedJobs.length ? (
+          <button className="secondary queue-action" disabled={busy} onClick={deleteCleanupJobs}>
+            Cleanup
+          </button>
+        ) : null}
+        {accountJobs.length ? (
+          <button className="secondary danger queue-action" disabled={busy} onClick={deleteAllJobs}>
+            Delete all
           </button>
         ) : null}
         {selectedDeletableJobs.length ? (
