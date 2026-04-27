@@ -25,6 +25,7 @@ export interface ZyquorRepository {
     accountId: string;
     sourceInput: string;
     candidates: Array<{ text: string; score: Record<string, unknown> }>;
+    replyToUrl?: string | null;
   }): Promise<DraftWithCandidates>;
   createSourcePacket(input: {
     accountId: string;
@@ -46,6 +47,7 @@ export interface ZyquorRepository {
     editedText: string;
     mode?: PostJob["mode"];
     scheduledFor?: string | null;
+    replyToUrl?: string | null;
   }): Promise<{ draft: Draft; job: PostJob }>;
   listJobs(): Promise<PostJob[]>;
   getJob(id: string): Promise<PostJob | null>;

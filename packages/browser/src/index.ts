@@ -11,6 +11,7 @@ export interface PreparePostInput {
   cdpUrl?: string;
   closeAfterPrepare?: boolean;
   headless?: boolean;
+  replyToUrl?: string | null;
   submit?: boolean;
   typingDelayMs?: number;
   xUrl?: string;
@@ -84,19 +85,26 @@ async function assertNotLoginPage(page: Page) {
   }
 }
 
-async function gotoXCompose(page: Page, xUrl: string) {
-  if (page.url().startsWith("https://x.com/compose") || page.url().startsWith("https://twitter.com/compose")) {
+async function gotoXCompose(page: Page, xUrl: string, replyToUrl?: string | null) {
+  const targetUrl = replyToUrl || xUrl;
+  if (page.url().startsWith(targetUrl)) {
     return;
   }
 
   try {
-    await page.goto(xUrl, { waitUntil: "commit", timeout: 45_000 });
+    await page.goto(targetUrl, { waitUntil: "commit", timeout: 45_000 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown navigation error";
     const currentUrl = page.url();
-    if (!message.includes("Timeout") || !currentUrl.startsWith("https://x.com/compose")) {
+    if (!message.includes("Timeout") || !currentUrl.startsWith(targetUrl)) {
       throw error;
     }
+  }
+
+  if (replyToUrl) {
+    // If it's a reply, we need to click the reply button to open the editor
+    const replyButton = page.locator('[data-testid="reply"]').first();
+    await replyButton.click({ timeout: 15_000 }).catch(() => undefined);
   }
 }
 
@@ -281,13 +289,12 @@ export async function preparePost(input: PreparePostInput): Promise<PreparePostR
       context.pages().find((item) => item.url().startsWith("https://x.com/compose")) ??
       context.pages().find((item) => item.url().startsWith("https://twitter.com/compose")) ??
       context.pages().find((item) => item.url().startsWith("https://x.com/")) ??
-      context.pages().find((item) => item.url().startsWith("https://twitter.com/")) ??
       context.pages()[0] ??
       (await context.newPage());
     page.on("dialog", (dialog) => {
       void dialog.dismiss().catch(() => undefined);
     });
-    await gotoXCompose(page, input.xUrl ?? "https://x.com/compose/post");
+    await gotoXCompose(page, input.xUrl ?? "https://x.com/compose/post", input.replyToUrl);
     await page.waitForTimeout(actionDelayMs);
     await assertNotLoginPage(page);
 

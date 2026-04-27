@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS drafts (
   source_input TEXT NOT NULL,
   generated_text TEXT,
   edited_text TEXT,
+  reply_to_url TEXT,
   status TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -97,6 +98,7 @@ CREATE TABLE IF NOT EXISTS post_jobs (
   status TEXT NOT NULL,
   mode TEXT NOT NULL,
   scheduled_for TEXT,
+  reply_to_url TEXT,
   approved_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -442,6 +444,7 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
           sourceInput: input.sourceInput,
           generatedText: firstCandidate,
           editedText: firstCandidate,
+          replyToUrl: input.replyToUrl ?? null,
           status: firstCandidate ? "selected" : "generated",
           createdAt: timestamp,
           updatedAt: timestamp
@@ -449,8 +452,8 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
 
         db.prepare(
           `INSERT INTO drafts (
-            id, account_id, source_type, source_input, generated_text, edited_text, status, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            id, account_id, source_type, source_input, generated_text, edited_text, reply_to_url, status, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
           draft.id,
           draft.accountId,
@@ -458,6 +461,7 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
           draft.sourceInput,
           draft.generatedText,
           draft.editedText,
+          draft.replyToUrl,
           draft.status,
           draft.createdAt,
           draft.updatedAt
@@ -562,6 +566,7 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
           status: "approved",
           mode: jobMode,
           scheduledFor: input.scheduledFor ?? null,
+          replyToUrl: input.replyToUrl ?? null,
           approvedAt: timestamp,
           createdAt: timestamp,
           updatedAt: timestamp
@@ -569,8 +574,8 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
 
         db.prepare(
           `INSERT INTO post_jobs (
-            id, account_id, draft_id, status, mode, scheduled_for, approved_at, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            id, account_id, draft_id, status, mode, scheduled_for, reply_to_url, approved_at, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
           job.id,
           job.accountId,
@@ -578,6 +583,7 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
           job.status,
           job.mode,
           job.scheduledFor,
+          job.replyToUrl,
           job.approvedAt,
           job.createdAt,
           job.updatedAt

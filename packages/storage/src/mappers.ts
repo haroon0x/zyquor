@@ -36,6 +36,7 @@ export function toDraft(row: Record<string, unknown>): Draft {
     sourceInput: String(row.source_input),
     generatedText: row.generated_text === null ? null : String(row.generated_text),
     editedText: row.edited_text === null ? null : String(row.edited_text),
+    replyToUrl: row.reply_to_url === null ? null : String(row.reply_to_url),
     status: row.status as Draft["status"],
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
@@ -61,6 +62,7 @@ export function toJob(row: Record<string, unknown>): import("@zyquor/core").Post
     status: row.status as import("@zyquor/core").PostJob["status"],
     mode: row.mode as import("@zyquor/core").PostJob["mode"],
     scheduledFor: row.scheduled_for === null ? null : String(row.scheduled_for),
+    replyToUrl: row.reply_to_url === null ? null : String(row.reply_to_url),
     approvedAt: row.approved_at === null ? null : String(row.approved_at),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)

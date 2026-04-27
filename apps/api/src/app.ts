@@ -329,6 +329,7 @@ async function postBrowserJob(repository: ZyquorRepository, options: BuildAppOpt
     const result = await preparePost({
       profileDir: resolveProfileDir(account.profileDir),
       text: draftWithCandidates.draft.editedText,
+      replyToUrl: draftWithCandidates.draft.replyToUrl ?? null,
       ...browserOptions(options),
       submit: true
     });
@@ -772,6 +773,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     const result = await repository.createDraft({
       accountId: input.accountId,
       sourceInput: input.idea,
+      replyToUrl: input.replyToUrl ?? null,
       candidates
     });
 
@@ -785,7 +787,8 @@ export function buildApp(options: BuildAppOptions = {}) {
       const approved = await repository.approveDraft({
         draftId: draft.draft.id,
         editedText: selectedText,
-        mode
+        mode,
+        replyToUrl: draft.draft.replyToUrl ?? null
       });
       return reply.code(201).send({ ...approved, candidates: draft.candidates });
     }
@@ -815,6 +818,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       const draft = await repository.createDraft({
         accountId: input.accountId,
         sourceInput: idea,
+        replyToUrl: input.replyToUrl ?? null,
         candidates: candidates.map((candidate) => ({
           text: candidate.text,
           score: {
@@ -832,7 +836,8 @@ export function buildApp(options: BuildAppOptions = {}) {
         draftId: draft.draft.id,
         editedText: selectedText,
         mode,
-        scheduledFor: input.scheduleStart ? addMinutes(input.scheduleStart, index * scheduleSpacingMinutes) : null
+        scheduledFor: input.scheduleStart ? addMinutes(input.scheduleStart, index * scheduleSpacingMinutes) : null,
+        replyToUrl: draft.draft.replyToUrl ?? null
       });
 
       created.push({ ...approved, candidates: draft.candidates });
@@ -872,11 +877,17 @@ export function buildApp(options: BuildAppOptions = {}) {
       return reply.code(400).send({ error: "scheduledFor is required for scheduled jobs" });
     }
     const repository = await repositoryPromise;
+    const existing = await repository.getDraft(id);
+    if (!existing) {
+      return reply.code(404).send({ error: "Draft not found" });
+    }
+
     const result = await repository.approveDraft({
       draftId: id,
       editedText: input.editedText,
       ...(input.mode ? { mode: input.mode } : {}),
-      scheduledFor: input.scheduledFor ?? null
+      scheduledFor: input.scheduledFor ?? null,
+      replyToUrl: existing.draft.replyToUrl ?? null
     });
 
     return reply.code(201).send(result);
@@ -1039,6 +1050,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       await preparePost({
         profileDir: resolveProfileDir(account.profileDir),
         text: draftWithCandidates.draft.editedText,
+        replyToUrl: draftWithCandidates.draft.replyToUrl ?? null,
         ...browserOptions(options),
         closeAfterPrepare: options.closeAfterPrepare ?? true
       });

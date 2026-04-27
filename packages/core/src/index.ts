@@ -111,6 +111,7 @@ export const draftSchema = z.object({
   sourceInput: z.string().min(1).max(4000),
   generatedText: z.string().max(X_FREE_POST_CHARACTER_LIMIT).nullable(),
   editedText: z.string().max(X_FREE_POST_CHARACTER_LIMIT).nullable(),
+  replyToUrl: z.string().url().nullable().optional(),
   status: z.enum(DRAFT_STATUSES),
   createdAt: isoTimestampSchema,
   updatedAt: isoTimestampSchema
@@ -129,6 +130,7 @@ export const postJobSchema = z.object({
   id: idSchema,
   accountId: idSchema,
   draftId: idSchema,
+  replyToUrl: z.string().url().nullable().optional(),
   status: z.enum(POST_JOB_STATUSES),
   mode: z.enum(POSTING_MODES),
   scheduledFor: isoTimestampSchema.nullable(),
@@ -177,6 +179,7 @@ export const createDraftRequestSchema = z.object({
   idea: z.string().min(1).max(4000),
   count: z.number().int().min(1).max(5).optional(),
   tweetType: z.enum(TWEET_TYPES).optional(),
+  replyToUrl: z.string().url().optional(),
   yolo: z.boolean().optional(),
   autopost: z.boolean().optional()
 });
@@ -187,6 +190,7 @@ export const createDraftBatchRequestSchema = z.object({
   mode: z.enum(POSTING_MODES).optional(),
   scheduleSpacingMinutes: z.number().int().min(15).max(480).optional(),
   scheduleStart: isoTimestampSchema.nullable().optional(),
+  replyToUrl: z.string().url().optional(),
   tweetType: z.enum(TWEET_TYPES).optional(),
   yolo: z.boolean().optional(),
   autopost: z.boolean().optional()

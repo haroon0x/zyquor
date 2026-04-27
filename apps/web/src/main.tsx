@@ -119,7 +119,7 @@ function App() {
   const [idea, setIdea] = useState("");
   const [draft, setDraft] = useState<DraftResponse | null>(null);
   const [editedText, setEditedText] = useState("");
-  const [autoPost, setAutoPost] = useState(false);
+  const [autoPost, setAutoPost] = useState(true);
   const [scheduledFor, setScheduledFor] = useState("");
   const [scheduleSpacingMinutes, setScheduleSpacingMinutes] = useState(90);
   const [jobs, setJobs] = useState<Job[]>([]);
