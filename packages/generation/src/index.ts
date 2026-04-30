@@ -1,7 +1,10 @@
-export type GenerationProviderName = "mock" | "ollama" | "gemini";
+import { renderSourceContext } from "./harness.js";
+
+export type GenerationProviderName = "openrouter" | "ollama";
 
 export interface GenerateDraftCandidatesInput {
   bannedPhrases?: string[];
+  context?: import("./harness.js").TweetSourceContext;
   idea: string;
   count?: number;
   objective?: string;
@@ -36,15 +39,39 @@ export interface FetchLike {
 
 export interface GenerationEnvironment {
   ZYQUOR_LLM_PROVIDER?: string;
+  ZYQUOR_OPENROUTER_API_KEY?: string;
+  ZYQUOR_OPENROUTER_BASE_URL?: string;
+  ZYQUOR_OPENROUTER_MODEL?: string;
   ZYQUOR_OLLAMA_BASE_URL?: string;
   ZYQUOR_OLLAMA_MODEL?: string;
-  ZYQUOR_GEMINI_API_KEY?: string;
-  ZYQUOR_GEMINI_MODEL?: string;
 }
 
+const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+const DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3-super-120b-a12b:free";
+const ALLOWED_OPENROUTER_MODELS = [
+  "nvidia/nemotron-3-super-120b-a12b:free",
+  "minimax/minimax-m2.5:free",
+  "tencent/hy3-preview:free"
+] as const;
 const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434";
 const DEFAULT_OLLAMA_MODEL = "llama3.1";
-const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+const INTERNAL_LEAK_PATTERNS = [
+  /\bSourcePackets?\b/i,
+  /\bsource packets?\b/i,
+  /\bCompact input\b/i,
+  /\bcandidate tweet\b/i,
+  /\bdraft candidate\b/i,
+  /\bstrict JSON\b/i,
+  /\bmetadata\b/i,
+  /\bI distilled\b/i,
+  /\bdistill(ed|ing)?\b.*\b(article|announcement|content)\b/i
+];
+const INCOMPLETE_PATTERNS = [
+  /\.\.\.$/,
+  /…$/,
+  /\b(read more|continue reading|more below)\b/i,
+  /[:;,]\s*$/
+];
 
 function normalizeCount(count: number | undefined) {
   return Math.min(Math.max(count ?? 3, 1), 5);
@@ -77,41 +104,50 @@ function tweetTypeInstruction(tweetType: string | undefined) {
   return labels[tweetType] ?? `Tweet type: ${tweetType}.`;
 }
 
-export function generateMockDraftCandidates(input: GenerateDraftCandidatesInput): GeneratedDraftCandidate[] {
-  const count = normalizeCount(input.count);
-  const base = normalizeIdea(input.idea);
-  const prefix = input.tweetType ? `[${input.tweetType}] ` : "";
-  const variants = [
-    `${prefix}${base}\n\nThe useful part is the audit trail: idea, draft, approval, schedule, and browser action all stay visible.`,
-    `${prefix}${base}\n\nGood automation removes repetitive work without hiding decisions. Keep inputs, rules, timing, and outcomes inspectable.`,
-    `${prefix}${base}\n\nThe best systems automate the boring parts and leave judgment visible: choose the source, review the draft, then schedule deliberately.`,
-    `${prefix}${base}\n\nWhen software touches a public account, invisible state is the risk. Make profiles, approvals, schedules, and attempts explicit.`,
-    `${prefix}${base}\n\nSpeed helps, but traceability compounds. A posting assistant should reduce copy-paste without reducing control.`
-  ];
-
-  return variants.slice(0, count).map((text, index) => ({
-    text,
-    score: { provider: "mock", rank: index + 1 }
-  }));
+export function isCleanTweetText(text: string) {
+  const trimmed = text.trim();
+  return (
+    trimmed.length > 0 &&
+    trimmed.length <= DEFAULT_CHARACTER_LIMIT &&
+    !INTERNAL_LEAK_PATTERNS.some((pattern) => pattern.test(trimmed)) &&
+    !INCOMPLETE_PATTERNS.some((pattern) => pattern.test(trimmed)) &&
+    !/^[-*[{]/.test(trimmed) &&
+    !trimmed.includes("\uFFFD")
+  );
 }
 
 function systemPrompt(input: GenerateDraftCandidatesInput) {
   const count = normalizeCount(input.count);
   const bannedPhrases = input.bannedPhrases?.length ? input.bannedPhrases.join(", ") : "game changer, unlock, 10x";
   const limit = characterLimit(input);
+  const diversityInstruction =
+    count >= 3
+      ? "Candidate mix: one direct why-it-matters post, one practical takeaway post, and one smart-bro casual post. If more candidates are requested, add a contrarian/context angle and a concise founder/operator angle."
+      : "Candidate mix: make each candidate use a distinct angle, not paraphrases of the same sentence.";
   return [
     "You are Zyquor's draft generator for X posts.",
     "Write concrete, concise, review-ready draft candidates.",
     "Objective: maximize useful reach, views, and reputation by being specific, timely, clear, and valuable.",
+    "Prefer angles around AI, technology, programming, economics, geopolitics shaped by tech, startups, markets, and business news when the context supports it.",
+    diversityInstruction,
+    "Lead with the sharpest specific fact or implication. Avoid throat-clearing like 'Interesting', 'A reminder', 'In today's world', or 'This shows'.",
+    "If using news context, explain the second-order implication: who it affects, what changes, or why builders/investors/operators should care.",
     "Use strong hooks and tasteful tension when useful. Do not use cheap bait, fake claims, hashtags, emojis, em dashes, or generic startup phrases.",
+    "Write only public-facing post text. Never mention internal labels like SourcePacket, source packet, compact input, candidate, draft, metadata, JSON, prompt, or distillation.",
+    "No incomplete teasers. Every candidate must be a complete standalone post.",
     `Banned phrases: ${bannedPhrases}.`,
     input.tone ? `Account tone: ${input.tone}.` : "Account tone: clear, useful, direct.",
+    "At least one candidate should feel like you are sending it to a smart bro: casual, direct, useful, and not cringe.",
     input.objective ? `Account objective: ${input.objective}.` : "Account objective: provide meaningful posts people save, share, and remember.",
     `Hard limit: every candidate must be ${limit} characters or fewer for X free-tier posts and replies.`,
-    "The LLM only writes candidate tweet text. Do not invent sources, browsing results, schedules, or strategy.",
+    "The LLM only writes final tweet text. Do not invent sources, browsing results, dates, numbers, quotes, schedules, or strategy.",
+    "Do not cite the URL unless the user explicitly asks for links. Do not imply you read more than the provided context.",
     "Keep human control, auditability, local-first operation, and explicit approval visible when relevant.",
     `Return exactly ${count} non-empty candidates.`,
-    "Each candidate must be 1-3 short sentences and must directly use the user's rough idea.",
+    "Each candidate must be 1-3 short sentences, must directly use the user's rough idea, and must stand alone without thread context.",
+    input.context?.facts?.length
+      ? "Use only the provided source context and grounded facts. Do not add details that are not present."
+      : "",
     'Return strict JSON only with this shape: {"candidates":[{"text":"first draft"},{"text":"second draft"}]}.',
     "Never return an empty candidates array.",
     input.systemPromptExtra ? `Extra user system prompt:\n${input.systemPromptExtra}` : ""
@@ -119,7 +155,7 @@ function systemPrompt(input: GenerateDraftCandidatesInput) {
 }
 
 function userPrompt(input: GenerateDraftCandidatesInput) {
-  return `${tweetTypeInstruction(input.tweetType)}\n\nCompact input:\n${normalizeIdea(input.idea)}`;
+  return `${tweetTypeInstruction(input.tweetType)}\n\nContext to turn into public X posts:\n${normalizeIdea(input.idea)}${renderSourceContext(input.context)}`;
 }
 
 function linePrompt(input: GenerateDraftCandidatesInput) {
@@ -131,6 +167,7 @@ function linePrompt(input: GenerateDraftCandidatesInput) {
     `Each draft must be ${limit} characters or fewer.`,
     "One draft per line.",
     "No numbering, no labels, no JSON.",
+    "Never mention SourcePacket, source packet, compact input, candidate, draft, metadata, prompt, or distillation.",
     "Avoid cheap bait, fake claims, hashtags, emojis, and em dashes.",
     "Mention auditability/control/local-first only if it fits the idea."
   ].join("\n");
@@ -186,29 +223,41 @@ function parseCandidateTexts(raw: string, count: number) {
 function candidatesFromText(raw: string, input: GenerateDraftCandidatesInput, provider: GenerationProviderName, model: string) {
   const count = normalizeCount(input.count);
   const limit = characterLimit(input);
-  const texts = parseCandidateTexts(raw, count).filter((text) => text.length <= limit);
+  const texts = parseCandidateTexts(raw, count).filter((text) => text.length <= limit && isCleanTweetText(text));
   if (texts.length === 0) {
     throw new Error(`${provider} returned no draft candidates`);
   }
-  const fallbackTexts = generateMockDraftCandidates(input)
-    .map((candidate) => candidate.text)
-    .filter((text) => text.length <= limit)
-    .filter((text) => !texts.includes(text));
-  const paddedTexts = [...texts, ...fallbackTexts].slice(0, count);
 
-  return paddedTexts.map((text, index) => ({
+  return texts.slice(0, count).map((text, index) => ({
     text,
     score: {
       provider,
       model,
-      rank: index + 1,
-      ...(index >= texts.length ? { fallbackReason: "provider_returned_too_few_candidates" } : {})
+      rank: index + 1
     }
   }));
 }
 
 function isNoCandidatesError(error: unknown, provider: GenerationProviderName) {
   return error instanceof Error && error.message === `${provider} returned no draft candidates`;
+}
+
+function safeOpenRouterModel(model: string | undefined) {
+  if (!model) return DEFAULT_OPENROUTER_MODEL;
+  return (ALLOWED_OPENROUTER_MODELS as readonly string[]).includes(model) ? model : DEFAULT_OPENROUTER_MODEL;
+}
+
+function isZeroPrice(value: unknown) {
+  return typeof value === "string" && Number(value) === 0;
+}
+
+function assertOpenRouterPricingIsFree(input: {
+  model: string;
+  pricing?: { completion?: unknown; prompt?: unknown; request?: unknown };
+}) {
+  if (!input.pricing || !isZeroPrice(input.pricing.prompt) || !isZeroPrice(input.pricing.completion)) {
+    throw new Error(`OpenRouter model is not confirmed free: ${input.model}`);
+  }
 }
 
 async function postJson<T>(fetchImpl: FetchLike, url: string, body: unknown, headers: Record<string, string> = {}) {
@@ -229,14 +278,14 @@ async function postJson<T>(fetchImpl: FetchLike, url: string, body: unknown, hea
   return (await response.json()) as T;
 }
 
-export function createMockGenerationProvider(): DraftGenerationProvider {
-  return {
-    name: "mock",
-    model: "mock",
-    async generateDraftCandidates(input) {
-      return generateMockDraftCandidates(input);
-    }
-  };
+async function getJson<T>(fetchImpl: FetchLike, url: string, headers: Record<string, string> = {}) {
+  const response = await fetchImpl(url, { headers });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`Generation metadata request failed: ${response.status}${detail ? ` ${detail}` : ""}`);
+  }
+
+  return (await response.json()) as T;
 }
 
 export function createOllamaGenerationProvider(options: {
@@ -288,60 +337,84 @@ export function createOllamaGenerationProvider(options: {
   };
 }
 
-export function createGeminiGenerationProvider(options: {
+export function createOpenRouterGenerationProvider(options: {
   apiKey: string;
+  baseUrl?: string;
   model?: string;
   fetch?: FetchLike;
 }): DraftGenerationProvider {
-  const model = options.model ?? DEFAULT_GEMINI_MODEL;
+  const baseUrl = (options.baseUrl ?? DEFAULT_OPENROUTER_BASE_URL).replace(/\/+$/, "");
+  const model = safeOpenRouterModel(options.model);
   const fetchImpl = options.fetch ?? fetch;
+  let confirmedFree = false;
+
+  async function assertFreeModel() {
+    if (confirmedFree) return;
+    const body = await getJson<{
+      data?: Array<{ id?: unknown; pricing?: { completion?: unknown; prompt?: unknown; request?: unknown } }>;
+    }>(fetchImpl, `${baseUrl}/models`, {
+      authorization: `Bearer ${options.apiKey}`
+    });
+    const modelMetadata = body.data?.find((item) => item.id === model);
+    assertOpenRouterPricingIsFree({
+      model,
+      ...(modelMetadata?.pricing ? { pricing: modelMetadata.pricing } : {})
+    });
+    confirmedFree = true;
+  }
 
   return {
-    name: "gemini",
+    name: "openrouter",
     model,
     async generateDraftCandidates(input) {
-      const count = normalizeCount(input.count);
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+      await assertFreeModel();
+      const url = `${baseUrl}/chat/completions`;
       const body = await postJson<{
-        candidates?: Array<{ content?: { parts?: Array<{ text?: unknown; thought?: unknown }> } }>;
+        choices?: Array<{ message?: { content?: unknown } }>;
       }>(
         fetchImpl,
         url,
         {
-          systemInstruction: {
-            parts: [{ text: systemPrompt(input) }]
-          },
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: userPrompt(input) }]
-            }
+          model,
+          messages: [
+            { role: "system", content: systemPrompt(input) },
+            { role: "user", content: userPrompt(input) }
           ],
-          generationConfig: {
-            responseMimeType: "application/json",
-            temperature: 0.7,
-            maxOutputTokens: 900
-          }
+          response_format: { type: "json_object" },
+          temperature: 0.65,
+          max_tokens: 900
         },
-        { "x-goog-api-key": options.apiKey }
+        {
+          authorization: `Bearer ${options.apiKey}`,
+          "http-referer": "http://127.0.0.1",
+          "x-title": "Zyquor"
+        }
       );
-
-      const text = asText(
-        body.candidates?.[0]?.content?.parts
-          ?.filter((part) => part.thought !== true)
-          .map((part) => asText(part.text))
-          .join("")
-      );
-      return candidatesFromText(text, input, "gemini", model);
+      const text = asText(body.choices?.[0]?.message?.content);
+      return candidatesFromText(text, input, "openrouter", model);
     }
   };
 }
 
 export function resolveGenerationProviderConfig(env: GenerationEnvironment = process.env): GenerationProviderConfig {
-  const provider = (env.ZYQUOR_LLM_PROVIDER ?? "mock").toLowerCase() as GenerationProviderName;
+  const requestedProvider = (env.ZYQUOR_LLM_PROVIDER ?? "auto").toLowerCase();
+  const provider = (
+    requestedProvider === "auto"
+      ? env.ZYQUOR_OPENROUTER_API_KEY
+        ? "openrouter"
+        : env.ZYQUOR_OLLAMA_BASE_URL || env.ZYQUOR_OLLAMA_MODEL
+          ? "ollama"
+          : "ollama"
+      : requestedProvider
+  ) as GenerationProviderName;
 
-  if (provider === "mock") {
-    return { provider, model: "mock", configured: true };
+  if (provider === "openrouter") {
+    return {
+      provider,
+      model: safeOpenRouterModel(env.ZYQUOR_OPENROUTER_MODEL),
+      baseUrl: env.ZYQUOR_OPENROUTER_BASE_URL ?? DEFAULT_OPENROUTER_BASE_URL,
+      configured: Boolean(env.ZYQUOR_OPENROUTER_API_KEY)
+    };
   }
 
   if (provider === "ollama") {
@@ -350,14 +423,6 @@ export function resolveGenerationProviderConfig(env: GenerationEnvironment = pro
       model: env.ZYQUOR_OLLAMA_MODEL ?? DEFAULT_OLLAMA_MODEL,
       baseUrl: env.ZYQUOR_OLLAMA_BASE_URL ?? DEFAULT_OLLAMA_BASE_URL,
       configured: true
-    };
-  }
-
-  if (provider === "gemini") {
-    return {
-      provider,
-      model: env.ZYQUOR_GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL,
-      configured: Boolean(env.ZYQUOR_GEMINI_API_KEY)
     };
   }
 
@@ -370,10 +435,6 @@ export function createGenerationProviderFromEnv(
 ): DraftGenerationProvider {
   const config = resolveGenerationProviderConfig(env);
 
-  if (config.provider === "mock") {
-    return createMockGenerationProvider();
-  }
-
   if (config.provider === "ollama") {
     return createOllamaGenerationProvider({
       ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
@@ -382,13 +443,21 @@ export function createGenerationProviderFromEnv(
     });
   }
 
-  if (!env.ZYQUOR_GEMINI_API_KEY) {
-    throw new Error("ZYQUOR_GEMINI_API_KEY is required when ZYQUOR_LLM_PROVIDER=gemini");
+  if (config.provider === "openrouter") {
+    if (!env.ZYQUOR_OPENROUTER_API_KEY) {
+      throw new Error("ZYQUOR_OPENROUTER_API_KEY is required when ZYQUOR_LLM_PROVIDER=openrouter");
+    }
+    return createOpenRouterGenerationProvider({
+      apiKey: env.ZYQUOR_OPENROUTER_API_KEY,
+      ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
+      model: config.model,
+      fetch: fetchImpl
+    });
   }
 
-  return createGeminiGenerationProvider({
-    apiKey: env.ZYQUOR_GEMINI_API_KEY,
-    model: config.model,
-    fetch: fetchImpl
-  });
+  throw new Error(`Unsupported LLM provider: ${config.provider}`);
 }
+
+export * from "./viral-prompt.js";
+export * from "./harness.js";
+export * from "./viral-generation.js";

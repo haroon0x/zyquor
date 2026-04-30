@@ -12,6 +12,8 @@
   "dependencies": {
     "@fastify/cors": "^10.0.1",
     "@zyquor/accounts": "workspace:*",
+    "@zyquor/adapters": "workspace:*",
+    "@zyquor/automation": "workspace:*",
     "@zyquor/browser": "workspace:*",
     "@zyquor/core": "workspace:*",
     "@zyquor/generation": "workspace:*",

@@ -1,5 +1,9 @@
 import { buildApp } from "../apps/api/dist/app.js";
+import { createGenerationProviderFromEnv } from "../packages/generation/dist/index.js";
 import { createMemoryRepository } from "../packages/storage/dist/index.js";
+import { loadDotEnv } from "./load-env.mjs";
+
+loadDotEnv();
 
 function assert(condition, message) {
   if (!condition) {
@@ -8,7 +12,7 @@ function assert(condition, message) {
 }
 
 const app = buildApp({
-  generationEnv: { ZYQUOR_LLM_PROVIDER: "mock" },
+  generationProvider: createGenerationProviderFromEnv(process.env),
   repository: createMemoryRepository({
     now: () => new Date().toISOString()
   })

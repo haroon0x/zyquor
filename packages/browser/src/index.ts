@@ -11,6 +11,7 @@ export interface PreparePostInput {
   cdpUrl?: string;
   closeAfterPrepare?: boolean;
   headless?: boolean;
+  mediaPaths?: string[];
   replyToUrl?: string | null;
   submit?: boolean;
   typingDelayMs?: number;
@@ -135,6 +136,16 @@ async function readInsertedText(page: Page, editor: Locator) {
   const inputValue = ((await editor.inputValue().catch(() => null)) ?? "").trim();
   const allEditorText = (await visibleEditorTexts(page)).find((value) => value.length > 0) ?? "";
   return textContent || inputValue || allEditorText;
+}
+
+async function uploadMedia(page: Page, mediaPaths: string[]) {
+  if (mediaPaths.length === 0) {
+    return;
+  }
+
+  const fileInput = page.locator('input[type="file"][data-testid="fileInput"], input[type="file"]').first();
+  await fileInput.setInputFiles(mediaPaths, { timeout: 15_000 });
+  await page.waitForTimeout(2_500);
 }
 
 async function enabledPostButton(page: Page) {
@@ -302,6 +313,8 @@ export async function preparePost(input: PreparePostInput): Promise<PreparePostR
     await editor.waitFor({ state: "visible", timeout: 30_000 });
     await page.waitForTimeout(actionDelayMs);
     await typeIntoEditor(page, editor, text, typingDelayMs);
+    await page.waitForTimeout(actionDelayMs);
+    await uploadMedia(page, input.mediaPaths ?? []);
     await page.waitForTimeout(actionDelayMs);
 
     const insertedText = await readInsertedText(page, editor);

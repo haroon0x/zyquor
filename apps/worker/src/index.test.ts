@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { processApprovedJobs } from "./index.js";
+import { processApprovedJobs, processIngest } from "./index.js";
 
 const baseJob = {
   accountId: "account_personal",
@@ -130,5 +130,67 @@ describe("worker job processing", () => {
 
     expect(processed).toBe(0);
     expect(calls).not.toContain("POST http://api.test/jobs/job_quiet/prepare");
+  });
+});
+
+describe("worker ingest processing", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("runs ingest at configured interval", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
+    const calls: string[] = [];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.endsWith("/health")) {
+          return Response.json({ ok: true });
+        }
+        if (url.endsWith("/drafts/pending")) {
+          return Response.json({ drafts: [] });
+        }
+        if (url.endsWith("/jobs")) {
+          return Response.json({ jobs: [] });
+        }
+        if (url.endsWith("/ingest-run")) {
+          return Response.json({ processed: 3 });
+        }
+        return Response.json({ ok: true });
+      })
+    );
+
+    // Simulate worker loop with ingest interval
+    const options = { apiUrl: "http://api.test", pollMs: 1000, ingestIntervalMs: 60_000 };
+    let lastIngestMs = 0;
+
+    // First iteration - should run ingest since lastIngestMs is 0
+    const now = Date.now();
+    if (now - lastIngestMs >= options.ingestIntervalMs!) {
+      lastIngestMs = now;
+      await processIngest(options);
+    }
+
+    // Advance time by 30 seconds - should NOT run ingest
+    vi.advanceTimersByTime(30_000);
+    const after30s = Date.now();
+    if (after30s - lastIngestMs >= options.ingestIntervalMs!) {
+      await processIngest(options);
+    }
+
+    // Advance time by 60 more seconds - SHOULD run ingest
+    vi.advanceTimersByTime(60_000);
+    const after90s = Date.now();
+    if (after90s - lastIngestMs >= options.ingestIntervalMs!) {
+      lastIngestMs = after90s;
+      await processIngest(options);
+    }
+
+    // Should have 2 ingest calls
+    expect(calls.filter(c => c.includes("/ingest-run"))).toHaveLength(2);
   });
 });

@@ -1,11 +1,56 @@
 import { createMemoryRepository } from "@zyquor/storage";
-import { describe, expect, it } from "vitest";
+import type { SourceAdapter } from "@zyquor/adapters";
+import type { DraftGenerationProvider } from "@zyquor/generation";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+const testNewsAdapter: SourceAdapter = {
+  name: "test-news",
+  sourceType: "news",
+  async fetch() {
+    return [
+      {
+        title: "TypeScript 6.0: The Future of Static Typing",
+        url: "https://dev.to/typescript/ts-6-preview",
+        content:
+          "TypeScript 6.0 introduces higher-order type guards and improved recursive type inference. This release focuses on developer productivity and large codebase performance."
+      },
+      {
+        title: "Playwright v2.0: Native Mobile Emulation",
+        url: "https://playwright.dev/blog/v2-roadmap",
+        content:
+          "Playwright v2.0 focuses on native mobile emulation, multi-page debugging in a single trace, and a unified API for cross-device testing."
+      },
+      {
+        title: "YC Hacker News: The Future of AI Agents",
+        url: "https://news.ycombinator.com/item?id=40000000",
+        content:
+          "Hacker News discussion on autonomous agentic workflows and persistent background-running agents that handle complex pipelines."
+      }
+    ];
+  }
+};
+
+const testGenerationProvider: DraftGenerationProvider = {
+  name: "ollama",
+  model: "test-local",
+  async generateDraftCandidates(input) {
+    const count = Math.max(1, Math.min(input.count ?? 3, 5));
+    return Array.from({ length: count }, (_, index) => ({
+      text: `${input.idea.trim()} Test candidate ${index + 1}.`,
+      score: { provider: "test", rank: index + 1 }
+    }));
+  }
+};
 
 describe("api workflow", () => {
   it("generates, approves, and dry-run prepares a job", async () => {
     const app = buildApp({
-      generationEnv: { ZYQUOR_LLM_PROVIDER: "mock" },
+      generationProvider: testGenerationProvider,
       repository: createMemoryRepository({
         now: () => "2026-04-24T17:00:00.000Z"
       })
@@ -110,7 +155,10 @@ describe("api workflow", () => {
 
   it("updates generation provider and model", async () => {
     const app = buildApp({
-      generationEnv: { ZYQUOR_LLM_PROVIDER: "mock" },
+      generationEnv: {
+        ZYQUOR_LLM_PROVIDER: "ollama",
+        ZYQUOR_OLLAMA_MODEL: "llama3.1:8b"
+      },
       repository: createMemoryRepository({
         now: () => "2026-04-24T17:00:00.000Z"
       })
@@ -147,7 +195,7 @@ describe("api workflow", () => {
 
   it("updates style prompt configuration", async () => {
     const app = buildApp({
-      generationEnv: { ZYQUOR_LLM_PROVIDER: "mock" },
+      generationProvider: testGenerationProvider,
       repository: createMemoryRepository({
         now: () => "2026-04-24T17:00:00.000Z"
       })
@@ -189,7 +237,7 @@ describe("api workflow", () => {
         url: "https://x.com/home"
       }),
       enableBrowserPrepare: true,
-      generationEnv: { ZYQUOR_LLM_PROVIDER: "mock" },
+      generationProvider: testGenerationProvider,
       repository: createMemoryRepository({
         now: () => "2026-04-24T17:00:00.000Z"
       })
@@ -218,7 +266,7 @@ describe("api workflow", () => {
     const repository = createMemoryRepository({
       now: () => "2026-04-24T17:00:00.000Z"
     });
-    const app = buildApp({ repository, generationEnv: { ZYQUOR_LLM_PROVIDER: "mock" } });
+    const app = buildApp({ repository, generationProvider: testGenerationProvider });
     const created = await repository.createDraft({
       accountId: "account_personal",
       sourceInput: "Scheduled idea",
@@ -258,12 +306,57 @@ describe("api workflow", () => {
     await app.close();
   });
 
+  it("downloads draft media URLs and passes local media paths to browser prepare", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url) === "https://example.com/news.png") {
+        return new Response(new Uint8Array([137, 80, 78, 71]), {
+          status: 200,
+          headers: { "content-type": "image/png" }
+        });
+      }
+      throw new Error(`Unexpected fetch: ${String(url)}`);
+    });
+
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z"
+    });
+    let uploadedMediaPaths: string[] = [];
+    const app = buildApp({
+      enableBrowserPrepare: true,
+      generationProvider: testGenerationProvider,
+      preparePost: async (input) => {
+        uploadedMediaPaths = input.mediaPaths ?? [];
+        return { postUrl: null };
+      },
+      repository
+    });
+    const created = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "News with image",
+      candidates: [{ text: "News with image text", score: {} }],
+      metadata: { mediaUrls: ["https://example.com/news.png"] }
+    });
+    const approved = await repository.approveDraft({
+      draftId: created.draft.id,
+      editedText: "News with image text"
+    });
+
+    const response = await app.inject({ method: "POST", url: `/jobs/${approved.job.id}/prepare` });
+
+    expect(response.statusCode).toBe(200);
+    expect(uploadedMediaPaths).toHaveLength(1);
+    expect(uploadedMediaPaths[0]).toContain("data/media/");
+    expect(uploadedMediaPaths[0]).toMatch(/\.png$/);
+
+    await app.close();
+  });
+
   it("recovers stale running jobs before starting a new browser job", async () => {
     let currentTime = "2026-04-24T17:00:00.000Z";
     const repository = createMemoryRepository({
       now: () => currentTime
     });
-    const app = buildApp({ repository, generationEnv: { ZYQUOR_LLM_PROVIDER: "mock" } });
+    const app = buildApp({ repository, generationProvider: testGenerationProvider });
 
     const firstDraft = await repository.createDraft({
       accountId: "account_personal",
@@ -322,7 +415,7 @@ describe("api workflow", () => {
     const postedTexts: string[] = [];
     const app = buildApp({
       enableBrowserPost: true,
-      generationEnv: { ZYQUOR_LLM_PROVIDER: "mock" },
+      generationProvider: testGenerationProvider,
       preparePost: async (input) => {
         postedTexts.push(input.text);
         return { postUrl: `https://x.com/personal/status/${postedTexts.length}` };
@@ -372,7 +465,7 @@ describe("api workflow", () => {
 
   it("creates a scheduled batch with tweet type metadata", async () => {
     const app = buildApp({
-      generationEnv: { ZYQUOR_LLM_PROVIDER: "mock" },
+      generationProvider: testGenerationProvider,
       repository: createMemoryRepository({
         now: () => "2026-04-24T17:00:00.000Z"
       })
@@ -417,7 +510,7 @@ describe("api workflow", () => {
 
   it("creates source packets and drafts from them", async () => {
     const app = buildApp({
-      generationEnv: { ZYQUOR_LLM_PROVIDER: "mock" },
+      generationProvider: testGenerationProvider,
       repository: createMemoryRepository({
         now: () => "2026-04-24T17:00:00.000Z"
       })
@@ -479,7 +572,7 @@ describe("api workflow", () => {
     const repository = createMemoryRepository({
       now: () => "2026-04-24T17:00:00.000Z"
     });
-    const app = buildApp({ repository, generationEnv: { ZYQUOR_LLM_PROVIDER: "mock" } });
+    const app = buildApp({ repository, generationProvider: testGenerationProvider });
 
     await repository.updateAccount("account_personal", { postingMode: "draft_only" });
     const created = await repository.createDraft({
@@ -502,7 +595,7 @@ describe("api workflow", () => {
     const repository = createMemoryRepository({
       now: () => "2026-04-24T17:00:00.000Z"
     });
-    const app = buildApp({ repository, generationEnv: { ZYQUOR_LLM_PROVIDER: "mock" } });
+    const app = buildApp({ repository, generationProvider: testGenerationProvider });
     const created = await repository.createDraft({
       accountId: "account_personal",
       sourceInput: "Delete queued job",
@@ -557,7 +650,7 @@ describe("api workflow", () => {
         ]
       }
     });
-    const app = buildApp({ repository, generationEnv: { ZYQUOR_LLM_PROVIDER: "mock" } });
+    const app = buildApp({ repository, generationProvider: testGenerationProvider });
 
     const draftA = await repository.createDraft({
       accountId: "account_personal",
@@ -590,7 +683,7 @@ describe("api workflow", () => {
     const repository = createMemoryRepository({
       now: () => "2026-04-24T17:00:00.000Z"
     });
-    const app = buildApp({ repository, generationEnv: { ZYQUOR_LLM_PROVIDER: "mock" } });
+    const app = buildApp({ repository, generationProvider: testGenerationProvider });
 
     const createResponse = await app.inject({
       method: "POST",
@@ -599,6 +692,7 @@ describe("api workflow", () => {
         accountId: "account_personal",
         sourceType: "news",
         maxPacketsPerDay: 10,
+        metadata: { region: "global" },
         tweetTypeMix: { feed_observation: 30, news_context: 70 },
         scheduleWindowStart: "09:00",
         scheduleWindowEnd: "21:00",
@@ -610,6 +704,7 @@ describe("api workflow", () => {
     const createdConfig = createResponse.json().config;
     expect(createdConfig.sourceType).toBe("news");
     expect(createdConfig.maxPacketsPerDay).toBe(10);
+    expect(createdConfig.metadata).toEqual({ region: "global" });
 
     const listResponse = await app.inject({
       method: "GET",
@@ -624,12 +719,14 @@ describe("api workflow", () => {
       url: `/ingest-configs/${createdConfig.id}`,
       payload: {
         maxPacketsPerDay: 20,
+        metadata: { region: "us" },
         enabled: false
       }
     });
 
     expect(updateResponse.statusCode).toBe(200);
     expect(updateResponse.json().config.maxPacketsPerDay).toBe(20);
+    expect(updateResponse.json().config.metadata).toEqual({ region: "us" });
     expect(updateResponse.json().config.enabled).toBe(false);
 
     const deleteResponse = await app.inject({
@@ -651,10 +748,11 @@ describe("api workflow", () => {
 
   it("runs ingest runner and creates automated jobs", async () => {
     const app = buildApp({
-      generationEnv: { ZYQUOR_LLM_PROVIDER: "mock" },
+      generationProvider: testGenerationProvider,
       repository: createMemoryRepository({
         now: () => "2026-04-24T17:00:00.000Z"
-      })
+      }),
+      sourceAdapters: [testNewsAdapter]
     });
 
     // Create enabled ingest config
@@ -681,7 +779,7 @@ describe("api workflow", () => {
     expect(runResponse.statusCode).toBe(200);
     expect(runResponse.json().processed).toBe(3);
 
-    // Run ingest AGAIN - should process 0 items as all 3 mock items are processed
+    // Run ingest again. It should process 0 items because all 3 test items are already processed.
     const runResponse2 = await app.inject({
       method: "POST",
       url: "/ingest-run"
@@ -698,6 +796,131 @@ describe("api workflow", () => {
     expect(jobsResponse.json().jobs).toHaveLength(3);
     expect(jobsResponse.json().jobs[0].status).toBe("approved");
     expect(jobsResponse.json().jobs[0].mode).toBe("autopost");
+
+    await app.close();
+  });
+
+  it("passes feed metadata to live source adapters and respects disabled configs", async () => {
+    const calls: unknown[] = [];
+    const feedAdapter: SourceAdapter = {
+      name: "test-feed",
+      sourceType: "feed",
+      async fetch(metadata) {
+        calls.push(metadata);
+        return [
+          {
+            title: "Live release notes",
+            url: "https://example.com/live-release",
+            content: "A live source item from an RSS feed."
+          }
+        ];
+      }
+    };
+    const app = buildApp({
+      generationProvider: testGenerationProvider,
+      repository: createMemoryRepository({
+        now: () => "2026-04-24T17:00:00.000Z"
+      }),
+      sourceAdapters: [feedAdapter]
+    });
+
+    const disabled = await app.inject({
+      method: "POST",
+      url: "/ingest-configs",
+      payload: {
+        accountId: "account_personal",
+        enabled: false,
+        maxPacketsPerDay: 3,
+        metadata: { feedUrl: "https://example.com/rss.xml" },
+        scheduleWindowStart: "00:00",
+        scheduleWindowEnd: "23:59",
+        sourceType: "feed",
+        tweetTypeMix: { useful_info: 100 }
+      }
+    });
+
+    expect(disabled.statusCode).toBe(201);
+    expect((await app.inject({ method: "POST", url: "/ingest-run" })).json().processed).toBe(0);
+    expect(calls).toHaveLength(0);
+
+    await app.inject({
+      method: "PATCH",
+      url: `/ingest-configs/${disabled.json().config.id}`,
+      payload: { enabled: true }
+    });
+
+    const runResponse = await app.inject({ method: "POST", url: "/ingest-run" });
+    expect(runResponse.statusCode).toBe(200);
+    expect(runResponse.json().processed).toBe(1);
+    expect(calls).toEqual([{ feedUrl: "https://example.com/rss.xml" }]);
+
+    await app.close();
+  });
+});
+
+describe("automatic worker ingest pipeline", () => {
+  it("full pipeline: config -> fetch -> packet -> draft -> job -> prepare", async () => {
+    const app = buildApp({
+      generationProvider: testGenerationProvider,
+      repository: createMemoryRepository({
+        now: () => "2026-04-24T14:00:00.000Z"
+      }),
+      sourceAdapters: [testNewsAdapter],
+      enableBrowserPrepare: false // dry run
+    });
+
+    // 1. Create ingest config
+    const configResponse = await app.inject({
+      method: "POST",
+      url: "/ingest-configs",
+      payload: {
+        accountId: "account_personal",
+        sourceType: "news",
+        maxPacketsPerDay: 3,
+        tweetTypeMix: { useful_info: 100 },
+        scheduleWindowStart: "00:00",
+        scheduleWindowEnd: "23:59",
+        enabled: true
+      }
+    });
+    expect(configResponse.statusCode).toBe(201);
+    const config = configResponse.json().config;
+
+    // 2. Run ingest - fetches from adapter, creates packets, drafts, jobs
+    const ingestResponse = await app.inject({ method: "POST", url: "/ingest-run" });
+    expect(ingestResponse.statusCode).toBe(200);
+    expect(ingestResponse.json().processed).toBe(3);
+
+    // 3. Verify source packets created
+    const packetsResponse = await app.inject({ method: "GET", url: "/source-packets" });
+    expect(packetsResponse.json().packets).toHaveLength(3);
+    expect(packetsResponse.json().packets[0].status).toBe("drafted");
+
+    // 4. Verify jobs created
+    const jobsResponse = await app.inject({ method: "GET", url: "/jobs?accountId=account_personal" });
+    expect(jobsResponse.json().jobs).toHaveLength(3);
+    const job = jobsResponse.json().jobs[0];
+    expect(job.status).toBe("approved");
+    expect(job.mode).toBe("autopost");
+
+    // 5. Prepare job (dry run)
+    const prepareResponse = await app.inject({ method: "POST", url: `/jobs/${job.id}/prepare` });
+    expect(prepareResponse.statusCode).toBe(200);
+    expect(prepareResponse.json().dryRun).toBe(true);
+    expect(prepareResponse.json().job.status).toBe("prepared");
+
+    // 6. Re-ingest - no new packets (already drafted)
+    const ingestResponse2 = await app.inject({ method: "POST", url: "/ingest-run" });
+    expect(ingestResponse2.json().processed).toBe(0);
+
+    // 7. Disable config - no new packets
+    await app.inject({
+      method: "PATCH",
+      url: `/ingest-configs/${config.id}`,
+      payload: { enabled: false }
+    });
+    const ingestResponse3 = await app.inject({ method: "POST", url: "/ingest-run" });
+    expect(ingestResponse3.json().processed).toBe(0);
 
     await app.close();
   });

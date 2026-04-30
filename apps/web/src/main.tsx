@@ -82,6 +82,18 @@ interface SourcePacket {
   url: string | null;
 }
 
+interface IngestConfig {
+  id: string;
+  accountId: string;
+  enabled: boolean;
+  maxPacketsPerDay: number;
+  metadata: Record<string, unknown>;
+  scheduleWindowEnd: string;
+  scheduleWindowStart: string;
+  sourceType: string;
+  tweetTypeMix: Record<string, number>;
+}
+
 const X_FREE_POST_CHARACTER_LIMIT = 280;
 interface StyleProfile {
   id: string;
@@ -126,8 +138,18 @@ function App() {
   const [attemptsByJob, setAttemptsByJob] = useState<Record<string, Attempt[]>>({});
   const [browserSession, setBrowserSession] = useState<BrowserSession | null>(null);
   const [generation, setGeneration] = useState<GenerationConfig | null>(null);
-  const [generationDraft, setGenerationDraft] = useState({ model: "", provider: "mock" });
+  const [generationDraft, setGenerationDraft] = useState({ model: "", provider: "openrouter" });
   const [sourcePackets, setSourcePackets] = useState<SourcePacket[]>([]);
+  const [ingestConfigs, setIngestConfigs] = useState<IngestConfig[]>([]);
+  const [automationDraft, setAutomationDraft] = useState({
+    enabled: false,
+    feedUrl: "",
+    maxPacketsPerDay: 3,
+    scheduleWindowEnd: "23:59",
+    scheduleWindowStart: "00:00",
+    sourceType: "news",
+    tweetType: "useful_info"
+  });
   const [packetDraft, setPacketDraft] = useState({
     facts: "",
     sourceType: "manual",
@@ -160,9 +182,10 @@ function App() {
     ]);
     const nextActiveAccount = loadedAccounts.find((account) => account.id === activeAccountId) ?? loadedAccounts[0] ?? null;
     const nextActiveAccountId = nextActiveAccount?.id ?? activeAccountId;
-    const [{ jobs: loadedJobs }, { packets: loadedSourcePackets }] = await Promise.all([
+    const [{ jobs: loadedJobs }, { packets: loadedSourcePackets }, { configs: loadedIngestConfigs }] = await Promise.all([
       api<{ jobs: Job[] }>(`/jobs?accountId=${encodeURIComponent(nextActiveAccountId)}`),
-      api<{ packets: SourcePacket[] }>(`/source-packets?accountId=${encodeURIComponent(nextActiveAccountId)}`)
+      api<{ packets: SourcePacket[] }>(`/source-packets?accountId=${encodeURIComponent(nextActiveAccountId)}`),
+      api<{ configs: IngestConfig[] }>(`/ingest-configs?accountId=${encodeURIComponent(nextActiveAccountId)}`)
     ]);
     const attemptsEntries = await Promise.all(
       loadedJobs.map(async (job) => {
@@ -180,12 +203,31 @@ function App() {
     setGeneration(loadedGeneration);
     setGenerationDraft({ model: loadedGeneration.model, provider: loadedGeneration.provider });
     setSourcePackets(loadedSourcePackets);
+    setIngestConfigs(loadedIngestConfigs);
+    setAutomationDraft(draftFromIngestConfig(loadedIngestConfigs[0] ?? null));
     setAttemptsByJob(Object.fromEntries(attemptsEntries));
     setSelectedJobIds((current) => current.filter((id) => availableJobIds.has(id)));
     if (nextActiveAccount) {
       setActiveAccountId(nextActiveAccount.id);
       await loadStyleProfile(nextActiveAccount.styleProfileId);
     }
+  }
+
+  function draftFromIngestConfig(config: IngestConfig | null) {
+    const usefulWeight = config?.tweetTypeMix.useful_info ?? 0;
+    const topTweetType =
+      config && Object.keys(config.tweetTypeMix).length
+        ? Object.entries(config.tweetTypeMix).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "useful_info"
+        : "useful_info";
+    return {
+      enabled: config?.enabled ?? false,
+      feedUrl: typeof config?.metadata.feedUrl === "string" ? config.metadata.feedUrl : "",
+      maxPacketsPerDay: config?.maxPacketsPerDay ?? 3,
+      scheduleWindowEnd: config?.scheduleWindowEnd ?? "23:59",
+      scheduleWindowStart: config?.scheduleWindowStart ?? "00:00",
+      sourceType: config?.sourceType ?? "news",
+      tweetType: usefulWeight > 0 ? "useful_info" : topTweetType
+    };
   }
 
   async function loadStyleProfile(styleProfileId: string) {
@@ -476,6 +518,73 @@ function App() {
     });
   }
 
+  function saveAutomationConfig() {
+    run(async () => {
+      const existing = ingestConfigs[0] ?? null;
+      const payload = {
+        accountId: activeAccountId,
+        enabled: automationDraft.enabled,
+        maxPacketsPerDay: automationDraft.maxPacketsPerDay,
+        metadata: automationDraft.sourceType === "feed" ? { feedUrl: automationDraft.feedUrl.trim() } : {},
+        scheduleWindowEnd: automationDraft.scheduleWindowEnd,
+        scheduleWindowStart: automationDraft.scheduleWindowStart,
+        sourceType: automationDraft.sourceType,
+        tweetTypeMix: { [automationDraft.tweetType]: 100 }
+      };
+      if (existing) {
+        await api(`/ingest-configs/${existing.id}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload)
+        });
+      } else {
+        await api("/ingest-configs", {
+          method: "POST",
+          body: JSON.stringify(payload)
+        });
+      }
+      await refresh();
+    });
+  }
+
+  function toggleAutomation() {
+    const existing = ingestConfigs[0] ?? null;
+    const nextEnabled = !automationDraft.enabled;
+    setAutomationDraft({ ...automationDraft, enabled: nextEnabled });
+    run(async () => {
+      if (existing) {
+        await api(`/ingest-configs/${existing.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ enabled: nextEnabled })
+        });
+      } else {
+        await api("/ingest-configs", {
+          method: "POST",
+          body: JSON.stringify({
+            accountId: activeAccountId,
+            enabled: nextEnabled,
+            maxPacketsPerDay: automationDraft.maxPacketsPerDay,
+            metadata: automationDraft.sourceType === "feed" ? { feedUrl: automationDraft.feedUrl.trim() } : {},
+            scheduleWindowEnd: automationDraft.scheduleWindowEnd,
+            scheduleWindowStart: automationDraft.scheduleWindowStart,
+            sourceType: automationDraft.sourceType,
+            tweetTypeMix: { [automationDraft.tweetType]: 100 }
+          })
+        });
+      }
+      await refresh();
+    });
+  }
+
+  function runAutomationNow() {
+    run(async () => {
+      const result = await api<{ processed: number }>("/ingest-run", { method: "POST" });
+      await refresh();
+      if (result.processed === 0) {
+        setError("Automation ran, but no new eligible source items were found.");
+      }
+    });
+  }
+
   function draftFromSourcePacket(packet: SourcePacket) {
     run(async () => {
       const response = await api<DraftResponse & { packet: SourcePacket }>(`/source-packets/${packet.id}/draft`, {
@@ -579,6 +688,100 @@ function App() {
       ) : null}
 
       {error ? <div className="alert">{error}</div> : null}
+
+      <section className="panel automation">
+        <div className="panel-head">
+          <div>
+            <h2>Automatic Poster</h2>
+            <p className="empty">Live sources create clean autopost jobs. Disable anytime.</p>
+          </div>
+          <span className={automationDraft.enabled ? "provider-pill" : "session-pill unknown"}>
+            {automationDraft.enabled ? "enabled" : "disabled"}
+          </span>
+        </div>
+        <div className="automation-grid">
+          <label className="checkbox-row switch-row">
+            <input checked={automationDraft.enabled} type="checkbox" onChange={toggleAutomation} />
+            Auto ingest and post
+          </label>
+          <label>
+            Live source
+            <select
+              value={automationDraft.sourceType}
+              onChange={(event) => setAutomationDraft({ ...automationDraft, sourceType: event.target.value })}
+            >
+              <option value="news">Hacker News top stories</option>
+              <option value="feed">RSS feed URL</option>
+            </select>
+          </label>
+          {automationDraft.sourceType === "feed" ? (
+            <label className="wide-field">
+              RSS feed URL
+              <input
+                placeholder="https://example.com/feed.xml"
+                value={automationDraft.feedUrl}
+                onChange={(event) => setAutomationDraft({ ...automationDraft, feedUrl: event.target.value })}
+              />
+            </label>
+          ) : null}
+          <label>
+            Tweet style
+            <select
+              value={automationDraft.tweetType}
+              onChange={(event) => setAutomationDraft({ ...automationDraft, tweetType: event.target.value })}
+            >
+              <option value="news_context">news_context</option>
+              <option value="useful_info">useful_info</option>
+              <option value="feed_observation">feed_observation</option>
+              <option value="guide">guide</option>
+              <option value="lesson">lesson</option>
+              <option value="tool">tool</option>
+              <option value="opinion">opinion</option>
+            </select>
+          </label>
+          <label>
+            Daily max
+            <input
+              min="1"
+              max="20"
+              type="number"
+              value={automationDraft.maxPacketsPerDay}
+              onChange={(event) => setAutomationDraft({ ...automationDraft, maxPacketsPerDay: Number(event.target.value) })}
+            />
+          </label>
+          <label>
+            Start
+            <input
+              type="time"
+              value={automationDraft.scheduleWindowStart}
+              onChange={(event) => setAutomationDraft({ ...automationDraft, scheduleWindowStart: event.target.value })}
+            />
+          </label>
+          <label>
+            End
+            <input
+              type="time"
+              value={automationDraft.scheduleWindowEnd}
+              onChange={(event) => setAutomationDraft({ ...automationDraft, scheduleWindowEnd: event.target.value })}
+            />
+          </label>
+        </div>
+        <div className="automation-actions">
+          <button
+            disabled={busy || (automationDraft.sourceType === "feed" && !automationDraft.feedUrl.trim())}
+            onClick={saveAutomationConfig}
+          >
+            Save automation
+          </button>
+          <button
+            className="secondary"
+            disabled={busy || !automationDraft.enabled || (automationDraft.sourceType === "feed" && !automationDraft.feedUrl.trim())}
+            onClick={runAutomationNow}
+          >
+            Run now
+          </button>
+        </div>
+      </section>
 
       <section className="workspace">
         <form
@@ -838,9 +1041,8 @@ function App() {
               value={generationDraft.provider}
               onChange={(event) => setGenerationDraft({ ...generationDraft, provider: event.target.value })}
             >
-              <option value="mock">mock</option>
+              <option value="openrouter">openrouter</option>
               <option value="ollama">ollama</option>
-              <option value="gemini">gemini</option>
             </select>
           </label>
           <label>
@@ -848,7 +1050,11 @@ function App() {
             <input
               value={generationDraft.model}
               onChange={(event) => setGenerationDraft({ ...generationDraft, model: event.target.value })}
-              placeholder={generationDraft.provider === "gemini" ? "gemini-2.5-flash" : "llama3.1"}
+              placeholder={
+                generationDraft.provider === "openrouter"
+                  ? "nvidia/nemotron-3-super-120b-a12b:free"
+                  : "llama3.1"
+              }
             />
           </label>
         </div>

@@ -1,0 +1,12 @@
+[project]
+name = "zyquor-crawl4ai"
+version = "0.1.0"
+description = "Crawl4AI service for Zyquor"
+requires-python = ">=3.10"
+dependencies = [
+    "crawl4ai>=0.8.6",
+    "aiohttp>=3.9.0",
+]
+
+[project.scripts]
+zyquor-crawl4ai = "zyquor_crawl4ai:main"

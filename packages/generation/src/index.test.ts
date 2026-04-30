@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  createGeminiGenerationProvider,
   createOllamaGenerationProvider,
-  generateMockDraftCandidates,
+  createOpenRouterGenerationProvider,
+  isCleanTweetText,
   resolveGenerationProviderConfig,
+  buildSourceTweetInput,
+  renderSourceContext,
   type FetchLike
 } from "./index.js";
 
@@ -13,26 +15,6 @@ function jsonResponse(body: unknown, status = 200) {
     headers: { "content-type": "application/json" }
   });
 }
-
-describe("mock generation", () => {
-  it("returns deterministic draft candidates", () => {
-    const candidates = generateMockDraftCandidates({
-      idea: "Local-first tools should expose their audit trail.",
-      count: 2
-    });
-
-    expect(candidates).toEqual([
-      {
-        text: "Local-first tools should expose their audit trail.\n\nThe useful part is the audit trail: idea, draft, approval, schedule, and browser action all stay visible.",
-        score: { provider: "mock", rank: 1 }
-      },
-      {
-        text: "Local-first tools should expose their audit trail.\n\nGood automation removes repetitive work without hiding decisions. Keep inputs, rules, timing, and outcomes inspectable.",
-        score: { provider: "mock", rank: 2 }
-      }
-    ]);
-  });
-});
 
 describe("ollama generation", () => {
   it("posts non-streaming JSON generation request", async () => {
@@ -100,64 +82,170 @@ describe("ollama generation", () => {
   });
 });
 
-describe("gemini generation", () => {
-  it("posts generateContent request with API key header", async () => {
+describe("openrouter generation", () => {
+  it("confirms free pricing before posting chat completion request with bearer auth", async () => {
     const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
     const fetchImpl: FetchLike = async (url, init) => {
       calls.push({ url: String(url), init });
+      if (String(url).endsWith("/models")) {
+        return jsonResponse({
+          data: [
+            {
+              id: "minimax/minimax-m2.5:free",
+              pricing: { prompt: "0", completion: "0", request: "0" }
+            }
+          ]
+        });
+      }
       return jsonResponse({
-        candidates: [
+        choices: [
           {
-            content: {
-              parts: [
-                {
-                  text: "prompt echo that must be ignored",
-                  thought: true
-                },
-                {
-                  text: JSON.stringify({
-                    candidates: [{ text: "First Gemini draft." }, { text: "Second Gemini draft." }]
-                  })
-                }
-              ]
+            message: {
+              content: JSON.stringify({
+                candidates: [{ text: "A clean OpenRouter draft." }, { text: "Another clean OpenRouter draft." }]
+              })
             }
           }
         ]
       });
     };
-    const provider = createGeminiGenerationProvider({
+    const provider = createOpenRouterGenerationProvider({
       apiKey: "test-key",
-      model: "gemini-test",
+      model: "minimax/minimax-m2.5:free",
       fetch: fetchImpl
     });
 
-    const candidates = await provider.generateDraftCandidates({ idea: "Make it reliable.", count: 2 });
-    const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
-    const headers = calls[0]?.init?.headers as Record<string, string>;
+    const candidates = await provider.generateDraftCandidates({ idea: "Make it better.", count: 2 });
+    const body = JSON.parse(String(calls[1]?.init?.body)) as Record<string, unknown>;
+    const headers = calls[1]?.init?.headers as Record<string, string>;
 
-    expect(calls[0]?.url).toBe("https://generativelanguage.googleapis.com/v1beta/models/gemini-test:generateContent");
-    expect(headers["x-goog-api-key"]).toBe("test-key");
-    expect(body).toHaveProperty("systemInstruction");
-    expect(body).toHaveProperty("contents");
-    expect(body).toHaveProperty("generationConfig");
+    expect(calls[0]?.url).toBe("https://openrouter.ai/api/v1/models");
+    expect(calls[1]?.url).toBe("https://openrouter.ai/api/v1/chat/completions");
+    expect(headers.authorization).toBe("Bearer test-key");
+    expect(body).toMatchObject({ model: "minimax/minimax-m2.5:free", response_format: { type: "json_object" } });
     expect(candidates).toEqual([
-      { text: "First Gemini draft.", score: { provider: "gemini", model: "gemini-test", rank: 1 } },
-      { text: "Second Gemini draft.", score: { provider: "gemini", model: "gemini-test", rank: 2 } }
+      { text: "A clean OpenRouter draft.", score: { provider: "openrouter", model: "minimax/minimax-m2.5:free", rank: 1 } },
+      { text: "Another clean OpenRouter draft.", score: { provider: "openrouter", model: "minimax/minimax-m2.5:free", rank: 2 } }
     ]);
+  });
+
+  it("does not send a chat request when OpenRouter cannot confirm free pricing", async () => {
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const fetchImpl: FetchLike = async (url, init) => {
+      calls.push({ url: String(url), init });
+      return jsonResponse({
+        data: [
+          {
+            id: "minimax/minimax-m2.5:free",
+            pricing: { prompt: "0.000001", completion: "0", request: "0" }
+          }
+        ]
+      });
+    };
+    const provider = createOpenRouterGenerationProvider({
+      apiKey: "test-key",
+      model: "minimax/minimax-m2.5:free",
+      fetch: fetchImpl
+    });
+
+    await expect(provider.generateDraftCandidates({ idea: "Make it safe.", count: 1 })).rejects.toThrow(
+      "OpenRouter model is not confirmed free: minimax/minimax-m2.5:free"
+    );
+    expect(calls.map((call) => call.url)).toEqual(["https://openrouter.ai/api/v1/models"]);
+  });
+});
+
+describe("tweet quality harness", () => {
+  it("rejects internal leakage and incomplete text", () => {
+    expect(isCleanTweetText("Zed 1.0 is available. SourcePackets make it easier to review.")).toBe(false);
+    expect(isCleanTweetText("Noctua released CAD models for its fans,")).toBe(false);
+    expect(isCleanTweetText("Noctua released official fan CAD models so builders can verify fit before buying.")).toBe(true);
+  });
+
+  it("builds grounded source context for reusable generation", () => {
+    const input = buildSourceTweetInput({
+      facts: ["The worker uses Hacker News as a real source.", "The draft is generated before browser posting."],
+      summary: "Automatic worker pipeline connects source ingestion, LLM generation, approval, and posting.",
+      title: "Automatic posting worker ships",
+      url: "https://news.ycombinator.com/item?id=1",
+      sourceName: "hackernews",
+      topicTags: ["ai", "devtools"]
+    });
+
+    expect(input.idea).toContain("News headline: Automatic posting worker ships");
+    expect(renderSourceContext(input.source)).toContain("Topic tags: ai, devtools");
+    expect(renderSourceContext(input.source)).toContain("Grounded facts:");
   });
 });
 
 describe("generation config", () => {
   it("resolves provider config from environment", () => {
+    expect(
+      resolveGenerationProviderConfig({
+        ZYQUOR_OPENROUTER_API_KEY: "test-key",
+        ZYQUOR_OPENROUTER_MODEL: "nvidia/nemotron-3-super-120b-a12b:free"
+      })
+    ).toMatchObject({
+      provider: "openrouter",
+      model: "nvidia/nemotron-3-super-120b-a12b:free",
+      configured: true
+    });
+
     expect(resolveGenerationProviderConfig({ ZYQUOR_LLM_PROVIDER: "ollama", ZYQUOR_OLLAMA_MODEL: "qwen3:8b" })).toMatchObject({
       provider: "ollama",
       model: "qwen3:8b",
       configured: true
     });
 
-    expect(resolveGenerationProviderConfig({ ZYQUOR_LLM_PROVIDER: "gemini" })).toMatchObject({
-      provider: "gemini",
-      configured: false
+    expect(resolveGenerationProviderConfig({})).toMatchObject({
+      provider: "ollama",
+      configured: true
+    });
+  });
+
+  it("rejects unsupported providers", () => {
+    expect(() =>
+      resolveGenerationProviderConfig({
+        ZYQUOR_LLM_PROVIDER: "unsupported"
+      })
+    ).toThrow("Unsupported LLM provider: unsupported");
+  });
+
+  it("forces OpenRouter onto the free model allowlist", () => {
+    expect(
+      resolveGenerationProviderConfig({
+        ZYQUOR_LLM_PROVIDER: "openrouter",
+        ZYQUOR_OPENROUTER_API_KEY: "test-key",
+        ZYQUOR_OPENROUTER_MODEL: "openai/gpt-4.1-mini"
+      })
+    ).toMatchObject({
+      provider: "openrouter",
+      model: "nvidia/nemotron-3-super-120b-a12b:free",
+      configured: true
+    });
+
+    expect(
+      resolveGenerationProviderConfig({
+        ZYQUOR_LLM_PROVIDER: "openrouter",
+        ZYQUOR_OPENROUTER_API_KEY: "test-key",
+        ZYQUOR_OPENROUTER_MODEL: "minimax/minimax-m2.5:free"
+      })
+    ).toMatchObject({
+      provider: "openrouter",
+      model: "minimax/minimax-m2.5:free",
+      configured: true
+    });
+
+    expect(
+      resolveGenerationProviderConfig({
+        ZYQUOR_LLM_PROVIDER: "openrouter",
+        ZYQUOR_OPENROUTER_API_KEY: "test-key",
+        ZYQUOR_OPENROUTER_MODEL: "tencent/hy3-preview:free"
+      })
+    ).toMatchObject({
+      provider: "openrouter",
+      model: "tencent/hy3-preview:free",
+      configured: true
     });
   });
 });

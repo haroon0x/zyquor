@@ -83,7 +83,7 @@ const server = createServer(async (req, res) => {
         db.prepare(
           `INSERT INTO draft_candidates (id, draft_id, text, score_json, selected, created_at)
            VALUES (?, ?, ?, ?, ?, ?)`
-        ).run(candidate.id, candidate.draft_id, candidate.text, JSON.stringify({ provider: "mock", rank: index + 1 }), candidate.selected ? 1 : 0, createdAt);
+        ).run(candidate.id, candidate.draft_id, candidate.text, JSON.stringify({ provider: "seed", rank: index + 1 }), candidate.selected ? 1 : 0, createdAt);
         return candidate;
       });
 

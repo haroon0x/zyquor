@@ -1,9 +1,11 @@
 import { loadDotEnv, POST_JOB_STATUSES, type Account, type PostJob, type Draft } from "@zyquor/core";
+import { pathToFileURL } from "node:url";
 
 loadDotEnv();
 
 export interface WorkerOptions {
   apiUrl: string;
+  ingestIntervalMs?: number;
   pollMs: number;
 }
 
@@ -82,13 +84,6 @@ export async function processApprovedJobs(options: WorkerOptions) {
     return 0;
   }
 
-  // Run ingest run
-  try {
-    await api(options.apiUrl, "/ingest-run", { method: "POST" });
-  } catch (error) {
-    console.error(`Ingest run failed: ${error instanceof Error ? error.message : error}`);
-  }
-
   const [{ jobs }, { accounts }] = await Promise.all([
     api<{ jobs: PostJob[] }>(options.apiUrl, "/jobs"),
     api<{ accounts: Account[] }>(options.apiUrl, "/accounts")
@@ -96,19 +91,17 @@ export async function processApprovedJobs(options: WorkerOptions) {
   const now = new Date();
   const nowMs = now.getTime();
   const accountById = new Map(accounts.map((account) => [account.id, account]));
-  const approvedJobs = jobs.filter(
-    (job) => {
-      const account = accountById.get(job.accountId);
-      if (!account || isWithinQuietHours(now, account)) {
-        return false;
-      }
-      return (
+  const approvedJobs = jobs.filter((job) => {
+    const account = accountById.get(job.accountId);
+    if (!account || isWithinQuietHours(now, account)) {
+      return false;
+    }
+    return (
       job.status === "approved" &&
       (!job.scheduledFor || Date.parse(job.scheduledFor) <= nowMs) &&
       (job.mode === "prepare_only" || job.mode === "scheduled" || job.mode === "autopost")
-      );
-    }
-  );
+    );
+  });
 
   for (const job of approvedJobs) {
     const action = job.mode === "autopost" ? "post" : "prepare";
@@ -146,7 +139,7 @@ export async function processIngest(options: WorkerOptions) {
 export async function runWorker(options: WorkerOptions) {
   console.log(describeWorker());
   let lastIngestMs = 0;
-  const INGEST_INTERVAL_MS = 1 * 60 * 1000;
+  const ingestIntervalMs = options.ingestIntervalMs ?? 1 * 60 * 1000;
 
   for (;;) {
     try {
@@ -161,7 +154,7 @@ export async function runWorker(options: WorkerOptions) {
       }
 
       const now = Date.now();
-      if (now - lastIngestMs >= INGEST_INTERVAL_MS) {
+      if (now - lastIngestMs >= ingestIntervalMs) {
         lastIngestMs = now;
         const ingestProcessed = await processIngest(options);
         if (ingestProcessed > 0) {
@@ -176,9 +169,12 @@ export async function runWorker(options: WorkerOptions) {
   }
 }
 
-if (process.env.ZYQUOR_RUN_WORKER === "1") {
+const isDirectRun = process.argv[1] ? import.meta.url === pathToFileURL(process.argv[1]).href : false;
+
+if (isDirectRun && process.env.ZYQUOR_RUN_WORKER === "1") {
   await runWorker({
     apiUrl: process.env.ZYQUOR_API_URL ?? "http://127.0.0.1:3000",
+    ingestIntervalMs: Number(process.env.ZYQUOR_WORKER_INGEST_INTERVAL_MS ?? 60_000),
     pollMs: Number(process.env.ZYQUOR_WORKER_POLL_MS ?? 5000)
   });
 }

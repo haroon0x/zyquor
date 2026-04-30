@@ -1,5 +1,7 @@
 import cors from "@fastify/cors";
 import { assertDedicatedProfileDir, isAccountRunnable } from "@zyquor/accounts";
+import { createCrawl4AiService, createHackerNewsAdapter, createRssAdapter, type SourceAdapter } from "@zyquor/adapters";
+import { draftFromSourcePacket, runAutomaticIngest } from "@zyquor/automation";
 import {
   approveDraftRequestSchema,
   createDraftBatchRequestSchema,
@@ -11,7 +13,8 @@ import {
   updateAccountRequestSchema,
   updateGenerationConfigRequestSchema,
   updateIngestConfigRequestSchema,
-  updateStyleProfileRequestSchema
+  updateStyleProfileRequestSchema,
+  type PostingMode
 } from "@zyquor/core";
 import {
   createGenerationProviderFromEnv,
@@ -22,7 +25,9 @@ import {
 import { createLocalRepository, type ZyquorRepository } from "@zyquor/storage";
 import Fastify from "fastify";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { dirname, extname, isAbsolute, resolve } from "node:path";
 import { ZodError } from "zod";
 
 export interface BuildAppOptions {
@@ -36,6 +41,7 @@ export interface BuildAppOptions {
   browserChannel?: string | null;
   browserCdpUrl?: string;
   browserTypingDelayMs?: number;
+  sourceAdapters?: SourceAdapter[];
   checkXLogin?: (input: { browserChannel?: string | null; cdpUrl?: string; profileDir: string }) => Promise<{
     loggedIn: boolean;
     url: string;
@@ -45,6 +51,7 @@ export interface BuildAppOptions {
     browserChannel?: string | null;
     cdpUrl?: string;
     closeAfterPrepare?: boolean;
+    mediaPaths?: string[];
     profileDir: string;
     submit?: boolean;
     text: string;
@@ -87,7 +94,7 @@ function isGenerationError(error: Error) {
   return (
     error.message.startsWith("Generation request failed:") ||
     error.message.includes(" returned no draft candidates") ||
-    error.message.includes("ZYQUOR_GEMINI_API_KEY")
+    error.message.includes("ZYQUOR_OPENROUTER_API_KEY")
   );
 }
 
@@ -118,6 +125,58 @@ function defaultGenerationConfigPath() {
 
 function resolveProfileDir(profileDir: string) {
   return isAbsolute(profileDir) ? profileDir : resolve(workspaceRoot(), profileDir);
+}
+
+function mediaUrlsFromDraftMetadata(metadata: Record<string, unknown>) {
+  const urls = Array.isArray(metadata.mediaUrls) ? metadata.mediaUrls : [];
+  return urls.filter((url): url is string => typeof url === "string" && /^https?:\/\//i.test(url)).slice(0, 4);
+}
+
+function extensionForMedia(url: string, contentType: string | null) {
+  const fromUrl = extname(new URL(url).pathname).toLowerCase();
+  if ([".avif", ".gif", ".jpg", ".jpeg", ".png", ".webp"].includes(fromUrl)) {
+    return fromUrl;
+  }
+  if (contentType?.includes("png")) return ".png";
+  if (contentType?.includes("webp")) return ".webp";
+  if (contentType?.includes("gif")) return ".gif";
+  if (contentType?.includes("avif")) return ".avif";
+  return ".jpg";
+}
+
+async function downloadMediaUrls(urls: string[]) {
+  if (urls.length === 0) {
+    return [];
+  }
+
+  const mediaDir = resolve(workspaceRoot(), "data/media");
+  mkdirSync(mediaDir, { recursive: true });
+  const paths: string[] = [];
+
+  for (const url of urls) {
+    const response = await fetch(url, { headers: { "user-agent": "Zyquor/1.0" } });
+    if (!response.ok) {
+      throw new Error(`Media download failed: ${response.status} ${url}`);
+    }
+    const contentType = response.headers.get("content-type");
+    if (contentType && !contentType.toLowerCase().startsWith("image/")) {
+      throw new Error(`Media URL is not an image: ${url}`);
+    }
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length === 0 || bytes.length > 8 * 1024 * 1024) {
+      throw new Error(`Media size is invalid: ${url}`);
+    }
+    const hash = createHash("sha256").update(url).digest("hex").slice(0, 16);
+    const path = resolve(mediaDir, `${hash}${extensionForMedia(url, contentType)}`);
+    await writeFile(path, bytes);
+    paths.push(path);
+  }
+
+  return paths;
+}
+
+async function mediaPathsForDraft(draft: { metadata: Record<string, unknown> }) {
+  return downloadMediaUrls(mediaUrlsFromDraftMetadata(draft.metadata));
 }
 
 async function isDailyLimitReached(repository: ZyquorRepository, accountId: string, dailyPostLimit: number | null) {
@@ -155,31 +214,14 @@ function shuffleJobs<T>(items: T[]) {
   return shuffled;
 }
 
-function pickTweetType(mix: Record<string, number>): string {
-  const total = Object.values(mix).reduce((a, b) => (typeof b === "number" ? a + b : a), 0);
-  if (total === 0) return "useful_info";
-  let random = Math.floor(Math.random() * total);
-  for (const [type, weight] of Object.entries(mix)) {
-    if (typeof weight !== "number") continue;
-    random -= weight;
-    if (random < 0) return type;
-  }
-  return "useful_info";
-}
-
-function isWithinScheduleWindow(start: string, end: string) {
-  const now = new Date();
-  const current = now.getHours() * 60 + now.getMinutes();
-  const partsS = start.split(":");
-  const partsE = end.split(":");
-  if (partsS.length !== 2 || partsE.length !== 2) return false;
-  const startTotal = Number(partsS[0]) * 60 + Number(partsS[1]);
-  const endTotal = Number(partsE[0]) * 60 + Number(partsE[1]);
-
-  if (startTotal <= endTotal) {
-    return current >= startTotal && current < endTotal;
-  }
-  return current >= startTotal || current < endTotal;
+function isPostingMode(value: unknown): value is PostingMode {
+  return (
+    value === "draft_only" ||
+    value === "prepare_only" ||
+    value === "review_required" ||
+    value === "scheduled" ||
+    value === "autopost"
+  );
 }
 
 const STALE_RUNNING_JOB_MS = 10 * 60 * 1000;
@@ -206,22 +248,13 @@ async function recoverStaleRunningJobs(repository: ZyquorRepository, accountId: 
   }
 }
 
-function sourcePacketIdea(packet: {
-  title: string;
-  url: string | null;
-  summary: string;
-  facts: string[];
-  sourceType: string;
-}) {
-  return [
-    `Source type: ${packet.sourceType}`,
-    `Title: ${packet.title}`,
-    packet.url ? `URL: ${packet.url}` : null,
-    `Summary: ${packet.summary}`,
-    packet.facts.length ? `Facts:\n${packet.facts.map((fact) => `- ${fact}`).join("\n")}` : null
-  ]
-    .filter(Boolean)
-    .join("\n");
+function createDefaultSourceAdapters(): SourceAdapter[] {
+  const crawlService = createCrawl4AiService();
+  return [createHackerNewsAdapter({ crawlService }), createRssAdapter()];
+}
+
+function adaptersBySourceType(adapters: SourceAdapter[]) {
+  return new Map(adapters.map((adapter) => [adapter.sourceType, adapter]));
 }
 
 function readSavedGenerationEnv(configPath: string | null): GenerationEnvironment {
@@ -243,8 +276,8 @@ function readSavedGenerationEnv(configPath: string | null): GenerationEnvironmen
 
     return {
       ZYQUOR_LLM_PROVIDER: provider,
-      ...(provider === "ollama" ? { ZYQUOR_OLLAMA_MODEL: model } : {}),
-      ...(provider === "gemini" ? { ZYQUOR_GEMINI_MODEL: model } : {})
+      ...(provider === "openrouter" ? { ZYQUOR_OPENROUTER_MODEL: model } : {}),
+      ...(provider === "ollama" ? { ZYQUOR_OLLAMA_MODEL: model } : {})
     };
   } catch (error) {
     const code = (error as { code?: unknown }).code;
@@ -326,10 +359,12 @@ async function postBrowserJob(repository: ZyquorRepository, options: BuildAppOpt
 
   try {
     const preparePost = options.preparePost ?? (await import("@zyquor/browser")).preparePost;
+    const mediaPaths = await mediaPathsForDraft(draftWithCandidates.draft);
     const result = await preparePost({
       profileDir: resolveProfileDir(account.profileDir),
       text: draftWithCandidates.draft.editedText,
       replyToUrl: draftWithCandidates.draft.replyToUrl ?? null,
+      ...(mediaPaths.length ? { mediaPaths } : {}),
       ...browserOptions(options),
       submit: true
     });
@@ -359,42 +394,10 @@ async function postBrowserJob(repository: ZyquorRepository, options: BuildAppOpt
   }
 }
 
-interface SourceItem {
-  title: string;
-  url: string;
-  content: string;
-}
-
-interface SourceAdapter {
-  fetch(sourceType: string): Promise<SourceItem[]>;
-}
-
-const mockAdapter: SourceAdapter = {
-  async fetch(sourceType) {
-    if (sourceType !== "news") return [];
-    return [
-      {
-        title: "TypeScript 6.0: The Future of Static Typing",
-        url: "https://dev.to/typescript/ts-6-preview",
-        content: "TypeScript 6.0 introduces higher-order type guards and improved recursive type inference. The beta is expected in late Q3 2026. This release focuses on developer productivity and large codebase performance."
-      },
-      {
-        title: "Playwright v2.0: Native Mobile Emulation",
-        url: "https://playwright.dev/blog/v2-roadmap",
-        content: "Playwright v2.0 is coming with a major focus on native mobile emulation. It will support multi-page debugging in a single trace and a unified API for cross-device testing."
-      },
-      {
-        title: "YC Hacker News: The Future of AI Agents",
-        url: "https://news.ycombinator.com/item?id=40000000",
-        content: "Hacker News discussion on the rise of autonomous agentic workflows. Many developers are shifting from simple chatbots to persistent, background-running agents that handle complex pipelines."
-      }
-    ];
-  }
-};
-
 export function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({ logger: true });
   const repositoryPromise = options.repository ? Promise.resolve(options.repository) : createLocalRepository();
+  const sourceAdapters = adaptersBySourceType(options.sourceAdapters ?? createDefaultSourceAdapters());
   const baseGenerationEnv = options.generationEnv ?? process.env;
   const generationConfigPath =
     options.generationConfigPath === undefined
@@ -455,8 +458,8 @@ export function buildApp(options: BuildAppOptions = {}) {
     const nextEnv: GenerationEnvironment = {
       ...generationEnv,
       ZYQUOR_LLM_PROVIDER: input.provider,
-      ...(input.provider === "ollama" ? { ZYQUOR_OLLAMA_MODEL: input.model } : {}),
-      ...(input.provider === "gemini" ? { ZYQUOR_GEMINI_MODEL: input.model } : {})
+      ...(input.provider === "openrouter" ? { ZYQUOR_OPENROUTER_MODEL: input.model } : {}),
+      ...(input.provider === "ollama" ? { ZYQUOR_OLLAMA_MODEL: input.model } : {})
     };
     const nextProvider = options.generationProvider ?? createGenerationProviderFromEnv(nextEnv);
     generationEnv = nextEnv;
@@ -552,29 +555,13 @@ export function buildApp(options: BuildAppOptions = {}) {
       return reply.code(404).send({ error: "Source packet not found" });
     }
 
-    const context = await generationContext(repository, packet.accountId);
-    const candidates = await generationProvider.generateDraftCandidates({
-      idea: sourcePacketIdea(packet),
-      count: 3,
-      ...context,
-      tweetType: packet.tweetType
+    const draft = await draftFromSourcePacket({
+      generationProvider,
+      packet,
+      repository
     });
-    const draft = await repository.createDraft({
-      accountId: packet.accountId,
-      sourceInput: sourcePacketIdea(packet),
-      candidates: candidates.map((candidate) => ({
-        text: candidate.text,
-        score: {
-          ...candidate.score,
-          sourcePacketId: packet.id,
-          sourceType: packet.sourceType,
-          tweetType: packet.tweetType
-        }
-      }))
-    });
-    const updatedPacket = await repository.markSourcePacketDrafted(packet.id);
 
-    return reply.code(201).send({ ...draft, packet: updatedPacket });
+    return reply.code(201).send(draft);
   });
 
   app.get("/ingest-configs", async (request) => {
@@ -584,6 +571,13 @@ export function buildApp(options: BuildAppOptions = {}) {
     };
   });
 
+  app.get("/ingest-sources", async () => ({
+    sources: [...sourceAdapters.values()].map((adapter) => ({
+      name: adapter.name,
+      sourceType: adapter.sourceType
+    }))
+  }));
+
   app.post("/ingest-configs", async (request, reply) => {
     const input = createIngestConfigRequestSchema.parse(request.body);
     const repository = await repositoryPromise;
@@ -591,6 +585,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       accountId: input.accountId,
       sourceType: input.sourceType,
       maxPacketsPerDay: input.maxPacketsPerDay,
+      metadata: input.metadata,
       tweetTypeMix: input.tweetTypeMix,
       scheduleWindowStart: input.scheduleWindowStart,
       scheduleWindowEnd: input.scheduleWindowEnd,
@@ -633,93 +628,17 @@ export function buildApp(options: BuildAppOptions = {}) {
 
   app.post("/ingest-run", async (request, reply) => {
     const repository = await repositoryPromise;
-    const configs = await repository.listIngestConfigs();
-    const enabled = configs.filter((c) => c.enabled);
-    const results = [];
-    const today = new Date().toISOString().slice(0, 10);
+    const result = await runAutomaticIngest({
+      adapters: sourceAdapters,
+      generationProvider,
+      repository
+    });
 
-    for (const config of enabled) {
-      try {
-        if (!isWithinScheduleWindow(config.scheduleWindowStart, config.scheduleWindowEnd)) {
-          continue;
-        }
-
-        const packets = await repository.listSourcePackets(config.accountId);
-        const todayPackets = packets.filter((p) => p.sourceType === config.sourceType && p.createdAt.startsWith(today));
-        if (todayPackets.length >= config.maxPacketsPerDay) {
-          continue;
-        }
-
-        // Fetch from adapter
-        const items = await mockAdapter.fetch(config.sourceType);
-
-        for (const item of items) {
-          // Deduplication: check if URL already exists for this account
-          const existing = await repository.getSourcePacketByUrl(item.url, config.accountId);
-          if (existing) {
-            continue;
-          }
-
-          // Distill item into SourcePacket using LLM
-          const context = await generationContext(repository, config.accountId);
-          const distillation = await generationProvider.generateDraftCandidates({
-            idea: `Distill this article into a SourcePacket with summary and key facts.\n\nTitle: ${item.title}\nURL: ${item.url}\nContent: ${item.content}`,
-            count: 1,
-            ...context,
-            tweetType: pickTweetType(config.tweetTypeMix)
-          });
-
-          const distilledText = distillation[0]?.text;
-          if (!distilledText) continue;
-
-          // Simple parsing of distilled text - production version would use structured output
-          const summary = distilledText.split("\n")[0] || item.title;
-          const facts = distilledText.split("\n").slice(1).filter(f => f.startsWith("-")).map(f => f.replace("- ", "")) || [];
-
-          const packet = await repository.createSourcePacket({
-            accountId: config.accountId,
-            facts: facts.length ? facts : [summary],
-            sourceType: config.sourceType as any,
-            summary,
-            title: item.title,
-            tweetType: pickTweetType(config.tweetTypeMix) as any,
-            url: item.url
-          });
-
-          // Generate draft and approve
-          const draftCandidates = await generationProvider.generateDraftCandidates({
-            idea: sourcePacketIdea(packet),
-            count: 1,
-            ...context,
-            tweetType: packet.tweetType
-          });
-
-          const selectedText = draftCandidates[0]?.text;
-          if (selectedText) {
-            const approved = await repository.approveDraft({
-              draftId: (await repository.createDraft({
-                accountId: packet.accountId,
-                sourceInput: sourcePacketIdea(packet),
-                candidates: draftCandidates.map(c => ({
-                  text: c.text,
-                  score: { ...c.score, sourcePacketId: packet.id, sourceType: packet.sourceType, tweetType: packet.tweetType }
-                }))
-              })).draft.id,
-              editedText: selectedText,
-              mode: "autopost"
-            });
-            await repository.markSourcePacketDrafted(packet.id);
-            results.push({ configId: config.id, packetId: packet.id, jobId: approved.job.id });
-
-            // results.push({ configId: config.id, packetId: packet.id, jobId: approved.job.id });
-          }
-        }
-      } catch (error) {
-        app.log.error(`Ingest run failed for config ${config.id}: ${error instanceof Error ? error.message : error}`);
-      }
+    for (const error of result.errors) {
+      app.log.error(`Ingest run failed for config ${error.configId}: ${error.error}`);
     }
 
-    return { processed: results.length, results };
+    return result;
   });
 
   app.get("/style-profiles/:id", async (request, reply) => {
@@ -787,11 +706,11 @@ export function buildApp(options: BuildAppOptions = {}) {
     if (metadata.yolo) {
       const selectedText = updated.candidates[0]?.text;
       if (selectedText) {
-        const mode = metadata.autopost ? "autopost" : (metadata.mode as string | undefined || "prepare_only");
+        const mode = metadata.autopost ? "autopost" : isPostingMode(metadata.mode) ? metadata.mode : "prepare_only";
         const approved = await repository.approveDraft({
           draftId: draft.id,
           editedText: selectedText,
-          mode: mode as any,
+          mode,
           replyToUrl: draft.replyToUrl ?? null,
           scheduledFor: (metadata.scheduleStart as string | null | undefined) ?? null
         });
@@ -1057,10 +976,12 @@ export function buildApp(options: BuildAppOptions = {}) {
 
     try {
       const preparePost = options.preparePost ?? (await import("@zyquor/browser")).preparePost;
+      const mediaPaths = await mediaPathsForDraft(draftWithCandidates.draft);
       await preparePost({
         profileDir: resolveProfileDir(account.profileDir),
         text: draftWithCandidates.draft.editedText,
         replyToUrl: draftWithCandidates.draft.replyToUrl ?? null,
+        ...(mediaPaths.length ? { mediaPaths } : {}),
         ...browserOptions(options),
         closeAfterPrepare: options.closeAfterPrepare ?? true
       });

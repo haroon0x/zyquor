@@ -76,6 +76,7 @@ export interface ZyquorRepository {
     accountId: string;
     sourceType: SourcePacket["sourceType"];
     maxPacketsPerDay: number;
+    metadata?: Record<string, unknown>;
     tweetTypeMix: Record<string, number>;
     scheduleWindowStart: string;
     scheduleWindowEnd: string;
@@ -105,6 +106,7 @@ export interface RepositorySnapshot {
   attempts: PostAttempt[];
   history: PostHistory[];
   fingerprints: ContentFingerprint[];
+  ingestConfigs: IngestConfig[];
   sourcePackets: SourcePacket[];
   styleProfiles: StyleProfile[];
   sequence: number;

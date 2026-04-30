@@ -75,7 +75,7 @@ for (const [index, text] of candidates.entries()) {
   db.prepare(
     `INSERT INTO draft_candidates (id, draft_id, text, score_json, selected, created_at)
      VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(`candidate_${randomUUID()}`, draftId, text, JSON.stringify({ provider: "mock", rank: index + 1 }), index === 0 ? 1 : 0, draftCreatedAt);
+  ).run(`candidate_${randomUUID()}`, draftId, text, JSON.stringify({ provider: "seed", rank: index + 1 }), index === 0 ? 1 : 0, draftCreatedAt);
 }
 db.exec("COMMIT");
 

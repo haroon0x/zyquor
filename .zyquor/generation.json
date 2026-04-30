@@ -1,4 +1,4 @@
 {
-  "provider": "gemini",
-  "model": "gemma-4-31b-it"
+  "provider": "openrouter",
+  "model": "nvidia/nemotron-3-super-120b-a12b:free"
 }

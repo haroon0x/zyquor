@@ -131,6 +131,7 @@ export function toIngestConfig(row: Record<string, unknown>): IngestConfig {
     accountId: String(row.account_id),
     sourceType: row.source_type as SourceType,
     maxPacketsPerDay: Number(row.max_packets_per_day),
+    metadata: JSON.parse(String(row.metadata_json || "{}")) as Record<string, unknown>,
     tweetTypeMix: JSON.parse(String(row.tweet_type_mix_json)) as Record<string, number>,
     scheduleWindowStart: String(row.schedule_window_start),
     scheduleWindowEnd: String(row.schedule_window_end),

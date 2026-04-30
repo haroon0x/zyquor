@@ -26,6 +26,12 @@ importers:
       '@zyquor/accounts':
         specifier: workspace:*
         version: link:../../packages/accounts
+      '@zyquor/adapters':
+        specifier: workspace:*
+        version: link:../../packages/adapters
+      '@zyquor/automation':
+        specifier: workspace:*
+        version: link:../../packages/automation
       '@zyquor/browser':
         specifier: workspace:*
         version: link:../../packages/browser
@@ -44,10 +50,6 @@ importers:
       zod:
         specifier: ^3.24.1
         version: 3.25.76
-    devDependencies:
-      tsx:
-        specifier: ^4.19.2
-        version: 4.21.0
 
   apps/web:
     dependencies:
@@ -76,16 +78,29 @@ importers:
       '@zyquor/core':
         specifier: workspace:*
         version: link:../../packages/core
-    devDependencies:
-      tsx:
-        specifier: ^4.19.2
-        version: 4.21.0
 
   packages/accounts:
     dependencies:
       '@zyquor/core':
         specifier: workspace:*
         version: link:../core
+
+  packages/adapters: {}
+
+  packages/automation:
+    dependencies:
+      '@zyquor/adapters':
+        specifier: workspace:*
+        version: link:../adapters
+      '@zyquor/core':
+        specifier: workspace:*
+        version: link:../core
+      '@zyquor/generation':
+        specifier: workspace:*
+        version: link:../generation
+      '@zyquor/storage':
+        specifier: workspace:*
+        version: link:../storage
 
   packages/browser:
     dependencies:
@@ -2105,6 +2120,7 @@ snapshots:
       '@esbuild/win32-arm64': 0.27.7
       '@esbuild/win32-ia32': 0.27.7
       '@esbuild/win32-x64': 0.27.7
+    optional: true
 
   escalade@3.2.0: {}
 
@@ -2178,6 +2194,7 @@ snapshots:
   get-tsconfig@4.14.0:
     dependencies:
       resolve-pkg-maps: 1.0.0
+    optional: true
 
   ipaddr.js@2.3.0: {}
 
@@ -2284,7 +2301,8 @@ snapshots:
 
   require-from-string@2.0.2: {}
 
-  resolve-pkg-maps@1.0.0: {}
+  resolve-pkg-maps@1.0.0:
+    optional: true
 
   ret@0.5.0: {}
 
@@ -2380,6 +2398,7 @@ snapshots:
       get-tsconfig: 4.14.0
     optionalDependencies:
       fsevents: 2.3.3
+    optional: true
 
   typescript@5.9.3: {}
 

@@ -71,7 +71,9 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
   const sourcePackets = new Map<string, SourcePacket>(
     (options.snapshot?.sourcePackets ?? []).map((packet) => [packet.id, packet])
   );
-  const ingestConfigs = new Map<string, IngestConfig>();
+  const ingestConfigs = new Map<string, IngestConfig>(
+    (options.snapshot?.ingestConfigs ?? []).map((config) => [config.id, config])
+  );
   let sequence = options.snapshot?.sequence ?? 0;
 
   function snapshot(): RepositorySnapshot {
@@ -83,6 +85,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       attempts: [...attempts.values()],
       history: [...history.values()],
       fingerprints: [...fingerprints.values()],
+      ingestConfigs: [...ingestConfigs.values()],
       sourcePackets: [...sourcePackets.values()],
       styleProfiles: [...styleProfiles.values()],
       sequence
@@ -464,6 +467,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
         accountId: input.accountId,
         sourceType: input.sourceType,
         maxPacketsPerDay: input.maxPacketsPerDay,
+        metadata: input.metadata ?? {},
         tweetTypeMix: input.tweetTypeMix,
         scheduleWindowStart: input.scheduleWindowStart,
         scheduleWindowEnd: input.scheduleWindowEnd,

@@ -33,9 +33,8 @@ export const SOURCE_TYPES = [
 ] as const;
 
 export const LLM_PROVIDERS = [
-  "mock",
-  "ollama",
-  "gemini"
+  "openrouter",
+  "ollama"
 ] as const;
 
 export const DRAFT_STATUSES = [
@@ -217,6 +216,7 @@ export const ingestConfigSchema = z.object({
   accountId: idSchema,
   sourceType: z.enum(SOURCE_TYPES),
   maxPacketsPerDay: z.number().int().min(1).max(100),
+  metadata: z.record(z.unknown()).default({}),
   tweetTypeMix: z.record(z.enum(TWEET_TYPES), z.number().int().min(0).max(100)),
   scheduleWindowStart: z.string().regex(/^\d{2}:\d{2}$/),
   scheduleWindowEnd: z.string().regex(/^\d{2}:\d{2}$/),
@@ -229,6 +229,7 @@ export const createIngestConfigRequestSchema = z.object({
   accountId: idSchema,
   sourceType: z.enum(SOURCE_TYPES),
   maxPacketsPerDay: z.number().int().min(1).max(100).default(5),
+  metadata: z.record(z.unknown()).default({}),
   tweetTypeMix: z.record(z.enum(TWEET_TYPES), z.number().int().min(0).max(100)).default({}),
   scheduleWindowStart: z.string().regex(/^\d{2}:\d{2}$/).default("09:00"),
   scheduleWindowEnd: z.string().regex(/^\d{2}:\d{2}$/).default("21:00"),
@@ -237,6 +238,7 @@ export const createIngestConfigRequestSchema = z.object({
 
 export const updateIngestConfigRequestSchema = z.object({
   maxPacketsPerDay: z.number().int().min(1).max(100).optional(),
+  metadata: z.record(z.unknown()).optional(),
   tweetTypeMix: z.record(z.enum(TWEET_TYPES), z.number().int().min(0).max(100)).optional(),
   scheduleWindowStart: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   scheduleWindowEnd: z.string().regex(/^\d{2}:\d{2}$/).optional(),

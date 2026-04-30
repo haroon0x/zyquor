@@ -15,7 +15,8 @@ idea -> LLM draft candidates -> review/edit -> approved job -> dedicated Chrome 
 - `apps/worker`: background worker entrypoint.
 - `packages/core`: shared domain types, Zod schemas, lifecycle transitions.
 - `packages/accounts`: account config helpers.
-- `packages/generation`: mock, Ollama, and Gemini draft generation providers.
+- `packages/adapters`: source ingestion and crawl service adapters.
+- `packages/generation`: OpenRouter, Ollama, and Gemini draft generation providers.
 - `packages/storage`: SQLite/Drizzle persistence surface.
 - `packages/browser`: Playwright prepare/post flow.
 - `packages/voice`: future voice input package.
@@ -32,6 +33,7 @@ pnpm smoke
 pnpm dev:api
 pnpm dev:web
 pnpm dev:worker
+pnpm dev:crawl4ai
 pnpm check
 pnpm test
 pnpm build
@@ -45,6 +47,8 @@ pnpm dev:web
 ```
 
 The API reads `.env` from the repo root. The web UI uses `ZYQUOR_API_URL`, defaulting to `http://127.0.0.1:3000`.
+
+`pnpm dev:crawl4ai` starts the optional local Crawl4AI REST service from `services/crawl4ai`; source adapters use it through `CRAWL4AI_API_URL`, defaulting to `http://127.0.0.1:11235/crawl`.
 
 ## One-command start
 
@@ -87,15 +91,30 @@ If you want bare `zyquor` instead of `./zyquor`, install/link the repo command o
 
 ## Draft Generation
 
-Default provider is `mock`, so dev and tests work offline.
+Default provider selection is `auto`: OpenRouter first when configured, then Ollama.
 
-Create a local `.env` before using non-mock providers:
+Create a local `.env` before running generation:
 
 ```bash
 cp .env.example .env
 ```
 
-Use local Ollama:
+Use OpenRouter for best tweet quality:
+
+```bash
+cp .env.example .env
+# edit .env:
+# ZYQUOR_LLM_PROVIDER=openrouter
+# ZYQUOR_OPENROUTER_API_KEY=...
+# Allowed free OpenRouter models:
+# nvidia/nemotron-3-super-120b-a12b:free
+# minimax/minimax-m2.5:free
+# tencent/hy3-preview:free
+# ZYQUOR_OPENROUTER_MODEL=nvidia/nemotron-3-super-120b-a12b:free
+pnpm dev:api
+```
+
+Use local Ollama fallback:
 
 ```bash
 ollama serve
@@ -111,26 +130,6 @@ ollama pull tinyllama
 ZYQUOR_LLM_PROVIDER=ollama ZYQUOR_OLLAMA_MODEL=tinyllama pnpm smoke:generation
 ```
 
-Use Gemini:
-
-```bash
-cp .env.example .env
-# edit .env:
-# ZYQUOR_LLM_PROVIDER=gemini
-# ZYQUOR_GEMINI_API_KEY=...
-# ZYQUOR_GEMINI_MODEL=gemini-2.5-flash
-pnpm dev:api
-```
-
-Gemini smoke using `.env`:
-
-```bash
-# .env must include:
-# ZYQUOR_LLM_PROVIDER=gemini
-# ZYQUOR_GEMINI_API_KEY=your_key_here
-pnpm smoke:generation
-```
-
 Check active provider:
 
 ```bash
@@ -141,8 +140,14 @@ Smoke-test selected provider:
 
 ```bash
 pnpm smoke:generation
+ZYQUOR_LLM_PROVIDER=openrouter ZYQUOR_OPENROUTER_API_KEY=... pnpm smoke:generation
 ZYQUOR_LLM_PROVIDER=ollama pnpm smoke:generation
-ZYQUOR_LLM_PROVIDER=gemini ZYQUOR_GEMINI_API_KEY=... pnpm smoke:generation
+```
+
+Run the tweet quality harness against the active provider:
+
+```bash
+pnpm harness:tweets
 ```
 
 ## Safety Defaults

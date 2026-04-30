@@ -9,10 +9,19 @@ data/*.sqlite
 data/*.sqlite-*
 data/*.json
 data/artifacts/
+data/media/
+data/*.sqlite
+data/*.sqlite-*
 apps/*/data/*.sqlite
 apps/*/data/*.sqlite-*
 apps/*/data/*.json
+apps/*/data/artifacts/
 profiles/
+scratch/
+services/*/.venv/
+__pycache__/
+*.pyc
+*.timestamp-*.mjs
 
 playwright-report/
 test-results/

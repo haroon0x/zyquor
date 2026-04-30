@@ -162,6 +162,7 @@ CREATE TABLE IF NOT EXISTS ingest_configs (
   account_id TEXT NOT NULL REFERENCES accounts(id),
   source_type TEXT NOT NULL,
   max_packets_per_day INTEGER NOT NULL,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
   tweet_type_mix_json TEXT NOT NULL,
   schedule_window_start TEXT NOT NULL,
   schedule_window_end TEXT NOT NULL,
@@ -193,6 +194,10 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
 
   db.exec("PRAGMA foreign_keys = ON");
   db.exec(sqliteSchema);
+  const ingestColumns = rows(db.prepare("PRAGMA table_info(ingest_configs)").all());
+  if (!ingestColumns.some((column) => column.name === "metadata_json")) {
+    db.exec("ALTER TABLE ingest_configs ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'");
+  }
 
   const styleCount = row(db.prepare("SELECT COUNT(*) AS count FROM style_profiles").get());
   if (Number(styleCount?.count ?? 0) === 0) {
@@ -754,6 +759,7 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
         accountId: input.accountId,
         sourceType: input.sourceType,
         maxPacketsPerDay: input.maxPacketsPerDay,
+        metadata: input.metadata ?? {},
         tweetTypeMix: input.tweetTypeMix,
         scheduleWindowStart: input.scheduleWindowStart,
         scheduleWindowEnd: input.scheduleWindowEnd,
@@ -762,11 +768,11 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
         updatedAt: nowStr
       };
       db.prepare(
-        `INSERT INTO ingest_configs (id, account_id, source_type, max_packets_per_day, tweet_type_mix_json, schedule_window_start, schedule_window_end, enabled, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO ingest_configs (id, account_id, source_type, max_packets_per_day, metadata_json, tweet_type_mix_json, schedule_window_start, schedule_window_end, enabled, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         config.id, config.accountId, config.sourceType, config.maxPacketsPerDay,
-        JSON.stringify(config.tweetTypeMix), config.scheduleWindowStart, config.scheduleWindowEnd,
+        JSON.stringify(config.metadata), JSON.stringify(config.tweetTypeMix), config.scheduleWindowStart, config.scheduleWindowEnd,
         config.enabled ? 1 : 0, config.createdAt, config.updatedAt
       );
       return config;
@@ -799,10 +805,10 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
         updatedAt: now()
       };
       db.prepare(
-        `UPDATE ingest_configs SET max_packets_per_day = ?, tweet_type_mix_json = ?, schedule_window_start = ?, schedule_window_end = ?, enabled = ?, updated_at = ?
+        `UPDATE ingest_configs SET max_packets_per_day = ?, metadata_json = ?, tweet_type_mix_json = ?, schedule_window_start = ?, schedule_window_end = ?, enabled = ?, updated_at = ?
          WHERE id = ?`
       ).run(
-        updated.maxPacketsPerDay, JSON.stringify(updated.tweetTypeMix),
+        updated.maxPacketsPerDay, JSON.stringify(updated.metadata), JSON.stringify(updated.tweetTypeMix),
         updated.scheduleWindowStart, updated.scheduleWindowEnd,
         updated.enabled ? 1 : 0, updated.updatedAt, id
       );
