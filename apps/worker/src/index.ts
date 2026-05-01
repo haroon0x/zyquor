@@ -103,12 +103,21 @@ export async function processApprovedJobs(options: WorkerOptions) {
     );
   });
 
+  let processed = 0;
   for (const job of approvedJobs) {
     const action = job.mode === "autopost" ? "post" : "prepare";
-    await api(options.apiUrl, `/jobs/${job.id}/${action}`, { method: "POST" });
+    try {
+      await api(options.apiUrl, `/jobs/${job.id}/${action}`, { method: "POST" });
+      processed += 1;
+    } catch (error) {
+      console.error(
+        `Failed to ${action} job ${job.id}:`,
+        error instanceof Error ? error.message : error
+      );
+    }
   }
 
-  return approvedJobs.length;
+  return processed;
 }
 
 export async function processPendingDrafts(options: WorkerOptions) {

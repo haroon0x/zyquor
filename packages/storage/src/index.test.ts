@@ -115,5 +115,47 @@ describe("repository workflow", () => {
     await expect(repository.getSourcePacket(packet.id)).resolves.toMatchObject({ title: "AI infrastructure funding" });
     await expect(repository.listSourcePackets("account_personal")).resolves.toHaveLength(1);
     await expect(repository.markSourcePacketDrafted(packet.id)).resolves.toMatchObject({ status: "drafted" });
+    await expect(repository.deleteSourcePacket(packet.id)).resolves.toMatchObject({ id: packet.id });
+    await expect(repository.listSourcePackets("account_personal")).resolves.toHaveLength(0);
+  });
+
+  it("deletes source-generated drafts and resets source packet status", async () => {
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z"
+    });
+    const packet = await repository.createSourcePacket({
+      accountId: "account_personal",
+      facts: ["Science funding is moving toward applied energy work."],
+      sourceType: "news",
+      summary: "Battery research could affect energy markets.",
+      title: "Battery research funding",
+      tweetType: "news_context",
+      url: "https://example.com/battery"
+    });
+    const created = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "Battery research funding",
+      candidates: [
+        {
+          text: "Battery research is becoming an energy markets story.",
+          score: { sourcePacketId: packet.id }
+        }
+      ]
+    });
+    await repository.markSourcePacketDrafted(packet.id);
+    await repository.approveDraft({
+      draftId: created.draft.id,
+      editedText: "Battery research is becoming an energy markets story."
+    });
+
+    await expect(repository.getDraftBySourcePacketId(packet.id)).resolves.toMatchObject({
+      draft: { id: created.draft.id }
+    });
+    await expect(repository.deleteDraft(created.draft.id)).resolves.toMatchObject({
+      draft: { id: created.draft.id }
+    });
+    await expect(repository.resetSourcePacket(packet.id)).resolves.toMatchObject({ status: "new" });
+    await expect(repository.getDraft(created.draft.id)).resolves.toBeNull();
+    await expect(repository.listJobs()).resolves.toHaveLength(0);
   });
 });

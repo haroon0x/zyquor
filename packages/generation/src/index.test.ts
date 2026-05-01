@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  createGeminiGenerationProvider,
   createOllamaGenerationProvider,
   createOpenRouterGenerationProvider,
+  GENERATION_MODEL_OPTIONS,
   isCleanTweetText,
   resolveGenerationProviderConfig,
   buildSourceTweetInput,
@@ -155,10 +157,55 @@ describe("openrouter generation", () => {
   });
 });
 
+describe("gemini generation", () => {
+  it("posts JSON generation request to Gemini with selected model", async () => {
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const fetchImpl: FetchLike = async (url, init) => {
+      calls.push({ url: String(url), init });
+      return jsonResponse({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify({
+                    candidates: [{ text: "A clean Gemini draft." }]
+                  })
+                }
+              ]
+            }
+          }
+        ]
+      });
+    };
+    const provider = createGeminiGenerationProvider({
+      apiKey: "gemini-key",
+      model: "gemini-2.0-flash",
+      fetch: fetchImpl
+    });
+
+    const candidates = await provider.generateDraftCandidates({ idea: "Make it better.", count: 1 });
+    const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
+
+    expect(calls[0]?.url).toBe(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=gemini-key"
+    );
+    expect(body).toMatchObject({
+      generationConfig: {
+        responseMimeType: "application/json"
+      }
+    });
+    expect(candidates).toEqual([
+      { text: "A clean Gemini draft.", score: { provider: "gemini", model: "gemini-2.0-flash", rank: 1 } }
+    ]);
+  });
+});
+
 describe("tweet quality harness", () => {
   it("rejects internal leakage and incomplete text", () => {
     expect(isCleanTweetText("Zed 1.0 is available. SourcePackets make it easier to review.")).toBe(false);
     expect(isCleanTweetText("Noctua released CAD models for its fans,")).toBe(false);
+    expect(isCleanTweetText("This release is a game changer for developers.")).toBe(false);
     expect(isCleanTweetText("Noctua released official fan CAD models so builders can verify fit before buying.")).toBe(true);
   });
 
@@ -169,10 +216,13 @@ describe("tweet quality harness", () => {
       title: "Automatic posting worker ships",
       url: "https://news.ycombinator.com/item?id=1",
       sourceName: "hackernews",
+      sourceType: "news",
       topicTags: ["ai", "devtools"]
     });
 
     expect(input.idea).toContain("News headline: Automatic posting worker ships");
+    expect(input.idea).toContain("Include the source URL only if it makes the post more useful or credible.");
+    expect(renderSourceContext(input.source)).toContain("Source type: news");
     expect(renderSourceContext(input.source)).toContain("Topic tags: ai, devtools");
     expect(renderSourceContext(input.source)).toContain("Grounded facts:");
   });
@@ -247,5 +297,24 @@ describe("generation config", () => {
       model: "tencent/hy3-preview:free",
       configured: true
     });
+
+    expect(
+      resolveGenerationProviderConfig({
+        ZYQUOR_LLM_PROVIDER: "openrouter",
+        ZYQUOR_OPENROUTER_API_KEY: "test-key",
+        ZYQUOR_OPENROUTER_MODEL: "inclusionai/ling-2.6-1t:free"
+      })
+    ).toMatchObject({
+      provider: "openrouter",
+      model: "inclusionai/ling-2.6-1t:free",
+      configured: true
+    });
+  });
+
+  it("exposes provider-specific model dropdown options", () => {
+    expect(GENERATION_MODEL_OPTIONS.openrouter).toContain("minimax/minimax-m2.5:free");
+    expect(GENERATION_MODEL_OPTIONS.openrouter).toContain("inclusionai/ling-2.6-1t:free");
+    expect(GENERATION_MODEL_OPTIONS.gemini).toContain("gemini-2.0-flash");
+    expect(GENERATION_MODEL_OPTIONS.ollama).toContain("llama3.1");
   });
 });

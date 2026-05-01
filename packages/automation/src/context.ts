@@ -26,11 +26,11 @@ export async function accountGenerationContext(
   };
 }
 
-export function articleTweetIdea(packet: Pick<SourcePacket, "facts" | "summary" | "title" | "url">) {
+export function articleTweetIdea(packet: Pick<SourcePacket, "facts" | "sourceType" | "summary" | "title" | "url">) {
   return buildSourceTweetInput(packet).idea;
 }
 
-export function sourceTweetInput(packet: Pick<SourcePacket, "facts" | "summary" | "title" | "url">) {
+export function sourceTweetInput(packet: Pick<SourcePacket, "facts" | "sourceType" | "summary" | "title" | "url">) {
   return buildSourceTweetInput(packet);
 }
 

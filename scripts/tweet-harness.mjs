@@ -25,6 +25,18 @@ const cases = [
     idea:
       "News headline: Zed 1.0 is available. Known summary: the editor reached a stable release after years of work on collaboration, speed, and native performance. Verified facts: release milestone; developer workflow impact.",
     tweetType: "feed_observation"
+  },
+  {
+    name: "science-research",
+    idea:
+      "News headline: Battery researchers published a paper on cheaper sodium-ion storage. Known summary: lower-cost storage could matter for grid-scale energy projects if durability holds up. Verified facts: sodium-ion chemistry; grid storage angle; durability remains the key caveat.",
+    tweetType: "news_context"
+  },
+  {
+    name: "economy-markets",
+    idea:
+      "News headline: Central bank officials signaled rates may stay higher for longer. Known summary: markets are repricing growth stocks and debt-heavy startups. Verified facts: rate expectations changed; financing costs matter for operators and investors.",
+    tweetType: "news_context"
   }
 ];
 

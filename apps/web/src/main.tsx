@@ -60,6 +60,13 @@ interface GenerationConfig {
   baseUrl?: string;
 }
 
+type GenerationModelOptions = Record<string, string[]>;
+
+interface GenerationResponse {
+  generation: GenerationConfig;
+  providers: GenerationModelOptions;
+}
+
 interface BrowserSession {
   accountId: string;
   cdpUrl: string | null;
@@ -123,6 +130,23 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+const PROVIDER_LABELS: Record<string, string> = {
+  gemini: "Gemini",
+  ollama: "Ollama",
+  openrouter: "OpenRouter"
+};
+
+function providerLabel(provider: string) {
+  return PROVIDER_LABELS[provider] ?? provider;
+}
+
+function liveModelLabel(generation: GenerationConfig | null) {
+  if (!generation) {
+    return "Model unavailable";
+  }
+  return `${providerLabel(generation.provider)} / ${generation.model}`;
+}
+
 function App() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [activeAccountId, setActiveAccountId] = useState("account_personal");
@@ -138,6 +162,7 @@ function App() {
   const [attemptsByJob, setAttemptsByJob] = useState<Record<string, Attempt[]>>({});
   const [browserSession, setBrowserSession] = useState<BrowserSession | null>(null);
   const [generation, setGeneration] = useState<GenerationConfig | null>(null);
+  const [generationModelOptions, setGenerationModelOptions] = useState<GenerationModelOptions>({});
   const [generationDraft, setGenerationDraft] = useState({ model: "", provider: "openrouter" });
   const [sourcePackets, setSourcePackets] = useState<SourcePacket[]>([]);
   const [ingestConfigs, setIngestConfigs] = useState<IngestConfig[]>([]);
@@ -176,10 +201,11 @@ function App() {
   async function refresh() {
     const requestId = refreshRequestIdRef.current + 1;
     refreshRequestIdRef.current = requestId;
-    const [{ accounts: loadedAccounts }, { generation: loadedGeneration }] = await Promise.all([
+    const [{ accounts: loadedAccounts }, generationResponse] = await Promise.all([
       api<{ accounts: Account[] }>("/accounts"),
-      api<{ generation: GenerationConfig }>("/generation")
+      api<GenerationResponse>("/generation")
     ]);
+    const loadedGeneration = generationResponse.generation;
     const nextActiveAccount = loadedAccounts.find((account) => account.id === activeAccountId) ?? loadedAccounts[0] ?? null;
     const nextActiveAccountId = nextActiveAccount?.id ?? activeAccountId;
     const [{ jobs: loadedJobs }, { packets: loadedSourcePackets }, { configs: loadedIngestConfigs }] = await Promise.all([
@@ -201,6 +227,7 @@ function App() {
     setAccounts(loadedAccounts);
     setJobs(loadedJobs);
     setGeneration(loadedGeneration);
+    setGenerationModelOptions(generationResponse.providers ?? {});
     setGenerationDraft({ model: loadedGeneration.model, provider: loadedGeneration.provider });
     setSourcePackets(loadedSourcePackets);
     setIngestConfigs(loadedIngestConfigs);
@@ -484,14 +511,16 @@ function App() {
 
   function saveGenerationConfig() {
     run(async () => {
-      const { generation: savedGeneration } = await api<{ generation: GenerationConfig }>("/generation", {
+      const response = await api<GenerationResponse>("/generation", {
         method: "PATCH",
         body: JSON.stringify({
           model: generationDraft.model.trim(),
           provider: generationDraft.provider
         })
       });
+      const savedGeneration = response.generation;
       setGeneration(savedGeneration);
+      setGenerationModelOptions(response.providers ?? generationModelOptions);
       setGenerationDraft({ model: savedGeneration.model, provider: savedGeneration.provider });
     });
   }
@@ -596,6 +625,28 @@ function App() {
     });
   }
 
+  function deleteDraftFromSourcePacket(packet: SourcePacket) {
+    run(async () => {
+      if (packet.status === "drafted" && window.confirm("Delete generated draft and reset this source?")) {
+        await api(`/source-packets/${packet.id}/draft`, { method: "DELETE" });
+        setDraft(null);
+        setEditedText("");
+        await refresh();
+      }
+    });
+  }
+
+  function deleteAllSources() {
+    run(async () => {
+      if (sourcePackets.length > 0 && window.confirm("Delete all sources for this account? Non-posted source drafts will be removed too.")) {
+        await api(`/source-packets?accountId=${encodeURIComponent(activeAccountId)}`, { method: "DELETE" });
+        setDraft(null);
+        setEditedText("");
+        await refresh();
+      }
+    });
+  }
+
   const activeAccount = accounts.find((account) => account.id === activeAccountId);
   const accountJobs = jobs.filter((job) => job.accountId === activeAccountId);
   const nowMs = Date.now();
@@ -632,6 +683,11 @@ function App() {
     }
     return Date.parse(job.scheduledFor) <= nowMs;
   });
+  const providerOptions = Object.keys(generationModelOptions).length
+    ? Object.keys(generationModelOptions)
+    : ["openrouter", "gemini", "ollama"];
+  const selectedProviderModels = generationModelOptions[generationDraft.provider] ?? [];
+  const selectedProviderHasModel = selectedProviderModels.includes(generationDraft.model);
 
   return (
     <main className="shell">
@@ -671,7 +727,7 @@ function App() {
           <span>@{activeAccount.handle}</span>
           {generation ? (
             <span className={generation.configured ? "provider-pill" : "provider-pill failed"}>
-              {generation.provider}:{generation.model}
+              Live model: {liveModelLabel(generation)}
             </span>
           ) : null}
           {browserSession ? (
@@ -710,7 +766,7 @@ function App() {
               value={automationDraft.sourceType}
               onChange={(event) => setAutomationDraft({ ...automationDraft, sourceType: event.target.value })}
             >
-              <option value="news">Hacker News top stories</option>
+              <option value="news">Aggregated tech/news</option>
               <option value="feed">RSS feed URL</option>
             </select>
           </label>
@@ -743,7 +799,7 @@ function App() {
             Daily max
             <input
               min="1"
-              max="20"
+              max="300"
               type="number"
               value={automationDraft.maxPacketsPerDay}
               onChange={(event) => setAutomationDraft({ ...automationDraft, maxPacketsPerDay: Number(event.target.value) })}
@@ -892,7 +948,12 @@ function App() {
       <section className="panel source-packets">
         <div className="panel-head">
           <h2>Sources</h2>
-          <span>{sourcePackets.length}</span>
+          <div className="panel-head-actions">
+            <span>{sourcePackets.length}</span>
+            <button className="secondary danger compact-button" disabled={busy || sourcePackets.length === 0} onClick={deleteAllSources}>
+              Delete all
+            </button>
+          </div>
         </div>
         <div className="source-layout">
           <form
@@ -980,9 +1041,22 @@ function App() {
                       ))}
                     </ul>
                   ) : null}
-                  <button className="secondary" disabled={busy} onClick={() => draftFromSourcePacket(packet)}>
-                    Draft
-                  </button>
+                  <div className="source-actions">
+                    <button
+                      className="secondary"
+                      disabled={busy || packet.status === "drafted"}
+                      onClick={() => draftFromSourcePacket(packet)}
+                    >
+                      Draft
+                    </button>
+                    <button
+                      className="secondary danger"
+                      disabled={busy || packet.status !== "drafted"}
+                      onClick={() => deleteDraftFromSourcePacket(packet)}
+                    >
+                      Delete draft
+                    </button>
+                  </div>
                 </article>
               ))
             ) : (
@@ -1030,31 +1104,54 @@ function App() {
           <h2>Model</h2>
           {generation ? (
             <span className={generation.configured ? "provider-pill" : "provider-pill failed"}>
-              {generation.configured ? "configured" : "missing key"}
+              {generation.configured ? `Live: ${liveModelLabel(generation)}` : `${providerLabel(generation.provider)} key missing`}
             </span>
           ) : null}
         </div>
+        {generation ? <p className="model-live">Realtime generator: {liveModelLabel(generation)}</p> : null}
         <div className="settings-grid">
           <label>
             Provider
             <select
               value={generationDraft.provider}
-              onChange={(event) => setGenerationDraft({ ...generationDraft, provider: event.target.value })}
+              onChange={(event) => {
+                const provider = event.target.value;
+                const models = generationModelOptions[provider] ?? [];
+                setGenerationDraft({
+                  provider,
+                  model: models[0] ?? ""
+                });
+              }}
             >
-              <option value="openrouter">openrouter</option>
-              <option value="ollama">ollama</option>
+              {providerOptions.map((provider) => (
+                <option key={provider} value={provider}>
+                  {providerLabel(provider)}
+                </option>
+              ))}
             </select>
           </label>
           <label>
-            Model name
+            Model
+            <select
+              value={generationDraft.model}
+              onChange={(event) => setGenerationDraft({ ...generationDraft, model: event.target.value })}
+            >
+              {selectedProviderModels.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+              {!selectedProviderHasModel && generationDraft.model ? (
+                <option value={generationDraft.model}>{generationDraft.model}</option>
+              ) : null}
+            </select>
+          </label>
+          <label>
+            Custom model
             <input
               value={generationDraft.model}
               onChange={(event) => setGenerationDraft({ ...generationDraft, model: event.target.value })}
-              placeholder={
-                generationDraft.provider === "openrouter"
-                  ? "nvidia/nemotron-3-super-120b-a12b:free"
-                  : "llama3.1"
-              }
+              placeholder={selectedProviderModels[0] ?? "model name"}
             />
           </label>
         </div>

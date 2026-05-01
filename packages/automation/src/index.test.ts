@@ -77,4 +77,57 @@ describe("automatic ingest", () => {
       mediaUrls: ["https://example.com/news.png"]
     });
   });
+
+  it("prioritizes broader preferred news signals during ingest", async () => {
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z"
+    });
+    const adapter: SourceAdapter = {
+      name: "test-news",
+      sourceType: "news",
+      async fetch() {
+        return [
+          {
+            title: "Celebrity profile gets a redesign",
+            url: "https://example.com/celebrity-profile",
+            content: "A lifestyle site changed its homepage layout."
+          },
+          {
+            title: "Science team publishes battery research with economy impact",
+            url: "https://example.com/battery-economy-research",
+            content:
+              "Researchers published a new paper on battery storage, energy supply chains, and inflation pressure."
+          }
+        ];
+      }
+    };
+    await repository.createIngestConfig({
+      accountId: "account_personal",
+      enabled: true,
+      maxPacketsPerDay: 1,
+      metadata: {},
+      scheduleWindowEnd: "23:59",
+      scheduleWindowStart: "00:00",
+      sourceType: "news",
+      tweetTypeMix: { useful_info: 100 }
+    });
+
+    const result = await runAutomaticIngest({
+      adapters: new Map([["news", adapter]]),
+      generationProvider: testProvider,
+      now: new Date("2026-04-24T17:00:00.000Z"),
+      repository
+    });
+
+    expect(result).toMatchObject({
+      errors: [],
+      processed: 1,
+      results: [{ url: "https://example.com/battery-economy-research" }]
+    });
+    await expect(repository.listSourcePackets("account_personal")).resolves.toMatchObject([
+      {
+        title: "Science team publishes battery research with economy impact"
+      }
+    ]);
+  });
 });

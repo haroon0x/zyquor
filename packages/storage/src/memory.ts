@@ -46,7 +46,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       styleProfileId: styleProfile.id,
       postingMode: "prepare_only",
       enabled: true,
-      dailyPostLimit: 1000,
+      dailyPostLimit: 300,
       quietHoursStart: null,
       quietHoursEnd: null,
       createdAt: now(),
@@ -208,12 +208,33 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     },
 
+    async deleteSourcePacket(id) {
+      const packet = sourcePackets.get(id);
+      if (!packet) {
+        throw new Error(`Source packet not found: ${id}`);
+      }
+      sourcePackets.delete(id);
+      persist();
+      return packet;
+    },
+
     async markSourcePacketDrafted(id) {
       const packet = sourcePackets.get(id);
       if (!packet) {
         throw new Error(`Source packet not found: ${id}`);
       }
       const updated: SourcePacket = { ...packet, status: "drafted", updatedAt: now() };
+      sourcePackets.set(id, updated);
+      persist();
+      return updated;
+    },
+
+    async resetSourcePacket(id) {
+      const packet = sourcePackets.get(id);
+      if (!packet) {
+        throw new Error(`Source packet not found: ${id}`);
+      }
+      const updated: SourcePacket = { ...packet, status: "new", updatedAt: now() };
       sourcePackets.set(id, updated);
       persist();
       return updated;
@@ -263,6 +284,45 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
     async getDraft(id) {
       const draft = drafts.get(id);
       return draft ? { draft, candidates: candidatesForDraft(id) } : null;
+    },
+
+    async getDraftBySourcePacketId(sourcePacketId) {
+      const candidate = [...candidates.values()].find((item) => item.score.sourcePacketId === sourcePacketId);
+      if (!candidate) {
+        return null;
+      }
+      const draft = drafts.get(candidate.draftId);
+      return draft ? { draft, candidates: candidatesForDraft(draft.id) } : null;
+    },
+
+    async deleteDraft(id) {
+      const draft = requireDraft(id);
+      const draftCandidates = candidatesForDraft(id);
+      const draftJobs = [...jobs.values()].filter((job) => job.draftId === id);
+      const blockedJob = draftJobs.find((job) => job.status === "running" || job.status === "posted");
+      if (blockedJob) {
+        throw new Error(`Cannot delete draft with ${blockedJob.status} job: ${blockedJob.id}`);
+      }
+
+      for (const job of draftJobs) {
+        for (const [attemptId, attempt] of attempts.entries()) {
+          if (attempt.jobId === job.id) {
+            attempts.delete(attemptId);
+          }
+        }
+        jobs.delete(job.id);
+      }
+      for (const candidate of draftCandidates) {
+        candidates.delete(candidate.id);
+      }
+      for (const [fingerprintId, fingerprint] of fingerprints.entries()) {
+        if (fingerprint.draftId === id) {
+          fingerprints.delete(fingerprintId);
+        }
+      }
+      drafts.delete(id);
+      persist();
+      return { draft, candidates: draftCandidates };
     },
 
     async listPendingDrafts() {

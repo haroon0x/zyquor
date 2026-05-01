@@ -1,6 +1,6 @@
 import { renderSourceContext } from "./harness.js";
 
-export type GenerationProviderName = "openrouter" | "ollama";
+export type GenerationProviderName = "openrouter" | "gemini" | "ollama";
 
 export interface GenerateDraftCandidatesInput {
   bannedPhrases?: string[];
@@ -39,6 +39,9 @@ export interface FetchLike {
 
 export interface GenerationEnvironment {
   ZYQUOR_LLM_PROVIDER?: string;
+  ZYQUOR_GEMINI_API_KEY?: string;
+  ZYQUOR_GEMINI_BASE_URL?: string;
+  ZYQUOR_GEMINI_MODEL?: string;
   ZYQUOR_OPENROUTER_API_KEY?: string;
   ZYQUOR_OPENROUTER_BASE_URL?: string;
   ZYQUOR_OPENROUTER_MODEL?: string;
@@ -48,13 +51,35 @@ export interface GenerationEnvironment {
 
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3-super-120b-a12b:free";
-const ALLOWED_OPENROUTER_MODELS = [
+export const OPENROUTER_MODELS = [
   "nvidia/nemotron-3-super-120b-a12b:free",
+  "inclusionai/ling-2.6-1t:free",
   "minimax/minimax-m2.5:free",
   "tencent/hy3-preview:free"
 ] as const;
+const ALLOWED_OPENROUTER_MODELS = OPENROUTER_MODELS;
+const DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
+const DEFAULT_GEMINI_MODEL = "gemini-2.0-flash";
+export const GEMINI_MODELS = [
+  "gemini-2.5-flash",
+  "gemini-2.5-pro",
+  "gemini-2.0-flash",
+  "gemini-1.5-flash"
+] as const;
 const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434";
 const DEFAULT_OLLAMA_MODEL = "llama3.1";
+export const OLLAMA_MODELS = [
+  "llama3.1",
+  "llama3.1:8b",
+  "qwen3:8b",
+  "qwen2.5:7b",
+  "mistral:7b"
+] as const;
+export const GENERATION_MODEL_OPTIONS = {
+  openrouter: OPENROUTER_MODELS,
+  gemini: GEMINI_MODELS,
+  ollama: OLLAMA_MODELS
+} satisfies Record<GenerationProviderName, readonly string[]>;
 const INTERNAL_LEAK_PATTERNS = [
   /\bSourcePackets?\b/i,
   /\bsource packets?\b/i,
@@ -63,6 +88,8 @@ const INTERNAL_LEAK_PATTERNS = [
   /\bdraft candidate\b/i,
   /\bstrict JSON\b/i,
   /\bmetadata\b/i,
+  /\bgrounded facts?\b/i,
+  /\bsource context\b/i,
   /\bI distilled\b/i,
   /\bdistill(ed|ing)?\b.*\b(article|announcement|content)\b/i
 ];
@@ -71,6 +98,15 @@ const INCOMPLETE_PATTERNS = [
   /…$/,
   /\b(read more|continue reading|more below)\b/i,
   /[:;,]\s*$/
+];
+const GENERIC_SLOP_PATTERNS = [
+  /\bgame changer\b/i,
+  /\bunlock\b/i,
+  /\bleverage\b/i,
+  /\bsynergy\b/i,
+  /\bin today's (fast-paced )?world\b/i,
+  /\bnow more than ever\b/i,
+  /\bas an ai\b/i
 ];
 
 function normalizeCount(count: number | undefined) {
@@ -111,6 +147,7 @@ export function isCleanTweetText(text: string) {
     trimmed.length <= DEFAULT_CHARACTER_LIMIT &&
     !INTERNAL_LEAK_PATTERNS.some((pattern) => pattern.test(trimmed)) &&
     !INCOMPLETE_PATTERNS.some((pattern) => pattern.test(trimmed)) &&
+    !GENERIC_SLOP_PATTERNS.some((pattern) => pattern.test(trimmed)) &&
     !/^[-*[{]/.test(trimmed) &&
     !trimmed.includes("\uFFFD")
   );
@@ -128,12 +165,15 @@ function systemPrompt(input: GenerateDraftCandidatesInput) {
     "You are Zyquor's draft generator for X posts.",
     "Write concrete, concise, review-ready draft candidates.",
     "Objective: maximize useful reach, views, and reputation by being specific, timely, clear, and valuable.",
-    "Prefer angles around AI, technology, programming, economics, geopolitics shaped by tech, startups, markets, and business news when the context supports it.",
+    "Prefer angles around AI, technology, programming, science, research, economics, markets, geopolitics shaped by tech, policy, startups, and business news when the context supports it.",
     diversityInstruction,
     "Lead with the sharpest specific fact or implication. Avoid throat-clearing like 'Interesting', 'A reminder', 'In today's world', or 'This shows'.",
     "If using news context, explain the second-order implication: who it affects, what changes, or why builders/investors/operators should care.",
     "Use strong hooks and tasteful tension when useful. Do not use cheap bait, fake claims, hashtags, emojis, em dashes, or generic startup phrases.",
+    "Grounding rule: only use facts supplied by the user or source context. If facts are thin, write a narrower observation instead of inventing missing details.",
+    "Context engineering rule: pick one angle per candidate. Do not mash together every fact. Make the most relevant detail carry the post.",
     "Write only public-facing post text. Never mention internal labels like SourcePacket, source packet, compact input, candidate, draft, metadata, JSON, prompt, or distillation.",
+    "Never mention 'source context', 'grounded facts', or other harness wording.",
     "No incomplete teasers. Every candidate must be a complete standalone post.",
     `Banned phrases: ${bannedPhrases}.`,
     input.tone ? `Account tone: ${input.tone}.` : "Account tone: clear, useful, direct.",
@@ -141,7 +181,8 @@ function systemPrompt(input: GenerateDraftCandidatesInput) {
     input.objective ? `Account objective: ${input.objective}.` : "Account objective: provide meaningful posts people save, share, and remember.",
     `Hard limit: every candidate must be ${limit} characters or fewer for X free-tier posts and replies.`,
     "The LLM only writes final tweet text. Do not invent sources, browsing results, dates, numbers, quotes, schedules, or strategy.",
-    "Do not cite the URL unless the user explicitly asks for links. Do not imply you read more than the provided context.",
+    "You may include the source URL when it improves credibility, context, or usefulness and the post still fits the character limit. Do not force links into every candidate.",
+    "Do not imply you read more than the provided context.",
     "Keep human control, auditability, local-first operation, and explicit approval visible when relevant.",
     `Return exactly ${count} non-empty candidates.`,
     "Each candidate must be 1-3 short sentences, must directly use the user's rough idea, and must stand alone without thread context.",
@@ -396,13 +437,53 @@ export function createOpenRouterGenerationProvider(options: {
   };
 }
 
+export function createGeminiGenerationProvider(options: {
+  apiKey: string;
+  baseUrl?: string;
+  model?: string;
+  fetch?: FetchLike;
+}): DraftGenerationProvider {
+  const baseUrl = (options.baseUrl ?? DEFAULT_GEMINI_BASE_URL).replace(/\/+$/, "");
+  const model = options.model ?? DEFAULT_GEMINI_MODEL;
+  const fetchImpl = options.fetch ?? fetch;
+
+  return {
+    name: "gemini",
+    model,
+    async generateDraftCandidates(input) {
+      const body = await postJson<{
+        candidates?: Array<{ content?: { parts?: Array<{ text?: unknown }> } }>;
+      }>(fetchImpl, `${baseUrl}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(options.apiKey)}`, {
+        systemInstruction: {
+          parts: [{ text: systemPrompt(input) }]
+        },
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: userPrompt(input) }]
+          }
+        ],
+        generationConfig: {
+          responseMimeType: "application/json",
+          temperature: 0.65,
+          maxOutputTokens: 900
+        }
+      });
+      const text = asText(body.candidates?.[0]?.content?.parts?.map((part) => asText(part.text)).join("\n"));
+      return candidatesFromText(text, input, "gemini", model);
+    }
+  };
+}
+
 export function resolveGenerationProviderConfig(env: GenerationEnvironment = process.env): GenerationProviderConfig {
   const requestedProvider = (env.ZYQUOR_LLM_PROVIDER ?? "auto").toLowerCase();
   const provider = (
     requestedProvider === "auto"
       ? env.ZYQUOR_OPENROUTER_API_KEY
         ? "openrouter"
-        : env.ZYQUOR_OLLAMA_BASE_URL || env.ZYQUOR_OLLAMA_MODEL
+        : env.ZYQUOR_GEMINI_API_KEY
+          ? "gemini"
+          : env.ZYQUOR_OLLAMA_BASE_URL || env.ZYQUOR_OLLAMA_MODEL
           ? "ollama"
           : "ollama"
       : requestedProvider
@@ -414,6 +495,15 @@ export function resolveGenerationProviderConfig(env: GenerationEnvironment = pro
       model: safeOpenRouterModel(env.ZYQUOR_OPENROUTER_MODEL),
       baseUrl: env.ZYQUOR_OPENROUTER_BASE_URL ?? DEFAULT_OPENROUTER_BASE_URL,
       configured: Boolean(env.ZYQUOR_OPENROUTER_API_KEY)
+    };
+  }
+
+  if (provider === "gemini") {
+    return {
+      provider,
+      model: env.ZYQUOR_GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL,
+      baseUrl: env.ZYQUOR_GEMINI_BASE_URL ?? DEFAULT_GEMINI_BASE_URL,
+      configured: Boolean(env.ZYQUOR_GEMINI_API_KEY)
     };
   }
 
@@ -449,6 +539,18 @@ export function createGenerationProviderFromEnv(
     }
     return createOpenRouterGenerationProvider({
       apiKey: env.ZYQUOR_OPENROUTER_API_KEY,
+      ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
+      model: config.model,
+      fetch: fetchImpl
+    });
+  }
+
+  if (config.provider === "gemini") {
+    if (!env.ZYQUOR_GEMINI_API_KEY) {
+      throw new Error("ZYQUOR_GEMINI_API_KEY is required when ZYQUOR_LLM_PROVIDER=gemini");
+    }
+    return createGeminiGenerationProvider({
+      apiKey: env.ZYQUOR_GEMINI_API_KEY,
       ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
       model: config.model,
       fetch: fetchImpl

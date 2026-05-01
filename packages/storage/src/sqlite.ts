@@ -235,7 +235,7 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
       "style_default",
       "prepare_only",
       1,
-      1000,
+      300,
       null,
       null,
       timestamp,
@@ -423,6 +423,15 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
       return packetRows.map(toSourcePacket);
     },
 
+    async deleteSourcePacket(id) {
+      const packet = row(db.prepare("SELECT * FROM source_packets WHERE id = ?").get(id));
+      if (!packet) {
+        throw new Error(`Source packet not found: ${id}`);
+      }
+      db.prepare("DELETE FROM source_packets WHERE id = ?").run(id);
+      return toSourcePacket(packet);
+    },
+
     async markSourcePacketDrafted(id) {
       const packet = row(db.prepare("SELECT * FROM source_packets WHERE id = ?").get(id));
       if (!packet) {
@@ -431,6 +440,17 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
 
       const timestamp = now();
       db.prepare("UPDATE source_packets SET status = ?, updated_at = ? WHERE id = ?").run("drafted", timestamp, id);
+      return toSourcePacket(row(db.prepare("SELECT * FROM source_packets WHERE id = ?").get(id))!);
+    },
+
+    async resetSourcePacket(id) {
+      const packet = row(db.prepare("SELECT * FROM source_packets WHERE id = ?").get(id));
+      if (!packet) {
+        throw new Error(`Source packet not found: ${id}`);
+      }
+
+      const timestamp = now();
+      db.prepare("UPDATE source_packets SET status = ?, updated_at = ? WHERE id = ?").run("new", timestamp, id);
       return toSourcePacket(row(db.prepare("SELECT * FROM source_packets WHERE id = ?").get(id))!);
     },
 
@@ -511,6 +531,44 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
     async getDraft(draftId) {
       const draft = row(db.prepare("SELECT * FROM drafts WHERE id = ?").get(draftId));
       return draft ? { draft: toDraft(draft), candidates: candidatesForDraft(draftId) } : null;
+    },
+
+    async getDraftBySourcePacketId(sourcePacketId) {
+      const candidate = row(
+        db.prepare("SELECT * FROM draft_candidates WHERE json_extract(score_json, '$.sourcePacketId') = ? ORDER BY created_at ASC LIMIT 1").get(
+          sourcePacketId
+        )
+      );
+      if (!candidate) {
+        return null;
+      }
+      const draftId = String(candidate.draft_id);
+      const draft = row(db.prepare("SELECT * FROM drafts WHERE id = ?").get(draftId));
+      return draft ? { draft: toDraft(draft), candidates: candidatesForDraft(draftId) } : null;
+    },
+
+    async deleteDraft(draftId) {
+      return runTransaction(db, () => {
+        const draft = requireDraft(draftId);
+        const draftCandidates = candidatesForDraft(draftId);
+        const draftJobs = rows(db.prepare("SELECT * FROM post_jobs WHERE draft_id = ? ORDER BY created_at ASC").all(draftId)).map(
+          toJob
+        );
+        const blockedJob = draftJobs.find((job) => job.status === "running" || job.status === "posted");
+        if (blockedJob) {
+          throw new Error(`Cannot delete draft with ${blockedJob.status} job: ${blockedJob.id}`);
+        }
+
+        for (const job of draftJobs) {
+          db.prepare("DELETE FROM post_attempts WHERE job_id = ?").run(job.id);
+        }
+        db.prepare("DELETE FROM post_jobs WHERE draft_id = ?").run(draftId);
+        db.prepare("DELETE FROM content_fingerprints WHERE draft_id = ?").run(draftId);
+        db.prepare("DELETE FROM draft_candidates WHERE draft_id = ?").run(draftId);
+        db.prepare("DELETE FROM drafts WHERE id = ?").run(draftId);
+
+        return { draft, candidates: draftCandidates };
+      });
     },
 
     async saveDraftCandidates(draftId, candidates) {
@@ -805,10 +863,10 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
         updatedAt: now()
       };
       db.prepare(
-        `UPDATE ingest_configs SET max_packets_per_day = ?, metadata_json = ?, tweet_type_mix_json = ?, schedule_window_start = ?, schedule_window_end = ?, enabled = ?, updated_at = ?
+        `UPDATE ingest_configs SET source_type = ?, max_packets_per_day = ?, metadata_json = ?, tweet_type_mix_json = ?, schedule_window_start = ?, schedule_window_end = ?, enabled = ?, updated_at = ?
          WHERE id = ?`
       ).run(
-        updated.maxPacketsPerDay, JSON.stringify(updated.metadata), JSON.stringify(updated.tweetTypeMix),
+        updated.sourceType, updated.maxPacketsPerDay, JSON.stringify(updated.metadata), JSON.stringify(updated.tweetTypeMix),
         updated.scheduleWindowStart, updated.scheduleWindowEnd,
         updated.enabled ? 1 : 0, updated.updatedAt, id
       );

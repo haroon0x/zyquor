@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createHackerNewsAdapter, createRssAdapter, createCrawl4AiService } from "./index.js";
+import { aggregateSources, createAggregatedNewsAdapter, createHackerNewsAdapter, createRssAdapter, createCrawl4AiService } from "./index.js";
 
 describe("adapters", () => {
   afterEach(() => {
@@ -16,6 +16,12 @@ describe("adapters", () => {
     const adapter = createRssAdapter();
     expect(adapter.name).toBe("rss");
     expect(adapter.sourceType).toBe("feed");
+  });
+
+  it("creates aggregated news adapter", () => {
+    const adapter = createAggregatedNewsAdapter();
+    expect(adapter.name).toBe("aggregated-news");
+    expect(adapter.sourceType).toBe("news");
   });
 
   it("creates Crawl4AI service", () => {
@@ -85,5 +91,42 @@ describe("adapters", () => {
         imageUrl: "https://example.com/image.jpg"
       }
     ]);
+  });
+
+  it("aggregates scoped sources without requiring keyword eligibility", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const value = String(url);
+      if (value.endsWith("/topstories.json")) {
+        return { ok: true, json: async () => [] } as Response;
+      }
+      if (value.includes("techcrunch.com")) {
+        return {
+          ok: true,
+          text: async () => `
+            <rss>
+              <channel>
+                <item>
+                  <title>Founder interview from a quiet software company</title>
+                  <link>https://techcrunch.com/founder-interview</link>
+                  <description><![CDATA[A practical operating story without the preferred keyword list.]]></description>
+                </item>
+              </channel>
+            </rss>
+          `
+        } as Response;
+      }
+      return { ok: false } as Response;
+    });
+
+    await expect(
+      aggregateSources({ includeArxiv: false, includeReddit: false, includeTechCrunch: true, maxItems: 5 })
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "techcrunch",
+          title: "Founder interview from a quiet software company"
+        })
+      ])
+    );
   });
 });

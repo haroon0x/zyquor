@@ -568,6 +568,161 @@ describe("api workflow", () => {
     await app.close();
   });
 
+  it("deletes a generated draft from a source packet and resets the packet", async () => {
+    const app = buildApp({
+      generationProvider: testGenerationProvider,
+      repository: createMemoryRepository({
+        now: () => "2026-04-24T17:00:00.000Z"
+      })
+    });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/source-packets",
+      payload: {
+        accountId: "account_personal",
+        facts: ["Battery research can change energy market assumptions."],
+        sourceType: "news",
+        summary: "A science story has economy implications.",
+        title: "Battery science market impact",
+        tweetType: "news_context",
+        url: "https://example.com/battery-science"
+      }
+    });
+    const packet = createResponse.json().packet;
+    const draftResponse = await app.inject({
+      method: "POST",
+      url: `/source-packets/${packet.id}/draft`
+    });
+
+    expect(draftResponse.statusCode).toBe(201);
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: `/source-packets/${packet.id}/draft`
+    });
+
+    expect(deleteResponse.statusCode).toBe(200);
+    expect(deleteResponse.json()).toMatchObject({
+      deleted: true,
+      draft: {
+        id: draftResponse.json().draft.id
+      },
+      packet: {
+        id: packet.id,
+        status: "new"
+      }
+    });
+
+    const jobsResponse = await app.inject({
+      method: "GET",
+      url: "/jobs?accountId=account_personal"
+    });
+    expect(jobsResponse.json().jobs).toHaveLength(0);
+
+    await app.close();
+  });
+
+  it("deletes all source packets and removes non-posted generated drafts", async () => {
+    const app = buildApp({
+      generationProvider: testGenerationProvider,
+      repository: createMemoryRepository({
+        now: () => "2026-04-24T17:00:00.000Z"
+      })
+    });
+
+    for (const title of ["Battery market source", "Science policy source"]) {
+      const createResponse = await app.inject({
+        method: "POST",
+        url: "/source-packets",
+        payload: {
+          accountId: "account_personal",
+          facts: [`${title} fact`],
+          sourceType: "news",
+          summary: `${title} summary`,
+          title,
+          tweetType: "news_context",
+          url: `https://example.com/${title.toLowerCase().replace(/\s+/g, "-")}`
+        }
+      });
+      await app.inject({
+        method: "POST",
+        url: `/source-packets/${createResponse.json().packet.id}/draft`
+      });
+    }
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: "/source-packets?accountId=account_personal"
+    });
+
+    expect(deleteResponse.statusCode).toBe(200);
+    expect(deleteResponse.json()).toMatchObject({
+      deletedCount: 2,
+      skippedCount: 0
+    });
+    await expect(app.inject({ method: "GET", url: "/source-packets?accountId=account_personal" })).resolves.toMatchObject({
+      statusCode: 200
+    });
+    expect((await app.inject({ method: "GET", url: "/source-packets?accountId=account_personal" })).json().packets).toHaveLength(0);
+
+    await app.close();
+  });
+
+  it("removes source packet links after source-generated drafts are posted", async () => {
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z"
+    });
+    const app = buildApp({
+      enableBrowserPost: true,
+      generationProvider: testGenerationProvider,
+      preparePost: async () => ({ postUrl: "https://x.com/personal/status/1" }),
+      repository
+    });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/source-packets",
+      payload: {
+        accountId: "account_personal",
+        facts: ["Science funding affects markets."],
+        sourceType: "news",
+        summary: "Science and economy source.",
+        title: "Science economy source",
+        tweetType: "news_context",
+        url: "https://example.com/science-economy"
+      }
+    });
+    const packet = createResponse.json().packet;
+    const created = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "Science economy source",
+      candidates: [
+        {
+          text: "Science funding is becoming a markets story.",
+          score: { sourcePacketId: packet.id }
+        }
+      ]
+    });
+    await repository.markSourcePacketDrafted(packet.id);
+    const approved = await repository.approveDraft({
+      draftId: created.draft.id,
+      editedText: "Science funding is becoming a markets story.",
+      mode: "autopost"
+    });
+
+    const postResponse = await app.inject({
+      method: "POST",
+      url: `/jobs/${approved.job.id}/post`
+    });
+
+    expect(postResponse.statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/source-packets?accountId=account_personal" })).json().packets).toHaveLength(0);
+    await expect(repository.listPostHistory()).resolves.toHaveLength(1);
+
+    await app.close();
+  });
+
   it("does not prepare jobs for draft-only accounts", async () => {
     const repository = createMemoryRepository({
       now: () => "2026-04-24T17:00:00.000Z"

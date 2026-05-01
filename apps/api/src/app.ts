@@ -1,7 +1,7 @@
 import cors from "@fastify/cors";
 import { assertDedicatedProfileDir, isAccountRunnable } from "@zyquor/accounts";
-import { createCrawl4AiService, createHackerNewsAdapter, createRssAdapter, type SourceAdapter } from "@zyquor/adapters";
-import { draftFromSourcePacket, runAutomaticIngest } from "@zyquor/automation";
+import { createAggregatedNewsAdapter, createCrawl4AiService, createRssAdapter, type SourceAdapter } from "@zyquor/adapters";
+import { accountGenerationContext, draftFromSourcePacket, runAutomaticIngest } from "@zyquor/automation";
 import {
   approveDraftRequestSchema,
   createDraftBatchRequestSchema,
@@ -18,6 +18,7 @@ import {
 } from "@zyquor/core";
 import {
   createGenerationProviderFromEnv,
+  GENERATION_MODEL_OPTIONS,
   resolveGenerationProviderConfig,
   type DraftGenerationProvider,
   type GenerationEnvironment
@@ -197,6 +198,23 @@ async function hasRunningJobForAccount(repository: ZyquorRepository, accountId: 
   );
 }
 
+async function sourcePacketIdForDraft(repository: ZyquorRepository, draftId: string) {
+  const draft = await repository.getDraft(draftId);
+  const sourcePacketId = draft?.candidates
+    .map((candidate) => candidate.score.sourcePacketId)
+    .find((value): value is string => typeof value === "string");
+  return sourcePacketId ?? null;
+}
+
+async function removePostedDraftSourcePacket(repository: ZyquorRepository, draftId: string) {
+  const sourcePacketId = await sourcePacketIdForDraft(repository, draftId);
+  if (!sourcePacketId) {
+    return null;
+  }
+  const packet = await repository.getSourcePacket(sourcePacketId);
+  return packet ? repository.deleteSourcePacket(sourcePacketId) : null;
+}
+
 function isScheduledForFuture(job: { scheduledFor: string | null }) {
   return job.scheduledFor ? Date.parse(job.scheduledFor) > Date.now() : false;
 }
@@ -250,7 +268,7 @@ async function recoverStaleRunningJobs(repository: ZyquorRepository, accountId: 
 
 function createDefaultSourceAdapters(): SourceAdapter[] {
   const crawlService = createCrawl4AiService();
-  return [createHackerNewsAdapter({ crawlService }), createRssAdapter()];
+  return [createAggregatedNewsAdapter({ crawlService }), createRssAdapter()];
 }
 
 function adaptersBySourceType(adapters: SourceAdapter[]) {
@@ -276,6 +294,7 @@ function readSavedGenerationEnv(configPath: string | null): GenerationEnvironmen
 
     return {
       ZYQUOR_LLM_PROVIDER: provider,
+      ...(provider === "gemini" ? { ZYQUOR_GEMINI_MODEL: model } : {}),
       ...(provider === "openrouter" ? { ZYQUOR_OPENROUTER_MODEL: model } : {}),
       ...(provider === "ollama" ? { ZYQUOR_OLLAMA_MODEL: model } : {})
     };
@@ -300,18 +319,6 @@ function writeSavedGenerationEnv(configPath: string | null, env: GenerationEnvir
     `${JSON.stringify({ provider: config.provider, model: config.model }, null, 2)}\n`,
     "utf8"
   );
-}
-
-async function generationContext(repository: ZyquorRepository, accountId: string) {
-  const account = await repository.getAccount(accountId);
-  const styleProfile = account ? await repository.getStyleProfile(account.styleProfileId) : null;
-  const rules = styleProfile?.rules ?? {};
-  return {
-    ...(styleProfile?.bannedPhrases ? { bannedPhrases: styleProfile.bannedPhrases } : {}),
-    ...(typeof rules.objective === "string" ? { objective: rules.objective } : {}),
-    ...(typeof rules.systemPromptExtra === "string" ? { systemPromptExtra: rules.systemPromptExtra } : {}),
-    tone: styleProfile?.tone ?? null
-  };
 }
 
 async function postBrowserJob(repository: ZyquorRepository, options: BuildAppOptions, jobId: string) {
@@ -376,6 +383,7 @@ async function postBrowserJob(repository: ZyquorRepository, options: BuildAppOpt
       postedText: draftWithCandidates.draft.editedText,
       postUrl: result.postUrl
     });
+    await removePostedDraftSourcePacket(repository, job.draftId);
     await repository.createAttempt({ jobId: job.id, status: "verified" });
     return { job: posted, history };
   } catch (error) {
@@ -450,7 +458,8 @@ export function buildApp(options: BuildAppOptions = {}) {
   }));
 
   app.get("/generation", async () => ({
-    generation: resolveGenerationProviderConfig(generationEnv)
+    generation: resolveGenerationProviderConfig(generationEnv),
+    providers: GENERATION_MODEL_OPTIONS
   }));
 
   app.patch("/generation", async (request) => {
@@ -458,6 +467,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     const nextEnv: GenerationEnvironment = {
       ...generationEnv,
       ZYQUOR_LLM_PROVIDER: input.provider,
+      ...(input.provider === "gemini" ? { ZYQUOR_GEMINI_MODEL: input.model } : {}),
       ...(input.provider === "openrouter" ? { ZYQUOR_OPENROUTER_MODEL: input.model } : {}),
       ...(input.provider === "ollama" ? { ZYQUOR_OLLAMA_MODEL: input.model } : {})
     };
@@ -467,7 +477,8 @@ export function buildApp(options: BuildAppOptions = {}) {
     writeSavedGenerationEnv(generationConfigPath, generationEnv);
 
     return {
-      generation: resolveGenerationProviderConfig(generationEnv)
+      generation: resolveGenerationProviderConfig(generationEnv),
+      providers: GENERATION_MODEL_OPTIONS
     };
   });
 
@@ -531,6 +542,39 @@ export function buildApp(options: BuildAppOptions = {}) {
     };
   });
 
+  app.delete("/source-packets", async (request) => {
+    const { accountId } = request.query as { accountId?: string };
+    const repository = await repositoryPromise;
+    const packets = await repository.listSourcePackets(accountId);
+    const jobs = await repository.listJobs();
+    const results = [];
+
+    for (const packet of packets) {
+      const draft = await repository.getDraftBySourcePacketId(packet.id);
+      if (draft) {
+        const draftJobs = jobs.filter((job) => job.draftId === draft.draft.id);
+        const hasPostedJob = draftJobs.some((job) => job.status === "posted");
+        const hasRunningJob = draftJobs.some((job) => job.status === "running" || job.status === "queued");
+        if (hasRunningJob) {
+          results.push({ deleted: false, draftId: draft.draft.id, packetId: packet.id, reason: "job_running" });
+          continue;
+        }
+        if (!hasPostedJob) {
+          await repository.deleteDraft(draft.draft.id);
+        }
+      }
+
+      await repository.deleteSourcePacket(packet.id);
+      results.push({ deleted: true, draftId: draft?.draft.id ?? null, packetId: packet.id, reason: null });
+    }
+
+    return {
+      deletedCount: results.filter((result) => result.deleted).length,
+      skippedCount: results.filter((result) => !result.deleted).length,
+      results
+    };
+  });
+
   app.post("/source-packets", async (request, reply) => {
     const input = createSourcePacketRequestSchema.parse(request.body);
     const repository = await repositoryPromise;
@@ -562,6 +606,38 @@ export function buildApp(options: BuildAppOptions = {}) {
     });
 
     return reply.code(201).send(draft);
+  });
+
+  app.delete("/source-packets/:id/draft", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const repository = await repositoryPromise;
+    const packet = await repository.getSourcePacket(id);
+    if (!packet) {
+      return reply.code(404).send({ error: "Source packet not found" });
+    }
+
+    const existingDraft = await repository.getDraftBySourcePacketId(id);
+    if (!existingDraft) {
+      return {
+        deleted: false,
+        draft: null,
+        packet: packet.status === "drafted" ? await repository.resetSourcePacket(id) : packet
+      };
+    }
+
+    try {
+      const deleted = await repository.deleteDraft(existingDraft.draft.id);
+      const resetPacket = await repository.resetSourcePacket(id);
+      return {
+        candidates: deleted.candidates,
+        deleted: true,
+        draft: deleted.draft,
+        packet: resetPacket
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown draft delete error";
+      return reply.code(409).send({ error: message });
+    }
   });
 
   app.get("/ingest-configs", async (request) => {
@@ -691,7 +767,7 @@ export function buildApp(options: BuildAppOptions = {}) {
 
     const draft = existing.draft;
     const metadata = draft.metadata as Record<string, unknown>;
-    const context = await generationContext(repository, draft.accountId);
+    const context = await accountGenerationContext(repository, draft.accountId);
     const count = metadata.yolo ? 1 : (Number(metadata.count) || 3);
 
     const candidates = await generationProvider.generateDraftCandidates({

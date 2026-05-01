@@ -101,6 +101,45 @@ describe("worker job processing", () => {
     expect(calls).toContain("POST http://api.test/jobs/job_auto/post");
   });
 
+  it("continues processing due jobs when one job action fails", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.endsWith("/health")) {
+          return Response.json({ ok: true });
+        }
+        if (url.endsWith("/jobs")) {
+          return Response.json({
+            jobs: [
+              { ...baseJob, id: "job_fail", mode: "prepare_only" },
+              { ...baseJob, id: "job_ok", mode: "prepare_only" }
+            ]
+          });
+        }
+        if (url.endsWith("/accounts")) {
+          return Response.json({
+            accounts: [baseAccount]
+          });
+        }
+        if (url.endsWith("/jobs/job_fail/prepare")) {
+          return Response.json({ error: "browser failed" }, { status: 500 });
+        }
+        return Response.json({ ok: true });
+      })
+    );
+
+    const processed = await processApprovedJobs({ apiUrl: "http://api.test", pollMs: 1000 });
+
+    expect(processed).toBe(1);
+    expect(calls).toContain("POST http://api.test/jobs/job_fail/prepare");
+    expect(calls).toContain("POST http://api.test/jobs/job_ok/prepare");
+  });
+
   it("skips due jobs during account quiet hours", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-25T23:30:00.000Z"));

@@ -40,9 +40,13 @@ export interface ZyquorRepository {
   getSourcePacket(id: string): Promise<SourcePacket | null>;
   getSourcePacketByUrl(url: string, accountId?: string): Promise<SourcePacket | null>;
   listSourcePackets(accountId?: string): Promise<SourcePacket[]>;
+  deleteSourcePacket(id: string): Promise<SourcePacket>;
   markSourcePacketDrafted(id: string): Promise<SourcePacket>;
+  resetSourcePacket(id: string): Promise<SourcePacket>;
   listPendingDrafts(): Promise<Draft[]>;
   getDraft(id: string): Promise<DraftWithCandidates | null>;
+  getDraftBySourcePacketId(sourcePacketId: string): Promise<DraftWithCandidates | null>;
+  deleteDraft(id: string): Promise<DraftWithCandidates>;
   saveDraftCandidates(draftId: string, candidates: Array<{ text: string; score: Record<string, unknown> }>): Promise<DraftWithCandidates>;
   selectCandidate(input: { draftId: string; candidateId: string; editedText?: string }): Promise<DraftWithCandidates>;
   approveDraft(input: {
