@@ -419,7 +419,7 @@ function App() {
   function deleteAllJobs() {
     run(async () => {
       if (window.confirm("Delete ALL jobs?")) {
-        await api("/jobs", { method: "DELETE" });
+        await api(`/jobs?accountId=${encodeURIComponent(activeAccountId)}`, { method: "DELETE" });
         await refresh();
       }
     });
@@ -878,7 +878,7 @@ function App() {
             </label>
           </div>
           <button disabled={!idea.trim() || busy}>
-            {postPlan === "batch" ? "Create batch jobs" : autoPost ? "Yolo post" : "Generate drafts"}
+            {postPlan === "batch" ? "Create batch jobs" : autoPost ? "Autopost" : "Generate drafts"}
           </button>
         </form>
 
@@ -910,7 +910,7 @@ function App() {
           <div className="schedule-grid">
             <label className="checkbox-row">
               <input checked={autoPost} type="checkbox" onChange={(event) => setAutoPost(event.target.checked)} />
-              Yolo autopost
+              Autopost
             </label>
             <label>
               Schedule

@@ -60,6 +60,7 @@ export interface ZyquorRepository {
   getJob(id: string): Promise<PostJob | null>;
   deleteJob(id: string): Promise<PostJob>;
   updateJobStatus(id: string, status: PostJob["status"]): Promise<PostJob>;
+  claimJobForBrowserRun(id: string, claimableStatuses: PostJob["status"][]): Promise<PostJob | null>;
   createAttempt(input: {
     jobId: string;
     status: PostAttempt["status"];

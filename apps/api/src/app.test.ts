@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -408,6 +409,62 @@ describe("api workflow", () => {
     await app.close();
   });
 
+  it("recovers stale running autopost jobs without reposting them after restart", async () => {
+    let nowMs = Date.parse("2026-04-24T17:20:00.000Z");
+    vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    const repository = createMemoryRepository({
+      now: () => new Date(nowMs).toISOString()
+    });
+    let browserCalled = false;
+    const app = buildApp({
+      enableBrowserPost: true,
+      generationProvider: testGenerationProvider,
+      preparePost: async () => {
+        browserCalled = true;
+        return { postUrl: "https://x.com/personal/status/should-not-happen" };
+      },
+      repository
+    });
+    nowMs = Date.parse("2026-04-24T17:00:00.000Z");
+    const draft = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "Interrupted autopost",
+      candidates: [{ text: "Interrupted autopost text", score: {} }]
+    });
+    const approved = await repository.approveDraft({
+      draftId: draft.draft.id,
+      editedText: "Interrupted autopost text",
+      mode: "autopost"
+    });
+    await repository.updateJobStatus(approved.job.id, "queued");
+    await repository.updateJobStatus(approved.job.id, "running");
+
+    nowMs = Date.parse("2026-04-24T17:20:00.000Z");
+    const recovery = await app.inject({ method: "POST", url: "/jobs/recover-stale" });
+    const postReady = await app.inject({
+      method: "POST",
+      url: "/jobs/post-ready",
+      payload: { accountId: "account_personal" }
+    });
+
+    expect(recovery.statusCode).toBe(200);
+    expect(recovery.json()).toMatchObject({ recoveredCount: 1 });
+    await expect(repository.getJob(approved.job.id)).resolves.toMatchObject({ status: "failed" });
+    await expect(repository.listAttempts(approved.job.id)).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          errorCode: "stale_running_job",
+          errorMessage: expect.stringContaining("Verify X manually")
+        })
+      ])
+    );
+    expect(postReady.statusCode).toBe(200);
+    expect(postReady.json()).toMatchObject({ failed: 0, posted: 0, total: 0 });
+    expect(browserCalled).toBe(false);
+
+    await app.close();
+  });
+
   it("posts all ready jobs sequentially from one request", async () => {
     const repository = createMemoryRepository({
       now: () => "2026-04-24T17:00:00.000Z"
@@ -459,6 +516,136 @@ describe("api workflow", () => {
     expect(new Set(postedTexts)).toEqual(new Set(["Ready one", "Ready two", "Ready three"]));
     await expect(repository.listPostHistory()).resolves.toHaveLength(3);
     await expect(repository.getJob(response.json().results[0].jobId)).resolves.toMatchObject({ status: "posted" });
+
+    await app.close();
+  });
+
+  it("allows only one concurrent post request to claim an autopost job", async () => {
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z"
+    });
+    let browserCalls = 0;
+    const releasePost: { current?: () => void } = {};
+    const app = buildApp({
+      enableBrowserPost: true,
+      generationProvider: testGenerationProvider,
+      preparePost: async () => {
+        browserCalls += 1;
+        await new Promise<void>((resolve) => {
+          releasePost.current = resolve;
+        });
+        return { postUrl: "https://x.com/personal/status/once" };
+      },
+      repository
+    });
+    const draft = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "Post once",
+      candidates: [{ text: "Post once text", score: {} }]
+    });
+    const approved = await repository.approveDraft({
+      draftId: draft.draft.id,
+      editedText: "Post once text",
+      mode: "autopost"
+    });
+
+    const first = app.inject({ method: "POST", url: `/jobs/${approved.job.id}/post` });
+    await vi.waitFor(() => expect(browserCalls).toBe(1));
+    const second = await app.inject({ method: "POST", url: `/jobs/${approved.job.id}/post` });
+    releasePost.current?.();
+    const firstResponse = await first;
+
+    expect([firstResponse.statusCode, second.statusCode].sort()).toEqual([200, 409]);
+    expect(browserCalls).toBe(1);
+    await expect(repository.listPostHistory()).resolves.toHaveLength(1);
+
+    await app.close();
+  });
+
+  it("does not retry a failed post job because it may already have reached X", async () => {
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z"
+    });
+    let browserCalled = false;
+    const app = buildApp({
+      enableBrowserPost: true,
+      generationProvider: testGenerationProvider,
+      preparePost: async () => {
+        browserCalled = true;
+        return { postUrl: "https://x.com/personal/status/should-not-happen" };
+      },
+      repository
+    });
+    const draft = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "Maybe posted before crash",
+      candidates: [{ text: "Maybe posted before crash", score: {} }]
+    });
+    const approved = await repository.approveDraft({
+      draftId: draft.draft.id,
+      editedText: "Maybe posted before crash",
+      mode: "autopost"
+    });
+    await repository.updateJobStatus(approved.job.id, "queued");
+    await repository.updateJobStatus(approved.job.id, "running");
+    await repository.updateJobStatus(approved.job.id, "failed");
+
+    const direct = await app.inject({ method: "POST", url: `/jobs/${approved.job.id}/post` });
+    const batch = await app.inject({
+      method: "POST",
+      url: "/jobs/post-ready",
+      payload: { accountId: "account_personal" }
+    });
+
+    expect(direct.statusCode).toBe(409);
+    expect(direct.json()).toMatchObject({ error: "Job must be approved or prepared before posting: failed" });
+    expect(batch.statusCode).toBe(200);
+    expect(batch.json()).toMatchObject({ failed: 0, posted: 0, total: 0 });
+    expect(browserCalled).toBe(false);
+    await expect(repository.listPostHistory()).resolves.toHaveLength(0);
+
+    await app.close();
+  });
+
+  it("rejects posting text already present in account history", async () => {
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z"
+    });
+    let browserCalled = false;
+    const app = buildApp({
+      enableBrowserPost: true,
+      generationProvider: testGenerationProvider,
+      preparePost: async () => {
+        browserCalled = true;
+        return { postUrl: "https://x.com/personal/status/duplicate" };
+      },
+      repository
+    });
+    const draft = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "Duplicate from old history",
+      candidates: [{ text: "Already posted text", score: {} }]
+    });
+    await repository.createPostHistory({
+      accountId: "account_personal",
+      draftId: draft.draft.id,
+      postedText: "Already posted text",
+      postUrl: "https://x.com/personal/status/old"
+    });
+    const approved = await repository.approveDraft({
+      draftId: draft.draft.id,
+      editedText: "Already   posted text",
+      mode: "autopost"
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/jobs/${approved.job.id}/post`
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: "Duplicate post text for this account" });
+    expect(browserCalled).toBe(false);
 
     await app.close();
   });
@@ -669,6 +856,55 @@ describe("api workflow", () => {
     await app.close();
   });
 
+  it("deletes source packet links without deleting drafts kept by post history", async () => {
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z"
+    });
+    const app = buildApp({
+      generationProvider: testGenerationProvider,
+      repository
+    });
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/source-packets",
+      payload: {
+        accountId: "account_personal",
+        facts: ["Posted source fact"],
+        sourceType: "news",
+        summary: "Posted source summary",
+        title: "Posted source",
+        tweetType: "news_context",
+        url: "https://example.com/posted-source"
+      }
+    });
+    const packet = createResponse.json().packet;
+    const created = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "Posted source",
+      candidates: [{ text: "Posted source text", score: { sourcePacketId: packet.id } }]
+    });
+    await repository.markSourcePacketDrafted(packet.id);
+    await repository.createPostHistory({
+      accountId: "account_personal",
+      draftId: created.draft.id,
+      postedText: "Posted source text",
+      postUrl: "https://x.com/personal/status/posted-source"
+    });
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: "/source-packets?accountId=account_personal"
+    });
+
+    expect(deleteResponse.statusCode).toBe(200);
+    expect(deleteResponse.json()).toMatchObject({ deletedCount: 1, skippedCount: 0 });
+    await expect(repository.getSourcePacket(packet.id)).resolves.toBeNull();
+    await expect(repository.getDraft(created.draft.id)).resolves.toMatchObject({ draft: { id: created.draft.id } });
+    await expect(repository.listPostHistory()).resolves.toHaveLength(1);
+
+    await app.close();
+  });
+
   it("removes source packet links after source-generated drafts are posted", async () => {
     const repository = createMemoryRepository({
       now: () => "2026-04-24T17:00:00.000Z"
@@ -830,6 +1066,69 @@ describe("api workflow", () => {
       jobs: [{ accountId: "account_personal" }]
     });
     expect(response.json().jobs).toHaveLength(1);
+
+    await app.close();
+  });
+
+  it("deletes all jobs only for the requested account", async () => {
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z",
+      snapshot: {
+        accounts: [
+          {
+            id: "account_personal",
+            handle: "personal-main",
+            displayName: "Personal",
+            profileDir: "profiles/personal-main",
+            styleProfileId: "style_default",
+            postingMode: "prepare_only",
+            enabled: true,
+            dailyPostLimit: 5,
+            quietHoursStart: null,
+            quietHoursEnd: null,
+            createdAt: "2026-04-24T17:00:00.000Z",
+            updatedAt: "2026-04-24T17:00:00.000Z"
+          },
+          {
+            id: "account_alt",
+            handle: "alt",
+            displayName: "Alt",
+            profileDir: "profiles/alt",
+            styleProfileId: "style_default",
+            postingMode: "prepare_only",
+            enabled: true,
+            dailyPostLimit: 5,
+            quietHoursStart: null,
+            quietHoursEnd: null,
+            createdAt: "2026-04-24T17:00:00.000Z",
+            updatedAt: "2026-04-24T17:00:00.000Z"
+          }
+        ]
+      }
+    });
+    const app = buildApp({ repository, generationProvider: testGenerationProvider });
+    const draftA = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "A",
+      candidates: [{ text: "Delete A", score: {} }]
+    });
+    const draftB = await repository.createDraft({
+      accountId: "account_alt",
+      sourceInput: "B",
+      candidates: [{ text: "Keep B", score: {} }]
+    });
+    const jobA = await repository.approveDraft({ draftId: draftA.draft.id, editedText: "Delete A" });
+    const jobB = await repository.approveDraft({ draftId: draftB.draft.id, editedText: "Keep B" });
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: "/jobs?accountId=account_personal"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ deletedCount: 1, ids: [jobA.job.id] });
+    await expect(repository.getJob(jobA.job.id)).resolves.toBeNull();
+    await expect(repository.getJob(jobB.job.id)).resolves.toMatchObject({ id: jobB.job.id });
 
     await app.close();
   });

@@ -9,6 +9,18 @@ export interface WorkerOptions {
   pollMs: number;
 }
 
+export interface WorkerState {
+  lastIngestMs: number;
+  autopostJobIds: Set<string>;
+}
+
+export function createWorkerState(): WorkerState {
+  return {
+    lastIngestMs: 0,
+    autopostJobIds: new Set()
+  };
+}
+
 function minutesSinceMidnight(time: string) {
   const parts = time.split(":");
   if (parts.length !== 2) {
@@ -72,7 +84,7 @@ async function api<T>(apiUrl: string, path: string, init?: RequestInit): Promise
   return response.json() as Promise<T>;
 }
 
-export async function processApprovedJobs(options: WorkerOptions) {
+export async function processApprovedJobs(options: WorkerOptions, state?: Pick<WorkerState, "autopostJobIds">) {
   // Check health
   try {
     const health = await api<{ ok: boolean }>(options.apiUrl, "/health");
@@ -104,10 +116,23 @@ export async function processApprovedJobs(options: WorkerOptions) {
   });
 
   let processed = 0;
+  const seenThisRun = new Set<string>();
   for (const job of approvedJobs) {
+    if (seenThisRun.has(job.id)) {
+      continue;
+    }
+    seenThisRun.add(job.id);
+
     const action = job.mode === "autopost" ? "post" : "prepare";
+    if (action === "post" && state?.autopostJobIds.has(job.id)) {
+      continue;
+    }
+
     try {
       await api(options.apiUrl, `/jobs/${job.id}/${action}`, { method: "POST" });
+      if (action === "post") {
+        state?.autopostJobIds.add(job.id);
+      }
       processed += 1;
     } catch (error) {
       console.error(
@@ -145,31 +170,51 @@ export async function processIngest(options: WorkerOptions) {
   }
 }
 
+export async function recoverStaleJobs(options: WorkerOptions) {
+  try {
+    const result = await api<{ recoveredCount: number }>(options.apiUrl, "/jobs/recover-stale", { method: "POST" });
+    return result.recoveredCount;
+  } catch (error) {
+    console.error(`Failed to recover stale jobs:`, error instanceof Error ? error.message : error);
+    return 0;
+  }
+}
+
+export async function runWorkerCycle(options: WorkerOptions, state: WorkerState) {
+  const recoveredCount = await recoverStaleJobs(options);
+  if (recoveredCount > 0) {
+    console.log(`Recovered ${recoveredCount} stale browser job(s)`);
+  }
+
+  const pendingProcessed = await processPendingDrafts(options);
+  if (pendingProcessed > 0) {
+    console.log(`Generated ${pendingProcessed} pending draft(s)`);
+  }
+
+  const now = Date.now();
+  if (now - state.lastIngestMs >= (options.ingestIntervalMs ?? 1 * 60 * 1000)) {
+    state.lastIngestMs = now;
+    const ingestProcessed = await processIngest(options);
+    if (ingestProcessed > 0) {
+      console.log(`Ingested ${ingestProcessed} packet(s)`);
+    }
+  }
+
+  const approvedProcessed = await processApprovedJobs(options, state);
+  if (approvedProcessed > 0) {
+    console.log(`Processed ${approvedProcessed} approved job(s)`);
+  }
+
+  return { approvedProcessed, pendingProcessed, recoveredCount };
+}
+
 export async function runWorker(options: WorkerOptions) {
   console.log(describeWorker());
-  let lastIngestMs = 0;
-  const ingestIntervalMs = options.ingestIntervalMs ?? 1 * 60 * 1000;
+  const state = createWorkerState();
 
   for (;;) {
     try {
-      const pendingProcessed = await processPendingDrafts(options);
-      if (pendingProcessed > 0) {
-        console.log(`Generated ${pendingProcessed} pending draft(s)`);
-      }
-
-      const approvedProcessed = await processApprovedJobs(options);
-      if (approvedProcessed > 0) {
-        console.log(`Prepared ${approvedProcessed} approved job(s)`);
-      }
-
-      const now = Date.now();
-      if (now - lastIngestMs >= ingestIntervalMs) {
-        lastIngestMs = now;
-        const ingestProcessed = await processIngest(options);
-        if (ingestProcessed > 0) {
-          console.log(`Ingested ${ingestProcessed} packet(s)`);
-        }
-      }
+      await runWorkerCycle(options, state);
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
     }

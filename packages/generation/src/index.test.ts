@@ -131,6 +131,71 @@ describe("openrouter generation", () => {
     ]);
   });
 
+  it("retries OpenRouter with a line prompt when JSON candidates are empty", async () => {
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const fetchImpl: FetchLike = async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (String(url).endsWith("/models")) {
+        return jsonResponse({
+          data: [
+            {
+              id: "minimax/minimax-m2.5:free",
+              pricing: { prompt: "0", completion: "0", request: "0" }
+            }
+          ]
+        });
+      }
+      if (calls.length === 2) {
+        return jsonResponse({
+          choices: [
+            {
+              message: {
+                content: '{"candidates":[]}'
+              }
+            }
+          ]
+        });
+      }
+      return jsonResponse({
+        choices: [
+          {
+            message: {
+              content:
+                "Keep Zyquor ingest drafts human-reviewed before anything reaches X.\nMake local posting automation auditable enough that every account action has a trail."
+            }
+          }
+        ]
+      });
+    };
+    const provider = createOpenRouterGenerationProvider({
+      apiKey: "test-key",
+      model: "minimax/minimax-m2.5:free",
+      fetch: fetchImpl
+    });
+
+    const candidates = await provider.generateDraftCandidates({ idea: "Make ingest reliable and auditable.", count: 2 });
+    const firstBody = JSON.parse(String(calls[1]?.init?.body)) as Record<string, unknown>;
+    const retryBody = JSON.parse(String(calls[2]?.init?.body)) as Record<string, unknown>;
+
+    expect(calls).toHaveLength(3);
+    expect(calls[0]?.url).toBe("https://openrouter.ai/api/v1/models");
+    expect(calls[1]?.url).toBe("https://openrouter.ai/api/v1/chat/completions");
+    expect(calls[2]?.url).toBe("https://openrouter.ai/api/v1/chat/completions");
+    expect(firstBody).toMatchObject({ response_format: { type: "json_object" } });
+    expect(retryBody).not.toHaveProperty("response_format");
+    expect(retryBody).toMatchObject({ temperature: 0.5, max_tokens: 500 });
+    expect(candidates).toEqual([
+      {
+        text: "Keep Zyquor ingest drafts human-reviewed before anything reaches X.",
+        score: { provider: "openrouter", model: "minimax/minimax-m2.5:free", rank: 1 }
+      },
+      {
+        text: "Make local posting automation auditable enough that every account action has a trail.",
+        score: { provider: "openrouter", model: "minimax/minimax-m2.5:free", rank: 2 }
+      }
+    ]);
+  });
+
   it("does not send a chat request when OpenRouter cannot confirm free pricing", async () => {
     const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
     const fetchImpl: FetchLike = async (url, init) => {

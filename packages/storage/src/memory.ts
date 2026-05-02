@@ -299,6 +299,10 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       const draft = requireDraft(id);
       const draftCandidates = candidatesForDraft(id);
       const draftJobs = [...jobs.values()].filter((job) => job.draftId === id);
+      const historyItem = [...history.values()].find((item) => item.draftId === id);
+      if (historyItem) {
+        throw new Error(`Cannot delete draft with post history: ${historyItem.id}`);
+      }
       const blockedJob = draftJobs.find((job) => job.status === "running" || job.status === "posted");
       if (blockedJob) {
         throw new Error(`Cannot delete draft with ${blockedJob.status} job: ${blockedJob.id}`);
@@ -478,6 +482,27 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       jobs.set(id, updatedJob);
       persist();
       return updatedJob;
+    },
+
+    async claimJobForBrowserRun(id, claimableStatuses) {
+      const job = jobs.get(id);
+      if (!job || !claimableStatuses.includes(job.status)) {
+        return null;
+      }
+      const hasOtherActiveJob = [...jobs.values()].some(
+        (candidate) =>
+          candidate.accountId === job.accountId &&
+          candidate.id !== job.id &&
+          (candidate.status === "queued" || candidate.status === "running")
+      );
+      if (hasOtherActiveJob) {
+        return null;
+      }
+
+      const claimed: PostJob = { ...job, status: "queued", updatedAt: now() };
+      jobs.set(id, claimed);
+      persist();
+      return claimed;
     },
 
     async createAttempt(input) {

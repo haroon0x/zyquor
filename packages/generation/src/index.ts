@@ -410,29 +410,53 @@ export function createOpenRouterGenerationProvider(options: {
     async generateDraftCandidates(input) {
       await assertFreeModel();
       const url = `${baseUrl}/chat/completions`;
-      const body = await postJson<{
-        choices?: Array<{ message?: { content?: unknown } }>;
-      }>(
-        fetchImpl,
-        url,
-        {
-          model,
-          messages: [
-            { role: "system", content: systemPrompt(input) },
-            { role: "user", content: userPrompt(input) }
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.65,
-          max_tokens: 900
-        },
-        {
-          authorization: `Bearer ${options.apiKey}`,
-          "http-referer": "http://127.0.0.1",
-          "x-title": "Zyquor"
+      const headers = {
+        authorization: `Bearer ${options.apiKey}`,
+        "http-referer": "http://127.0.0.1",
+        "x-title": "Zyquor"
+      };
+
+      try {
+        const body = await postJson<{
+          choices?: Array<{ message?: { content?: unknown } }>;
+        }>(
+          fetchImpl,
+          url,
+          {
+            model,
+            messages: [
+              { role: "system", content: systemPrompt(input) },
+              { role: "user", content: userPrompt(input) }
+            ],
+            response_format: { type: "json_object" },
+            temperature: 0.65,
+            max_tokens: 900
+          },
+          headers
+        );
+        const text = asText(body.choices?.[0]?.message?.content);
+        return candidatesFromText(text, input, "openrouter", model);
+      } catch (error) {
+        if (!isNoCandidatesError(error, "openrouter")) {
+          throw error;
         }
-      );
-      const text = asText(body.choices?.[0]?.message?.content);
-      return candidatesFromText(text, input, "openrouter", model);
+
+        const retryBody = await postJson<{
+          choices?: Array<{ message?: { content?: unknown } }>;
+        }>(
+          fetchImpl,
+          url,
+          {
+            model,
+            messages: [{ role: "user", content: linePrompt(input) }],
+            temperature: 0.5,
+            max_tokens: 500
+          },
+          headers
+        );
+        const retryText = asText(retryBody.choices?.[0]?.message?.content);
+        return candidatesFromText(retryText, input, "openrouter", model);
+      }
     }
   };
 }

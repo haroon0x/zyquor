@@ -16,6 +16,7 @@
 - `Post all ready` queue endpoint with randomized job order
 - Stale running-job recovery
 - Full test suite: 14 API, 7 core, 5 generation, 4 storage, 3 browser, 3 worker, 2 accounts
+- Autopost idempotency: worker keeps submitted autopost job IDs in process state, API/storage atomically claim browser jobs, stale running jobs are recovered on worker resume, and failed post jobs are not automatically retried because an interrupted external post may already have reached X.
 
 ## Next
 

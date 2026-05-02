@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { processApprovedJobs, processIngest } from "./index.js";
+import { createWorkerState, processApprovedJobs, processIngest, recoverStaleJobs, runWorkerCycle } from "./index.js";
 
 const baseJob = {
   accountId: "account_personal",
@@ -99,6 +99,138 @@ describe("worker job processing", () => {
 
     expect(processed).toBe(1);
     expect(calls).toContain("POST http://api.test/jobs/job_auto/post");
+  });
+
+  it("posts autopost jobs created by ingest in the same worker cycle", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
+    const calls: string[] = [];
+    let ingested = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.endsWith("/drafts/pending")) {
+          return Response.json({ drafts: [] });
+        }
+        if (url.endsWith("/jobs/recover-stale")) {
+          return Response.json({ recoveredCount: 0, recovered: [] });
+        }
+        if (url.endsWith("/ingest-run")) {
+          ingested = true;
+          return Response.json({ processed: 1 });
+        }
+        if (url.endsWith("/health")) {
+          return Response.json({ ok: true });
+        }
+        if (url.endsWith("/jobs")) {
+          return Response.json({
+            jobs: ingested ? [{ ...baseJob, id: "job_ingested", mode: "autopost" }] : []
+          });
+        }
+        if (url.endsWith("/accounts")) {
+          return Response.json({
+            accounts: [baseAccount]
+          });
+        }
+        return Response.json({ ok: true });
+      })
+    );
+
+    const result = await runWorkerCycle(
+      { apiUrl: "http://api.test", pollMs: 1000, ingestIntervalMs: 60_000 },
+      createWorkerState()
+    );
+
+    expect(result.approvedProcessed).toBe(1);
+    expect(calls).toContain("POST http://api.test/ingest-run");
+    expect(calls).toContain("POST http://api.test/jobs/job_ingested/post");
+  });
+
+  it("submits each autopost job only once even if the API repeats an approved job", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.endsWith("/drafts/pending")) {
+          return Response.json({ drafts: [] });
+        }
+        if (url.endsWith("/jobs/recover-stale")) {
+          return Response.json({ recoveredCount: 0, recovered: [] });
+        }
+        if (url.endsWith("/ingest-run")) {
+          return Response.json({ processed: 0 });
+        }
+        if (url.endsWith("/health")) {
+          return Response.json({ ok: true });
+        }
+        if (url.endsWith("/jobs")) {
+          return Response.json({
+            jobs: [
+              { ...baseJob, id: "job_auto", mode: "autopost" },
+              { ...baseJob, id: "job_auto", mode: "autopost" }
+            ]
+          });
+        }
+        if (url.endsWith("/accounts")) {
+          return Response.json({
+            accounts: [baseAccount]
+          });
+        }
+        return Response.json({ ok: true });
+      })
+    );
+    const state = createWorkerState();
+    const options = { apiUrl: "http://api.test", pollMs: 1000, ingestIntervalMs: 60_000 };
+
+    const first = await runWorkerCycle(options, state);
+    const second = await runWorkerCycle(options, state);
+
+    expect(first.approvedProcessed).toBe(1);
+    expect(second.approvedProcessed).toBe(0);
+    expect(calls.filter((call) => call === "POST http://api.test/jobs/job_auto/post")).toHaveLength(1);
+  });
+
+  it("recovers stale jobs before processing approved jobs in a worker cycle", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.endsWith("/jobs/recover-stale")) {
+          return Response.json({ recoveredCount: 1, recovered: [{ id: "job_stale" }] });
+        }
+        if (url.endsWith("/drafts/pending")) {
+          return Response.json({ drafts: [] });
+        }
+        if (url.endsWith("/ingest-run")) {
+          return Response.json({ processed: 0 });
+        }
+        if (url.endsWith("/health")) {
+          return Response.json({ ok: true });
+        }
+        if (url.endsWith("/jobs")) {
+          return Response.json({ jobs: [] });
+        }
+        if (url.endsWith("/accounts")) {
+          return Response.json({ accounts: [baseAccount] });
+        }
+        return Response.json({ ok: true });
+      })
+    );
+
+    const result = await runWorkerCycle(
+      { apiUrl: "http://api.test", pollMs: 1000, ingestIntervalMs: 60_000 },
+      createWorkerState()
+    );
+
+    expect(result.recoveredCount).toBe(1);
+    expect(calls[0]).toBe("POST http://api.test/jobs/recover-stale");
   });
 
   it("continues processing due jobs when one job action fails", async () => {

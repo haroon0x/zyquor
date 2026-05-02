@@ -42,6 +42,31 @@ describe("repository workflow", () => {
     expect(prepared.status).toBe("prepared");
   });
 
+  it("claims only one browser job per account", async () => {
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z"
+    });
+
+    const firstDraft = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "First claim",
+      candidates: [{ text: "First claim text", score: {} }]
+    });
+    const secondDraft = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "Second claim",
+      candidates: [{ text: "Second claim text", score: {} }]
+    });
+    const first = await repository.approveDraft({ draftId: firstDraft.draft.id, editedText: "First claim text" });
+    const second = await repository.approveDraft({ draftId: secondDraft.draft.id, editedText: "Second claim text" });
+
+    await expect(repository.claimJobForBrowserRun(first.job.id, ["approved"])).resolves.toMatchObject({
+      id: first.job.id,
+      status: "queued"
+    });
+    await expect(repository.claimJobForBrowserRun(second.job.id, ["approved"])).resolves.toBeNull();
+  });
+
   it("rejects duplicate approved text for the same account", async () => {
     const repository = createMemoryRepository({
       now: () => "2026-04-24T17:00:00.000Z"
@@ -63,6 +88,26 @@ describe("repository workflow", () => {
     await expect(repository.approveDraft({ draftId: second.draft.id, editedText: "Same   post text" })).rejects.toThrow(
       "Duplicate post text"
     );
+  });
+
+  it("does not delete drafts referenced by post history", async () => {
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z"
+    });
+    const created = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "Posted draft",
+      candidates: [{ text: "Posted draft text", score: {} }]
+    });
+    await repository.createPostHistory({
+      accountId: "account_personal",
+      draftId: created.draft.id,
+      postedText: "Posted draft text",
+      postUrl: "https://x.com/personal/status/history"
+    });
+
+    await expect(repository.deleteDraft(created.draft.id)).rejects.toThrow("Cannot delete draft with post history");
+    await expect(repository.getDraft(created.draft.id)).resolves.toMatchObject({ draft: { id: created.draft.id } });
   });
 
   it("stores scheduled approval metadata", async () => {

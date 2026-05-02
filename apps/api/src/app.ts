@@ -23,7 +23,7 @@ import {
   type DraftGenerationProvider,
   type GenerationEnvironment
 } from "@zyquor/generation";
-import { createLocalRepository, type ZyquorRepository } from "@zyquor/storage";
+import { createLocalRepository, normalizePostText, type ZyquorRepository } from "@zyquor/storage";
 import Fastify from "fastify";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
@@ -198,6 +198,12 @@ async function hasRunningJobForAccount(repository: ZyquorRepository, accountId: 
   );
 }
 
+async function hasPostedTextForAccount(repository: ZyquorRepository, accountId: string, text: string) {
+  const normalized = normalizePostText(text);
+  const history = await repository.listPostHistory();
+  return history.some((item) => item.accountId === accountId && normalizePostText(item.postedText) === normalized);
+}
+
 async function sourcePacketIdForDraft(repository: ZyquorRepository, draftId: string) {
   const draft = await repository.getDraft(draftId);
   const sourcePacketId = draft?.candidates
@@ -244,26 +250,36 @@ function isPostingMode(value: unknown): value is PostingMode {
 
 const STALE_RUNNING_JOB_MS = 10 * 60 * 1000;
 
-async function recoverStaleRunningJobs(repository: ZyquorRepository, accountId: string, currentJobId: string) {
+async function recoverStaleRunningJobs(
+  repository: ZyquorRepository,
+  options: { accountId?: string; currentJobId?: string } = {}
+) {
   const jobs = await repository.listJobs();
   const now = Date.now();
   const staleJobs = jobs.filter(
     (job) =>
-      job.accountId === accountId &&
-      job.id !== currentJobId &&
+      (!options.accountId || job.accountId === options.accountId) &&
+      (!options.currentJobId || job.id !== options.currentJobId) &&
       job.status === "running" &&
       now - Date.parse(job.updatedAt) > STALE_RUNNING_JOB_MS
   );
+  const recovered = [];
 
   for (const job of staleJobs) {
-    await repository.updateJobStatus(job.id, "failed");
+    const recoveredJob = await repository.updateJobStatus(job.id, "failed");
     await repository.createAttempt({
       jobId: job.id,
       status: "failed",
       errorCode: "stale_running_job",
-      errorMessage: "Recovered stale running job before starting another browser job"
+      errorMessage:
+        job.mode === "autopost"
+          ? "Recovered stale running autopost job after interruption. Verify X manually before retrying or deleting."
+          : "Recovered stale running browser job after interruption."
     });
+    recovered.push(recoveredJob);
   }
+
+  return recovered;
 }
 
 function createDefaultSourceAdapters(): SourceAdapter[] {
@@ -332,8 +348,8 @@ async function postBrowserJob(repository: ZyquorRepository, options: BuildAppOpt
   if (!job) {
     throw new HttpError(404, "Job not found");
   }
-  if (job.status !== "approved" && job.status !== "prepared" && job.status !== "failed") {
-    throw new HttpError(409, `Job must be approved, prepared, or failed before posting: ${job.status}`);
+  if (job.status !== "approved" && job.status !== "prepared") {
+    throw new HttpError(409, `Job must be approved or prepared before posting: ${job.status}`);
   }
 
   const account = await repository.getAccount(job.accountId);
@@ -350,18 +366,20 @@ async function postBrowserJob(repository: ZyquorRepository, options: BuildAppOpt
   if (await isDailyLimitReached(repository, account.id, account.dailyPostLimit)) {
     throw new HttpError(409, "Daily post limit reached for this account");
   }
-  await recoverStaleRunningJobs(repository, account.id, job.id);
+  if (await hasPostedTextForAccount(repository, account.id, draftWithCandidates.draft.editedText)) {
+    throw new HttpError(409, "Duplicate post text for this account");
+  }
+  await recoverStaleRunningJobs(repository, { accountId: account.id, currentJobId: job.id });
   if (await hasRunningJobForAccount(repository, account.id, job.id)) {
     throw new HttpError(409, "Another browser job is already running for this account");
   }
   assertDedicatedProfileDir(account.profileDir);
 
-  if (job.status === "approved" || job.status === "failed") {
-    await repository.updateJobStatus(job.id, "queued");
-    await repository.updateJobStatus(job.id, "running");
-  } else {
-    await repository.updateJobStatus(job.id, "running");
+  const claimed = await repository.claimJobForBrowserRun(job.id, ["approved", "prepared"]);
+  if (!claimed) {
+    throw new HttpError(409, "Job is already running, posted, or no longer claimable");
   }
+  await repository.updateJobStatus(job.id, "running");
   await repository.createAttempt({ jobId: job.id, status: "started" });
 
   try {
@@ -547,6 +565,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     const repository = await repositoryPromise;
     const packets = await repository.listSourcePackets(accountId);
     const jobs = await repository.listJobs();
+    const history = await repository.listPostHistory();
     const results = [];
 
     for (const packet of packets) {
@@ -554,12 +573,13 @@ export function buildApp(options: BuildAppOptions = {}) {
       if (draft) {
         const draftJobs = jobs.filter((job) => job.draftId === draft.draft.id);
         const hasPostedJob = draftJobs.some((job) => job.status === "posted");
+        const hasPostHistory = history.some((item) => item.draftId === draft.draft.id);
         const hasRunningJob = draftJobs.some((job) => job.status === "running" || job.status === "queued");
         if (hasRunningJob) {
           results.push({ deleted: false, draftId: draft.draft.id, packetId: packet.id, reason: "job_running" });
           continue;
         }
-        if (!hasPostedJob) {
+        if (!hasPostedJob && !hasPostHistory) {
           await repository.deleteDraft(draft.draft.id);
         }
       }
@@ -914,6 +934,16 @@ export function buildApp(options: BuildAppOptions = {}) {
     };
   });
 
+  app.post("/jobs/recover-stale", async (request) => {
+    const { accountId } = (request.body ?? {}) as { accountId?: string };
+    const repository = await repositoryPromise;
+    const recovered = await recoverStaleRunningJobs(repository, accountId ? { accountId } : {});
+    return {
+      recovered,
+      recoveredCount: recovered.length
+    };
+  });
+
   app.post("/jobs/post-ready", async (request) => {
     const { accountId } = request.body as { accountId?: string };
     if (!accountId) {
@@ -926,7 +956,7 @@ export function buildApp(options: BuildAppOptions = {}) {
         if (job.accountId !== accountId) {
           return false;
         }
-        if (job.status !== "approved" && job.status !== "prepared" && job.status !== "failed") {
+        if (job.status !== "approved" && job.status !== "prepared") {
           return false;
         }
         if (!job.scheduledFor) {
@@ -970,9 +1000,10 @@ export function buildApp(options: BuildAppOptions = {}) {
     };
   });
 
-  app.delete("/jobs", async () => {
+  app.delete("/jobs", async (request) => {
+    const { accountId } = request.query as { accountId?: string };
     const repository = await repositoryPromise;
-    const jobs = await repository.listJobs();
+    const jobs = (await repository.listJobs()).filter((job) => !accountId || job.accountId === accountId);
     const deleted = [];
 
     for (const job of jobs) {
@@ -1034,13 +1065,16 @@ export function buildApp(options: BuildAppOptions = {}) {
     if (!isAccountRunnable(account)) {
       return reply.code(409).send({ error: "Account is not enabled for browser jobs" });
     }
-    await recoverStaleRunningJobs(repository, account.id, job.id);
+    await recoverStaleRunningJobs(repository, { accountId: account.id, currentJobId: job.id });
     if (await hasRunningJobForAccount(repository, account.id, job.id)) {
       return reply.code(409).send({ error: "Another browser job is already running for this account" });
     }
     assertDedicatedProfileDir(account.profileDir);
 
-    await repository.updateJobStatus(job.id, "queued");
+    const claimed = await repository.claimJobForBrowserRun(job.id, ["approved", "failed"]);
+    if (!claimed) {
+      return reply.code(409).send({ error: "Job is already running, posted, or no longer claimable" });
+    }
     await repository.updateJobStatus(job.id, "running");
     await repository.createAttempt({ jobId: job.id, status: "started" });
 

@@ -554,6 +554,10 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
         const draftJobs = rows(db.prepare("SELECT * FROM post_jobs WHERE draft_id = ? ORDER BY created_at ASC").all(draftId)).map(
           toJob
         );
+        const historyItem = row(db.prepare("SELECT id FROM post_history WHERE draft_id = ? LIMIT 1").get(draftId));
+        if (historyItem) {
+          throw new Error(`Cannot delete draft with post history: ${String(historyItem.id)}`);
+        }
         const blockedJob = draftJobs.find((job) => job.status === "running" || job.status === "posted");
         if (blockedJob) {
           throw new Error(`Cannot delete draft with ${blockedJob.status} job: ${blockedJob.id}`);
@@ -747,6 +751,33 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
       const timestamp = now();
       db.prepare("UPDATE post_jobs SET status = ?, updated_at = ? WHERE id = ?").run(status, timestamp, jobId);
       return requireJob(jobId);
+    },
+
+    async claimJobForBrowserRun(jobId, claimableStatuses) {
+      if (claimableStatuses.length === 0) {
+        return null;
+      }
+      return runTransaction(db, () => {
+        const placeholders = claimableStatuses.map(() => "?").join(", ");
+        const timestamp = now();
+        const result = db.prepare(
+          `UPDATE post_jobs
+           SET status = ?, updated_at = ?
+           WHERE id = ?
+             AND status IN (${placeholders})
+             AND NOT EXISTS (
+               SELECT 1
+               FROM post_jobs active
+               WHERE active.account_id = post_jobs.account_id
+                 AND active.id != post_jobs.id
+                 AND active.status IN ('queued', 'running')
+             )`
+        ).run("queued", timestamp, jobId, ...claimableStatuses);
+        if (Number((result as { changes?: unknown }).changes ?? 0) === 0) {
+          return null;
+        }
+        return requireJob(jobId);
+      });
     },
 
     async createAttempt(input) {
