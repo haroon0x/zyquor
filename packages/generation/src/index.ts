@@ -121,6 +121,23 @@ function characterLimit(input: GenerateDraftCandidatesInput) {
   return DEFAULT_CHARACTER_LIMIT;
 }
 
+const FUTURE_WORKFLOW_PROMPT_RULES = [
+  "Zyquor is evolving beyond v1 into a multi-account, source-aware, scheduled, voice-assisted posting system. Keep drafts portable across review, rewrite, schedule, reply, and autopost flows.",
+  "Every post should be usable as an auditable draft: no hidden assumptions, no private workflow details, no unexplained source jumps, and no phrasing that depends on unseen thread context.",
+  "Optimize for future style profiles by varying content style, format style, and voice style across candidates while still obeying the account tone and objective."
+];
+
+const ENGAGEMENT_STYLE_GUIDE = [
+  "Tweet style menu: choose one clear CONTENT_STYLE per candidate when it fits the idea.",
+  "CONTENT_STYLE options: HOT_TAKE, OPEN_LOOP_QUESTION, RELATABLE_PAIN_FIX, MICRO_STORY, CHECKLIST, YOURE_DOING_IT_WRONG, WHAT_NO_ONE_TELLS_YOU, SPIKY_COMPARISON, CONFESSION, STATS_SHOCK, THREAD_HOOK, POLL_VIBE_QUESTION.",
+  "FORMAT_STYLE options: SINGLE_LINE_BANGER, DOUBLE_LINE_PUNCH, LIST_DASHES, LIST_ARROWS, RATIO_LAYOUT, TITLE_SUBTITLE, SPARSE_BREAKS, ALL_CAPS_EMPHASIS, QUOTE_FORMAT, TIMELINE, MINI_THREAD_INDICATOR.",
+  "VOICE_STYLE options: CASUAL_LOWERCASE, SLIGHTLY_CHAOTIC, DRY_SARCASTIC, WHOLESOME_ENCOURAGING, AUTHORITY_BUT_CHILL.",
+  "Use Gen-Z-aware internet rhythm without forced slang: short lines, specific hooks, natural lowercase when useful, and zero corporate essay tone.",
+  "For high-engagement variants, prefer hooks that create replies, saves, or quote posts: a defensible hot take, a real question, a hidden truth, a sharp comparison, a mini playbook, or a then-vs-now lesson.",
+  "Format variety rules: lists may use '-' or '>' lines; comparisons may use 'X > Y' only when defensible; ALL CAPS may emphasize 1-3 words only; timeline posts should use compact year/state lines.",
+  "Do not overuse thread markers. Use '(thread)' or '(1/?)' only when the idea genuinely needs follow-up; otherwise each post must remain complete by itself."
+];
+
 function tweetTypeInstruction(tweetType: string | undefined) {
   if (!tweetType) {
     return "Tweet type: general value post.";
@@ -159,17 +176,19 @@ function systemPrompt(input: GenerateDraftCandidatesInput) {
   const limit = characterLimit(input);
   const diversityInstruction =
     count >= 3
-      ? "Candidate mix: one direct why-it-matters post, one practical takeaway post, and one smart-bro casual post. If more candidates are requested, add a contrarian/context angle and a concise founder/operator angle."
+      ? "Candidate mix: one direct why-it-matters post, one practical takeaway post, and one smart-bro casual post. If more candidates are requested, add a contrarian/context angle and a concise founder/operator angle. Vary content style, format style, and voice style instead of paraphrasing."
       : "Candidate mix: make each candidate use a distinct angle, not paraphrases of the same sentence.";
   return [
     "You are Zyquor's draft generator for X posts.",
     "Write concrete, concise, review-ready draft candidates.",
     "Objective: maximize useful reach, views, and reputation by being specific, timely, clear, and valuable.",
     "Prefer angles around AI, technology, programming, science, research, economics, markets, geopolitics shaped by tech, policy, startups, and business news when the context supports it.",
+    ...FUTURE_WORKFLOW_PROMPT_RULES,
     diversityInstruction,
     "Lead with the sharpest specific fact or implication. Avoid throat-clearing like 'Interesting', 'A reminder', 'In today's world', or 'This shows'.",
     "If using news context, explain the second-order implication: who it affects, what changes, or why builders/investors/operators should care.",
     "Use strong hooks and tasteful tension when useful. Do not use cheap bait, fake claims, hashtags, emojis, em dashes, or generic startup phrases.",
+    ...ENGAGEMENT_STYLE_GUIDE,
     "Grounding rule: only use facts supplied by the user or source context. If facts are thin, write a narrower observation instead of inventing missing details.",
     "Context engineering rule: pick one angle per candidate. Do not mash together every fact. Make the most relevant detail carry the post.",
     "Write only public-facing post text. Never mention internal labels like SourcePacket, source packet, compact input, candidate, draft, metadata, JSON, prompt, or distillation.",
@@ -208,6 +227,8 @@ function linePrompt(input: GenerateDraftCandidatesInput) {
     `Each draft must be ${limit} characters or fewer.`,
     "One draft per line.",
     "No numbering, no labels, no JSON.",
+    "Vary styles across lines: one may be a hot take, one a practical mini-playbook, one an open-loop question, comparison, or then-vs-now lesson.",
+    "Use modern X rhythm: concise, casual, specific, no corporate essay tone.",
     "Never mention SourcePacket, source packet, compact input, candidate, draft, metadata, prompt, or distillation.",
     "Avoid cheap bait, fake claims, hashtags, emojis, and em dashes.",
     "Mention auditability/control/local-first only if it fits the idea."

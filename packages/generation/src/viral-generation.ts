@@ -95,6 +95,16 @@ WHAT MAKES POSTS VIRAL:
 6. Predictions with stakes ("in 6 months, X will...")
 7. Concrete examples over abstract principles
 
+STYLE MENU:
+- CONTENT_STYLE: HOT_TAKE, OPEN_LOOP_QUESTION, RELATABLE_PAIN_FIX, MICRO_STORY, CHECKLIST, YOURE_DOING_IT_WRONG, WHAT_NO_ONE_TELLS_YOU, SPIKY_COMPARISON, CONFESSION, STATS_SHOCK, THREAD_HOOK, POLL_VIBE_QUESTION
+- FORMAT_STYLE: SINGLE_LINE_BANGER, DOUBLE_LINE_PUNCH, LIST_DASHES, LIST_ARROWS, RATIO_LAYOUT, TITLE_SUBTITLE, SPARSE_BREAKS, ALL_CAPS_EMPHASIS, QUOTE_FORMAT, TIMELINE, MINI_THREAD_INDICATOR
+- VOICE_STYLE: CASUAL_LOWERCASE, SLIGHTLY_CHAOTIC, DRY_SARCASTIC, WHOLESOME_ENCOURAGING, AUTHORITY_BUT_CHILL
+
+Use modern X rhythm: concise, specific, Gen-Z-aware, not formal. Use '-' or '>' list formats when helpful. Use ALL CAPS for 1-3 words only. Use thread markers only when the idea truly needs follow-up.
+
+FUTURE ZYQUOR RULE:
+Drafts must stay portable across review, rewrite, schedule, reply, multi-account, voice-assisted, and autopost flows. Never expose workflow internals or depend on unseen thread context.
+
 WHAT KILLS ENGAGEMENT:
 - Generic advice ("always", "never", "best practice")
 - Startup jargon (game changer, unlock, leverage)
@@ -119,6 +129,13 @@ WHAT MAKES POSTS VALUABLE:
 7. Explanations that clarify confusion
 8. Connections between ideas that reveal new understanding
 
+STYLE MENU:
+- CONTENT_STYLE: RELATABLE_PAIN_FIX, MICRO_STORY, CHECKLIST, WHAT_NO_ONE_TELLS_YOU, STATS_SHOCK, OPEN_LOOP_QUESTION, SPIKY_COMPARISON
+- FORMAT_STYLE: DOUBLE_LINE_PUNCH, LIST_DASHES, LIST_ARROWS, RATIO_LAYOUT, TITLE_SUBTITLE, TIMELINE, SINGLE_LINE_BANGER
+- VOICE_STYLE: CASUAL_LOWERCASE, WHOLESOME_ENCOURAGING, AUTHORITY_BUT_CHILL, DRY_SARCASTIC
+
+Use modern X rhythm without turning value into an essay. Make each draft complete, specific, and portable across future Zyquor review, rewrite, schedule, reply, multi-account, voice-assisted, and autopost flows.
+
 WHAT DESTROYS VALUE:
 - Vague advice without specifics
 - Oversimplification of complex topics
@@ -140,6 +157,10 @@ GUIDELINES:
 - Include concrete details, numbers, or examples
 - Avoid pure clickbait without substance
 - Don't sacrifice accuracy for engagement
+- Pick one CONTENT_STYLE per draft: hot take, open question, relatable pain + fix, micro-story, checklist, hidden truth, sharp comparison, confession, stat shock, or poll-style question
+- Vary FORMAT_STYLE across drafts: single-line banger, double-line punch, '-' list, '>' list, ratio layout, title/subtitle, quote format, or timeline
+- Use VOICE_STYLE that fits account tone: casual lowercase, slightly chaotic, dry sarcastic, wholesome encouraging, or authority-but-chill
+- Keep posts future-safe for Zyquor review, rewrite, schedule, reply, multi-account, voice-assisted, and autopost workflows
 
 OUTPUT: {count} drafts under {limit} chars. Viral AND valuable.
 JSON: {"candidates":[{"text":"draft"}...]}`;
