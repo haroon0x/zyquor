@@ -171,62 +171,16 @@ async function openComposeWithRetry(page: Page, input: { actionDelayMs: number; 
 }
 
 async function automationPage(context: BrowserContext, input: PreparePostInput) {
-  const existingPage =
+  if (input.cdpUrl) {
+    return context.newPage();
+  }
+  return (
     context.pages().find((item) => item.url().startsWith("https://x.com/compose")) ??
     context.pages().find((item) => item.url().startsWith("https://twitter.com/compose")) ??
     context.pages().find((item) => item.url().startsWith("https://x.com/")) ??
-    context.pages().find((item) => item.url().startsWith("https://twitter.com/")) ??
     context.pages()[0] ??
-    null;
-
-  if (existingPage || input.cdpUrl) {
-    return existingPage;
-  }
-
-  return context.newPage();
-}
-
-async function sessionCheckPage(context: BrowserContext, input: CheckXLoginInput) {
-  const existingPage =
-    context.pages().find((item) => item.url().startsWith("https://x.com/") || item.url().startsWith("https://twitter.com/")) ??
-    context.pages()[0] ??
-    null;
-
-  if (existingPage || input.cdpUrl) {
-    return existingPage;
-  }
-
-  return context.newPage();
-}
-
-function isXUrl(url: string) {
-  return url.startsWith("https://x.com/") || url.startsWith("https://twitter.com/");
-}
-
-async function requireXPage(page: Page | null) {
-  if (!page) {
-    throw new Error("No X page is open in the persistent browser profile. Open one existing X tab and retry.");
-  }
-  if (!isXUrl(page.url())) {
-    throw new Error("No X page is open in the persistent browser profile. Open one existing X tab and retry.");
-  }
-  return page;
-}
-
-async function automationXPage(context: BrowserContext, input: PreparePostInput) {
-  const page = await automationPage(context, input);
-  if (input.cdpUrl) {
-    return requireXPage(page);
-  }
-  return page;
-}
-
-async function sessionCheckXPage(context: BrowserContext, input: CheckXLoginInput) {
-  const page = await sessionCheckPage(context, input);
-  if (input.cdpUrl) {
-    return requireXPage(page);
-  }
-  return page;
+    context.newPage()
+  );
 }
 
 async function visibleEditorTexts(page: Page) {
@@ -373,10 +327,10 @@ export async function checkXLogin(input: CheckXLoginInput): Promise<CheckXLoginR
   const { context, ownsContext } = await openPersistentContext(input);
 
   try {
-    const page = await sessionCheckXPage(context, input);
-    if (!page) {
-      throw new Error("No X page is open in the persistent browser profile. Open the existing X tab and retry.");
-    }
+    const page =
+      context.pages().find((item) => item.url().startsWith("https://x.com/") || item.url().startsWith("https://twitter.com/")) ??
+      context.pages()[0] ??
+      (await context.newPage());
     const currentUrl = page.url();
     if (!currentUrl.startsWith("https://x.com/") && !currentUrl.startsWith("https://twitter.com/")) {
       await page.goto(input.xHomeUrl ?? "https://x.com/home", { waitUntil: "domcontentloaded", timeout: 15_000 });
@@ -421,10 +375,7 @@ export async function preparePost(input: PreparePostInput): Promise<PreparePostR
     context.setDefaultTimeout(30_000);
     context.setDefaultNavigationTimeout(45_000);
     await context.tracing.start({ screenshots: true, snapshots: true });
-    const page = await automationXPage(context, input);
-    if (!page) {
-      throw new Error("No X page is open in the persistent browser profile. Open the existing X tab and retry.");
-    }
+    const page = await automationPage(context, input);
     page.on("dialog", (dialog) => {
       void dialog.dismiss().catch(() => undefined);
     });
