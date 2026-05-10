@@ -106,9 +106,16 @@ async function ensureXTabForSession(session) {
   const xPages = Array.isArray(pages)
     ? pages.filter((page) => String(page.url ?? "").startsWith("https://x.com/"))
     : [];
+  if (xPages.length > 1) {
+    const keep = xPages.find((page) => String(page.url ?? "").startsWith("https://x.com/compose")) ?? xPages[0];
+    await Promise.all(
+      xPages.filter((page) => page.id && page.id !== keep.id).map((page) => fetch(`${cdpUrl}/json/close/${page.id}`).catch(() => null))
+    );
+  }
   if (session.loggedIn) {
-    if (xPages.length > 0) {
-      await fetch(`${cdpUrl}/json/activate/${xPages[0].id}`).catch(() => null);
+    const activePage = xPages.find((page) => String(page.url ?? "").startsWith("https://x.com/compose")) ?? xPages[0];
+    if (activePage?.id) {
+      await fetch(`${cdpUrl}/json/activate/${activePage.id}`).catch(() => null);
     }
     return;
   }

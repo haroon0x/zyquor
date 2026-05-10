@@ -115,16 +115,21 @@ function isXPage(page: Page) {
 }
 
 function existingXPage(context: BrowserContext) {
-  return (
-    context.pages().find((item) => item.url().startsWith("https://x.com/compose")) ??
-    context.pages().find((item) => item.url().startsWith("https://twitter.com/compose")) ??
-    context.pages().find((item) => item.url().startsWith("https://x.com/")) ??
-    context.pages().find((item) => item.url().startsWith("https://twitter.com/")) ??
-    null
-  );
+  const pages = context.pages().filter(isXPage);
+  return pages.find((item) => item.url().startsWith("https://x.com/compose")) ?? pages[0] ?? null;
+}
+
+async function closeDuplicateXPages(context: BrowserContext) {
+  const pages = context.pages().filter(isXPage);
+  if (pages.length <= 1) {
+    return;
+  }
+  const keep = pages.find((item) => item.url().startsWith("https://x.com/compose")) ?? pages[0];
+  await Promise.all(pages.filter((page) => page !== keep).map((page) => page.close().catch(() => undefined)));
 }
 
 async function pageForSessionCheck(context: BrowserContext, input: CheckXLoginInput) {
+  await closeDuplicateXPages(context);
   const xPage = existingXPage(context);
   if (xPage) return xPage;
   if (input.cdpUrl) {
@@ -134,6 +139,7 @@ async function pageForSessionCheck(context: BrowserContext, input: CheckXLoginIn
 }
 
 async function pageForPost(context: BrowserContext, input: PreparePostInput) {
+  await closeDuplicateXPages(context);
   const xPage = existingXPage(context);
   if (xPage) return xPage;
   if (input.cdpUrl) {
