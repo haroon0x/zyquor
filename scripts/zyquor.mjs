@@ -64,10 +64,6 @@ async function jsonOrNull(url) {
   }
 }
 
-async function openCdpPage(url) {
-  await fetch(`${cdpUrl}/json/new?${encodeURIComponent(url)}`, { method: "PUT" }).catch(() => null);
-}
-
 async function waitFor(name, url, timeoutMs = 60_000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -107,8 +103,8 @@ async function ensureXTabForSession(session) {
     ? pages.filter((page) => String(page.url ?? "").startsWith("https://x.com/"))
     : [];
   if (session.loggedIn) {
-    if (xPages.length === 0) {
-      await openCdpPage("https://x.com/home");
+    if (xPages.length > 0) {
+      await fetch(`${cdpUrl}/json/activate/${xPages[0].id}`).catch(() => null);
     }
     return;
   }
@@ -117,8 +113,14 @@ async function ensureXTabForSession(session) {
     const url = String(page.url ?? "");
     return url.startsWith("https://x.com/login") || url.startsWith("https://x.com/i/flow/login");
   });
-  if (!hasLoginPage) {
-    await openCdpPage("https://x.com/login");
+  if (hasLoginPage) {
+    const loginPage = xPages.find((page) => {
+      const url = String(page.url ?? "");
+      return url.startsWith("https://x.com/login") || url.startsWith("https://x.com/i/flow/login");
+    });
+    if (loginPage) {
+      await fetch(`${cdpUrl}/json/activate/${loginPage.id}`).catch(() => null);
+    }
   }
 }
 
@@ -222,7 +224,12 @@ async function login() {
       return url.startsWith("https://x.com/login") || url.startsWith("https://x.com/i/flow/login");
     });
   if (!hasLoginPage) {
-    await openCdpPage("https://x.com/login");
+    const firstXPage = Array.isArray(pages)
+      ? pages.find((page) => String(page.url ?? "").startsWith("https://x.com/") || String(page.url ?? "").startsWith("https://twitter.com/"))
+      : null;
+    if (firstXPage?.id) {
+      await fetch(`${cdpUrl}/json/activate/${firstXPage.id}`).catch(() => null);
+    }
   }
 
   console.log(`Chrome CDP: ${cdpUrl}`);

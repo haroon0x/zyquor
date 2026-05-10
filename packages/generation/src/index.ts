@@ -141,7 +141,8 @@ function characterLimit(input: GenerateDraftCandidatesInput) {
 const FUTURE_WORKFLOW_PROMPT_RULES = [
   "Zyquor is evolving beyond v1 into a multi-account, source-aware, scheduled, voice-assisted posting system. Keep drafts portable across review, rewrite, schedule, reply, and autopost flows.",
   "Every post should be usable as an auditable draft: no hidden assumptions, no private workflow details, no unexplained source jumps, and no phrasing that depends on unseen thread context.",
-  "Optimize for future style profiles by varying content style, format style, and voice style across candidates while still obeying the account tone and objective."
+  "Optimize for future style profiles by varying content style, format style, and voice style across candidates while still obeying the account tone and objective.",
+  "Avoid self-congratulatory or accomplishment framing in the first person. Do not write posts that say or imply 'I did X', 'we did X', 'we made progress', or 'we were ahead' unless the source context explicitly requires a quoted claim or direct attribution."
 ];
 
 const ENGAGEMENT_STYLE_GUIDE = [
