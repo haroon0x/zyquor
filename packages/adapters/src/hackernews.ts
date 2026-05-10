@@ -4,19 +4,21 @@ const HN_API_BASE = "https://hacker-news.firebaseio.com/v0";
 
 export interface HackerNewsAdapterOptions {
   crawlService?: CrawlService;
+  feed?: "askstories" | "beststories" | "newstories" | "showstories" | "topstories";
   maxItems?: number;
 }
 
 export function createHackerNewsAdapter(options: HackerNewsAdapterOptions = {}): SourceAdapter {
   const maxItems = options.maxItems ?? 5;
   const crawlService = options.crawlService;
+  const feed = options.feed ?? "topstories";
 
   return {
-    name: "hackernews",
+    name: feed === "topstories" ? "hackernews" : `hackernews-${feed.replace("stories", "")}`,
     sourceType: "news",
     async fetch(): Promise<SourceItem[]> {
       try {
-        const topRes = await globalThis.fetch(`${HN_API_BASE}/topstories.json`);
+        const topRes = await globalThis.fetch(`${HN_API_BASE}/${feed}.json`);
         if (!topRes.ok) return [];
 
         const topIds = (await topRes.json()) as number[];

@@ -4,10 +4,10 @@ This repo should stay easy to change as the product grows. Favor explicit contra
 
 ## Current Build Order
 
-1. Keep `@zyquor/core` stable first.
-2. Add storage around core schemas and state transitions.
-3. Wire API/UI to storage.
-4. Add browser prepare flow after approved jobs exist.
+1. Keep `@zyquor/core` contracts stable first.
+2. Keep storage/repository behavior covered before API changes.
+3. Keep API and worker behavior covered before UI changes.
+4. Keep browser posting behind env flags and persisted attempt logs.
 
 ## Maintainability Rules
 
@@ -21,6 +21,7 @@ This repo should stay easy to change as the product grows. Favor explicit contra
 - API refuses browser jobs for disabled or `draft_only` accounts.
 - Controlled post click checks the account's daily post limit before browser automation.
 - Draft generation goes through `@zyquor/generation`; UI and browser code never call LLM APIs directly.
+- Source ingestion goes through `@zyquor/adapters` and `@zyquor/automation`; generation never browses.
 
 ## Local Data
 
@@ -48,6 +49,7 @@ Core workflow:
 - `POST /jobs/:id/post` — explicit post click (requires enable flag)
 - `POST /jobs/post-ready` — queue all ready jobs (approved/prepared/failed, shuffled)
 - `DELETE /jobs/:id` — delete non-running job
+- `GET /jobs/:id/attempts` — attempt logs for a job
 
 Batch:
 - `POST /draft-batches` — create multiple jobs from one idea/line, optional schedule spacing
@@ -56,12 +58,18 @@ Source packets:
 - `GET /source-packets?accountId=` — list packets
 - `POST /source-packets` — create packet
 - `POST /source-packets/:id/draft` — generate draft from packet → marks packet drafted
+- `DELETE /source-packets/:id` — delete packet and non-posted generated draft
+- `DELETE /source-packets?accountId=` — delete all packets for account when safe
 
 Ingest configs (CRUD for automated source ingestion):
 - `GET /ingest-configs?accountId=` — list configs
 - `POST /ingest-configs` — create config
+- `POST /ingest-configs/default-news` — create/reuse default automated news config
 - `PATCH /ingest-configs/:id` — update config
 - `DELETE /ingest-configs/:id` — delete config
+- `GET /ingest-sources` — list source adapters and aggregated source health
+- `POST /ingest-run` — run ingest synchronously
+- `POST /ingest-run/async` — queue ingest without blocking worker/API callers
 
 Style profiles:
 - `GET /style-profiles/:id` — get profile
@@ -78,7 +86,11 @@ Browser:
 
 History:
 - `GET /history` — posted tweet history
-- `GET /jobs/:id/attempts` — attempt logs for a job
+- `GET /history/analysis?accountId=&sinceHours=` — recent post quality analysis
+
+Worker:
+- `GET /worker/status` — heartbeat, ingest run state, config state
+- `POST /worker/heartbeat` — worker heartbeat
 
 ## Smoke Tests
 
@@ -87,6 +99,7 @@ Use these when dependencies or browser access are unavailable:
 ```bash
 pnpm smoke
 pnpm smoke:http
+pnpm smoke:adapters
 ```
 
 `smoke:http` tries to bind a local HTTP server. In restricted sandboxes that reject listeners with `EPERM`, it falls back to the same workflow in-process and reports `networkBlocked`.
@@ -150,8 +163,9 @@ Provider selection uses environment variables:
 
 ```bash
 ZYQUOR_LLM_PROVIDER=mock
+ZYQUOR_LLM_PROVIDER=openrouter ZYQUOR_OPENROUTER_API_KEY=... ZYQUOR_OPENROUTER_MODEL=nvidia/nemotron-3-super-120b-a12b:free
 ZYQUOR_LLM_PROVIDER=ollama ZYQUOR_OLLAMA_BASE_URL=http://127.0.0.1:11434 ZYQUOR_OLLAMA_MODEL=llama3.1
 ZYQUOR_LLM_PROVIDER=gemini ZYQUOR_GEMINI_API_KEY=... ZYQUOR_GEMINI_MODEL=gemini-2.5-flash
 ```
 
-`mock` is deterministic and offline. `ollama` calls `/api/generate` with `stream: false` and JSON output. `gemini` calls Gemini `models/{model}:generateContent` with JSON response config.
+`mock` is deterministic and offline. `openrouter` uses chat completions. `ollama` calls `/api/generate` with `stream: false` and JSON output. `gemini` calls Gemini `models/{model}:generateContent` with JSON response config.

@@ -9,7 +9,7 @@ import type {
   StyleProfile,
   IngestConfig
 } from "@zyquor/core";
-import { canTransitionDraft, canTransitionPostJob } from "@zyquor/core";
+import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob } from "@zyquor/core";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ZyquorRepository, RepositorySnapshot, ContentFingerprint } from "./types.js";
@@ -21,6 +21,12 @@ export interface MemoryRepositoryOptions {
   now?: () => string;
   snapshot?: Partial<RepositorySnapshot>;
   onChange?: (snapshot: RepositorySnapshot) => void;
+}
+
+function assertTweetTextFitsLimit(text: string) {
+  if (text.length > X_FREE_POST_CHARACTER_LIMIT) {
+    throw new Error(`Post text exceeds ${X_FREE_POST_CHARACTER_LIMIT} characters`);
+  }
 }
 
 export function createMemoryRepository(options: MemoryRepositoryOptions = {}): ZyquorRepository {
@@ -245,6 +251,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       if (!account) {
         throw new Error(`Account not found: ${input.accountId}`);
       }
+      (input.candidates ?? []).forEach((candidate) => assertTweetTextFitsLimit(candidate.text));
 
       const timestamp = now();
       const firstCandidate = input.candidates && input.candidates.length > 0 ? (input.candidates[0]?.text ?? null) : null;
@@ -288,10 +295,12 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
 
     async getDraftBySourcePacketId(sourcePacketId) {
       const candidate = [...candidates.values()].find((item) => item.score.sourcePacketId === sourcePacketId);
-      if (!candidate) {
-        return null;
+      if (candidate) {
+        const draft = drafts.get(candidate.draftId);
+        return draft ? { draft, candidates: candidatesForDraft(draft.id) } : null;
       }
-      const draft = drafts.get(candidate.draftId);
+
+      const draft = [...drafts.values()].find((item) => item.metadata.sourcePacketId === sourcePacketId);
       return draft ? { draft, candidates: candidatesForDraft(draft.id) } : null;
     },
 
@@ -340,6 +349,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       if (draft.status !== "created") {
         throw new Error(`Cannot save candidates for draft with status: ${draft.status}`);
       }
+      inputCandidates.forEach((candidate) => assertTweetTextFitsLimit(candidate.text));
 
       const timestamp = now();
       const firstCandidate = inputCandidates.length > 0 ? (inputCandidates[0]?.text ?? null) : null;
@@ -378,6 +388,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       if (!selected || selected.draftId !== input.draftId) {
         throw new Error(`Candidate not found for draft: ${input.candidateId}`);
       }
+      assertTweetTextFitsLimit(input.editedText ?? selected.text);
 
       for (const candidate of candidatesForDraft(input.draftId)) {
         candidates.set(candidate.id, { ...candidate, selected: candidate.id === selected.id });
@@ -402,6 +413,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       if (!canTransitionDraft(draft.status, "approved")) {
         throw new Error(`Cannot approve draft from status: ${draft.status}`);
       }
+      assertTweetTextFitsLimit(input.editedText);
 
       const timestamp = now();
       const normalizedText = normalizePostText(input.editedText);
@@ -532,8 +544,14 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
         id: id("history"),
         accountId: input.accountId,
         draftId: input.draftId,
+        metadata: input.metadata ?? {},
         postedText: input.postedText,
         postUrl: input.postUrl,
+        sourcePacketId: input.sourcePacketId ?? null,
+        sourceTitle: input.sourceTitle ?? null,
+        sourceType: input.sourceType ?? null,
+        sourceUrl: input.sourceUrl ?? null,
+        tweetType: input.tweetType ?? null,
         postedAt: now()
       };
       history.set(item.id, item);
@@ -543,6 +561,20 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
 
     async listPostHistory() {
       return [...history.values()].sort((a, b) => b.postedAt.localeCompare(a.postedAt));
+    },
+
+    async purgePostHistoryOlderThan(cutoffIso) {
+      let deletedCount = 0;
+      for (const [id, item] of history.entries()) {
+        if (item.postedAt < cutoffIso) {
+          history.delete(id);
+          deletedCount += 1;
+        }
+      }
+      if (deletedCount > 0) {
+        persist();
+      }
+      return deletedCount;
     },
 
     async createIngestConfig(input) {

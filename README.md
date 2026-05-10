@@ -1,11 +1,11 @@
 # Zyquor
 
-Local-first X posting assistant for drafting, review, and dedicated-profile browser preparation.
+Local-first X posting assistant for drafting, source ingest, review, scheduling, and dedicated-profile browser posting.
 
-V1 is intentionally narrow:
+Current core flow:
 
 ```text
-idea -> LLM draft candidates -> review/edit -> approved job -> dedicated Chrome profile -> X compose insertion
+idea/source -> generated draft -> review/edit or autopost approval -> job -> dedicated Chrome profile -> X prepare/post -> history
 ```
 
 ## Repository Layout
@@ -19,7 +19,6 @@ idea -> LLM draft candidates -> review/edit -> approved job -> dedicated Chrome 
 - `packages/generation`: OpenRouter, Ollama, and Gemini draft generation providers.
 - `packages/storage`: SQLite/Drizzle persistence surface.
 - `packages/browser`: Playwright prepare/post flow.
-- `packages/voice`: future voice input package.
 
 ## Development
 
@@ -29,6 +28,7 @@ Use pnpm workspaces.
 pnpm install
 pnpm bootstrap
 pnpm smoke
+pnpm smoke:adapters
 ./zyquor
 pnpm dev:api
 pnpm dev:web
@@ -64,6 +64,7 @@ This starts or reuses:
 - API at `http://127.0.0.1:3001`.
 - Web UI at `http://127.0.0.1:5173/`.
 - Worker for due approved/scheduled jobs.
+- Async source ingest and autopost queue polling.
 
 Keep the terminal open while using Zyquor. To check runtime from another terminal:
 
@@ -91,7 +92,7 @@ If you want bare `zyquor` instead of `./zyquor`, install/link the repo command o
 
 ## Draft Generation
 
-Default provider selection is `auto`: OpenRouter first when configured, then Ollama.
+Default provider selection is resolved from saved generation config and environment. OpenRouter, Gemini, Ollama, and deterministic mock are supported.
 
 Create a local `.env` before running generation:
 
@@ -156,8 +157,9 @@ pnpm harness:tweets
 - Browser automation uses dedicated persistent profile directories under `profiles/`.
 - Account settings enforce profile paths under `profiles/`.
 - `profiles/`, SQLite files, and browser artifacts are ignored by Git.
-- V1 browser mode should start with `prepare_only`.
-- Full post submission should stay disabled until compose insertion is reliable.
+- Keep real browser prepare/post disabled until the dedicated X profile is logged in and checked.
+- Failed external post jobs are not auto-retried because a failed browser run may still have reached X.
+- Post history stores source metadata for traceability.
 
 ## Browser Prepare
 
@@ -211,3 +213,31 @@ For real prepare-only mode, the browser window remains open after text insertion
 ## Local Persistence
 
 The current repository uses `node:sqlite` with `data/app.sqlite` by default. If `node:sqlite` is unavailable, it falls back to JSON state in `data/app.json`. The SQL target schema is in `packages/storage/migrations/0001_initial.sql`.
+
+## Automated Sources
+
+Zyquor can seed a default news ingest config and run source ingestion from the worker:
+
+```bash
+curl -X POST http://127.0.0.1:3001/ingest-configs/default-news
+curl -X POST http://127.0.0.1:3001/ingest-run
+```
+
+Live adapter smoke:
+
+```bash
+pnpm smoke:adapters
+```
+
+Required sources should return data. Product Hunt is optional unless `ZYQUOR_PRODUCTHUNT_API_TOKEN` is set.
+
+Ingest filters prevent repeats, thin context, and blocked payment links. Host caps default to `ZYQUOR_MAX_SAME_HOST_POSTS_PER_DAY=100` and `ZYQUOR_MAX_GITHUB_POSTS_PER_DAY=100`.
+The worker auto-seeds the default news source unless `ZYQUOR_WORKER_AUTO_SEED_DEFAULT_INGEST=0` is set.
+
+Useful diagnostics:
+
+```bash
+curl http://127.0.0.1:3001/worker/status
+curl http://127.0.0.1:3001/ingest-sources
+./zyquor analyze --hours 24
+```

@@ -1,6 +1,7 @@
 import type { SourceAdapter, SourceItem } from "./types.js";
 
-const ARXIV_API = "http://export.arxiv.org/api/query";
+const ARXIV_API = "https://export.arxiv.org/api/query";
+const ARXIV_RSS_BASE = "https://rss.arxiv.org/rss";
 
 export interface ArxivAdapterOptions {
   maxItems?: number;
@@ -17,19 +18,38 @@ export function createArxivAdapter(options: ArxivAdapterOptions = {}): SourceAda
     name: "arxiv",
     sourceType: "feed",
     async fetch(): Promise<SourceItem[]> {
+      const headers = { "User-Agent": "Zyquor/1.0 (local source monitor)" };
+      if (!options.searchQuery) {
+        return fetchArxivRssFallback(categories, maxItems, headers).catch(() => []);
+      }
+
       try {
         const url = `${ARXIV_API}?search_query=${encodeURIComponent(searchQuery)}&start=0&max_results=${maxItems}&sortBy=submittedDate&sortOrder=descending`;
 
-        const res = await globalThis.fetch(url, { headers: { "User-Agent": "Zyquor/1.0" } });
-        if (!res.ok) return [];
+        const res = await globalThis.fetch(url, { headers });
+        if (!res.ok) {
+          return fetchArxivRssFallback(categories, maxItems, headers);
+        }
 
         const xml = await res.text();
-        return parseAtomFeed(xml);
+        const items = parseAtomFeed(xml);
+        return items.length > 0 ? items : fetchArxivRssFallback(categories, maxItems, headers);
       } catch {
-        return [];
+        return fetchArxivRssFallback(categories, maxItems, headers).catch(() => []);
       }
     }
   };
+}
+
+async function fetchArxivRssFallback(categories: string[], maxItems: number, headers: Record<string, string>) {
+  const items: SourceItem[] = [];
+  for (const category of categories) {
+    const response = await globalThis.fetch(`${ARXIV_RSS_BASE}/${encodeURIComponent(category)}`, { headers });
+    if (!response.ok) continue;
+    items.push(...parseRssFeed(await response.text()));
+    if (items.length >= maxItems) break;
+  }
+  return items.slice(0, maxItems);
 }
 
 function parseAtomFeed(xml: string): SourceItem[] {
@@ -63,6 +83,46 @@ function parseAtomFeed(xml: string): SourceItem[] {
   return items;
 }
 
+function parseRssFeed(xml: string): SourceItem[] {
+  const items: SourceItem[] = [];
+  const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+  let match;
+
+  while ((match = itemRegex.exec(xml)) !== null) {
+    const itemXml = match[1];
+    if (!itemXml) continue;
+
+    const title = stripHtml(extractTag(itemXml, "title"));
+    const link = stripHtml(extractTag(itemXml, "link"));
+    const description = stripHtml(extractTag(itemXml, "description"));
+    const published = extractTag(itemXml, "dc:date") || extractTag(itemXml, "pubDate") || "";
+    const category = [...itemXml.matchAll(/<category>([\s\S]*?)<\/category>/g)]
+      .map((categoryMatch) => stripHtml(categoryMatch[1] ?? ""))
+      .filter(Boolean)
+      .join(", ");
+    const authors = [...itemXml.matchAll(/<dc:creator>([\s\S]*?)<\/dc:creator>/g)]
+      .map((authorMatch) => stripHtml(authorMatch[1] ?? ""))
+      .filter(Boolean)
+      .join(", ");
+
+    if (title && link) {
+      items.push({
+        title,
+        url: link,
+        content: `${description.slice(0, 500)}...\n\nAuthors: ${authors || "Unknown"}\nCategory: ${category}`,
+        metadata: {
+          author: authors || "Unknown",
+          category,
+          published,
+          source: "arxiv-rss"
+        }
+      });
+    }
+  }
+
+  return items;
+}
+
 function extractTag(xml: string, tag: string, attr?: string): string {
   if (attr) {
     const regex = new RegExp(`<${tag}[^>]*${attr}=["']([^"']+)["'][^>]*>`);
@@ -80,6 +140,8 @@ function stripHtml(html: string): string {
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;|&#39;/g, "'")
     .replace(/\s+/g, " ")
     .trim();
 }

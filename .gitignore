@@ -10,8 +10,6 @@ data/*.sqlite-*
 data/*.json
 data/artifacts/
 data/media/
-data/*.sqlite
-data/*.sqlite-*
 apps/*/data/*.sqlite
 apps/*/data/*.sqlite-*
 apps/*/data/*.json

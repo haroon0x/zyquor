@@ -129,8 +129,6 @@ importers:
         specifier: workspace:*
         version: link:../core
 
-  packages/voice: {}
-
 packages:
 
   '@babel/code-frame@7.29.0':

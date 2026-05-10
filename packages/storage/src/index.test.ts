@@ -90,6 +90,54 @@ describe("repository workflow", () => {
     );
   });
 
+  it("rejects post text over the X free-tier character limit", async () => {
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z"
+    });
+
+    await expect(
+      repository.createDraft({
+        accountId: "account_personal",
+        sourceInput: "Too long",
+        candidates: [{ text: "x".repeat(281), score: {} }]
+      })
+    ).rejects.toThrow("Post text exceeds 280 characters");
+
+    const draft = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "Too long approval",
+      candidates: [{ text: "Short enough", score: {} }]
+    });
+    await expect(repository.approveDraft({ draftId: draft.draft.id, editedText: "x".repeat(281) })).rejects.toThrow(
+      "Post text exceeds 280 characters"
+    );
+  });
+
+  it("finds source packet drafts from metadata when no candidates were stored", async () => {
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z"
+    });
+    const packet = await repository.createSourcePacket({
+      accountId: "account_personal",
+      facts: ["Uses a source metadata link"],
+      sourceType: "news",
+      summary: "Source summary",
+      title: "Source title",
+      tweetType: "news_context",
+      url: "https://example.com/source"
+    });
+    const created = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "Source idea",
+      metadata: { sourcePacketId: packet.id }
+    });
+
+    await expect(repository.getDraftBySourcePacketId(packet.id)).resolves.toMatchObject({
+      draft: { id: created.draft.id },
+      candidates: []
+    });
+  });
+
   it("does not delete drafts referenced by post history", async () => {
     const repository = createMemoryRepository({
       now: () => "2026-04-24T17:00:00.000Z"
@@ -108,6 +156,28 @@ describe("repository workflow", () => {
 
     await expect(repository.deleteDraft(created.draft.id)).rejects.toThrow("Cannot delete draft with post history");
     await expect(repository.getDraft(created.draft.id)).resolves.toMatchObject({ draft: { id: created.draft.id } });
+  });
+
+  it("purges post history older than a cutoff", async () => {
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z"
+    });
+    const created = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "Posted draft",
+      candidates: [{ text: "Recent posted text", score: {} }]
+    });
+    await repository.createPostHistory({
+      accountId: "account_personal",
+      draftId: created.draft.id,
+      postedText: "Recent posted text",
+      postUrl: "https://x.com/personal/status/recent"
+    });
+
+    await expect(repository.purgePostHistoryOlderThan("2026-04-24T16:59:59.000Z")).resolves.toBe(0);
+    await expect(repository.listPostHistory()).resolves.toHaveLength(1);
+    await expect(repository.purgePostHistoryOlderThan("2026-04-24T17:00:01.000Z")).resolves.toBe(1);
+    await expect(repository.listPostHistory()).resolves.toHaveLength(0);
   });
 
   it("stores scheduled approval metadata", async () => {

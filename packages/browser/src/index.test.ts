@@ -12,6 +12,19 @@ function htmlUrl(html: string) {
 const chromiumExecutableExists = existsSync(chromium.executablePath());
 const describeBrowser = chromiumExecutableExists ? describe : describe.skip;
 
+describe("CDP session guard", () => {
+  it("does not fall back to launching a browser when a configured CDP endpoint is unavailable", async () => {
+    const profileDir = mkdtempSync(join(tmpdir(), "zyquor-browser-profile-"));
+
+    await expect(
+      checkXLogin({
+        profileDir,
+        cdpUrl: "http://127.0.0.1:9"
+      })
+    ).rejects.toThrow("Refusing to launch a fallback browser against the persistent X profile");
+  });
+});
+
 describeBrowser("preparePost", () => {
   it("inserts text into a compose textbox with explicit action delays", async () => {
     const profileDir = mkdtempSync(join(tmpdir(), "zyquor-browser-profile-"));
@@ -46,6 +59,37 @@ describeBrowser("preparePost", () => {
       insertedText: text,
       postUrl: null
     });
+  }, 30_000);
+
+  it("preserves line breaks when inserting formatted post text", async () => {
+    const profileDir = mkdtempSync(join(tmpdir(), "zyquor-browser-profile-"));
+    const artifactsDir = mkdtempSync(join(tmpdir(), "zyquor-browser-artifacts-"));
+    const text = "why this matters:\n\n- faster drafts\n- cleaner review";
+    const html = `
+      <!doctype html>
+      <html>
+        <body>
+          <main>
+            <label for="compose">Post text</label>
+            <textarea id="compose" role="textbox"></textarea>
+            <button>Post</button>
+          </main>
+        </body>
+      </html>
+    `;
+
+    const result = await preparePost({
+      profileDir,
+      artifactsDir,
+      text,
+      actionDelayMs: 10,
+      browserChannel: null,
+      closeAfterPrepare: true,
+      headless: true,
+      xUrl: htmlUrl(html)
+    });
+
+    expect(result.insertedText).toBe(text);
   }, 30_000);
 
   it("returns verified tweet permalink when submit is enabled", async () => {

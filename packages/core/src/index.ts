@@ -18,7 +18,10 @@ export const TWEET_TYPES = [
   "lesson",
   "tool",
   "opinion",
-  "reply"
+  "reply",
+  "hiring",
+  "article_summary",
+  "narrative_history"
 ] as const;
 
 export const X_FREE_POST_CHARACTER_LIMIT = 280;
@@ -29,7 +32,8 @@ export const SOURCE_TYPES = [
   "feed",
   "bookmark",
   "note",
-  "guide"
+  "guide",
+  "job"
 ] as const;
 
 export const LLM_PROVIDERS = [
@@ -158,6 +162,12 @@ export const postHistorySchema = z.object({
   draftId: idSchema,
   postedText: z.string().min(1).max(X_FREE_POST_CHARACTER_LIMIT),
   postUrl: z.string().url().nullable(),
+  sourcePacketId: idSchema.nullable(),
+  sourceType: z.enum(SOURCE_TYPES).nullable(),
+  sourceTitle: z.string().max(240).nullable(),
+  sourceUrl: z.string().url().nullable(),
+  tweetType: z.enum(TWEET_TYPES).nullable(),
+  metadata: z.record(z.unknown()),
   postedAt: isoTimestampSchema
 });
 
@@ -302,6 +312,230 @@ export type PrepareJobRequest = z.infer<typeof prepareJobRequestSchema>;
 export type IngestConfig = z.infer<typeof ingestConfigSchema>;
 export type CreateIngestConfigRequest = z.infer<typeof createIngestConfigRequestSchema>;
 export type UpdateIngestConfigRequest = z.infer<typeof updateIngestConfigRequestSchema>;
+
+export type PostHistoryIssueType =
+  | "duplicate_text"
+  | "generic_phrasing"
+  | "missing_link"
+  | "repeated_topic"
+  | "weak_source_attribution";
+
+export interface PostHistoryIssue {
+  detail: string;
+  historyIds: string[];
+  severity: "low" | "medium" | "high";
+  type: PostHistoryIssueType;
+}
+
+export interface PostHistoryAnalysis {
+  generatedAt: string;
+  issues: PostHistoryIssue[];
+  postCount: number;
+  since: string;
+  summary: Record<PostHistoryIssueType, number>;
+}
+
+const HISTORY_GENERIC_PATTERNS = [
+  /\bai is changing\b/i,
+  /\bgame changer\b/i,
+  /\bhere'?s why\b/i,
+  /\bin today'?s (fast-paced )?world\b/i,
+  /\bthis changes everything\b/i,
+  /\bunlock\b/i,
+  /\bworth paying attention\b/i
+];
+
+const HISTORY_TOPIC_STOPWORDS = new Set([
+  "about",
+  "after",
+  "also",
+  "because",
+  "being",
+  "build",
+  "builder",
+  "builders",
+  "change",
+  "changing",
+  "could",
+  "from",
+  "here",
+  "into",
+  "more",
+  "news",
+  "people",
+  "post",
+  "really",
+  "should",
+  "that",
+  "their",
+  "there",
+  "these",
+  "thing",
+  "this",
+  "today",
+  "using",
+  "what",
+  "when",
+  "where",
+  "with",
+  "world",
+  "would"
+]);
+
+function analysisSummary() {
+  return {
+    duplicate_text: 0,
+    generic_phrasing: 0,
+    missing_link: 0,
+    repeated_topic: 0,
+    weak_source_attribution: 0
+  };
+}
+
+function normalizedHistoryText(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function historyTopicWords(text: string) {
+  return new Set(
+    normalizedHistoryText(text)
+      .split(" ")
+      .filter((word) => word.length >= 4 && !HISTORY_TOPIC_STOPWORDS.has(word))
+      .slice(0, 24)
+  );
+}
+
+function setOverlap(first: Set<string>, second: Set<string>) {
+  let count = 0;
+  for (const value of first) {
+    if (second.has(value)) count += 1;
+  }
+  return count;
+}
+
+function sourceHost(url: string | null) {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function containsUrl(text: string) {
+  return /https?:\/\/\S+/i.test(text);
+}
+
+function sourceNeedsLink(item: PostHistory) {
+  return item.sourceUrl && (item.tweetType === "article_summary" || item.tweetType === "hiring" || item.sourceType === "job");
+}
+
+export function analyzePostHistory(
+  history: PostHistory[],
+  options: { accountId?: string; now?: Date; sinceHours?: number } = {}
+): PostHistoryAnalysis {
+  const now = options.now ?? new Date();
+  const since = new Date(now.getTime() - (options.sinceHours ?? 24) * 60 * 60 * 1000).toISOString();
+  const recent = history
+    .filter((item) => (!options.accountId || item.accountId === options.accountId) && item.postedAt >= since)
+    .sort((a, b) => a.postedAt.localeCompare(b.postedAt));
+  const summary = analysisSummary();
+  const issues: PostHistoryIssue[] = [];
+
+  const byText = new Map<string, PostHistory[]>();
+  for (const item of recent) {
+    const normalized = normalizedHistoryText(item.postedText);
+    byText.set(normalized, [...(byText.get(normalized) ?? []), item]);
+  }
+  for (const items of byText.values()) {
+    if (items.length < 2) continue;
+    summary.duplicate_text += 1;
+    issues.push({
+      detail: `Exact duplicate post text appeared ${items.length} times.`,
+      historyIds: items.map((item) => item.id),
+      severity: "high",
+      type: "duplicate_text"
+    });
+  }
+
+  for (const item of recent) {
+    const matchedGeneric = HISTORY_GENERIC_PATTERNS.find((pattern) => pattern.test(item.postedText));
+    if (matchedGeneric) {
+      summary.generic_phrasing += 1;
+      issues.push({
+        detail: `Generic phrase matched ${String(matchedGeneric)}.`,
+        historyIds: [item.id],
+        severity: "medium",
+        type: "generic_phrasing"
+      });
+    }
+
+    if (sourceNeedsLink(item) && !containsUrl(item.postedText)) {
+      summary.missing_link += 1;
+      issues.push({
+        detail: `Source-backed ${item.tweetType ?? item.sourceType} post omitted source URL ${item.sourceUrl}.`,
+        historyIds: [item.id],
+        severity: "medium",
+        type: "missing_link"
+      });
+    }
+
+    if ((item.sourcePacketId || item.sourceType) && !item.sourceTitle && !item.sourceUrl) {
+      summary.weak_source_attribution += 1;
+      issues.push({
+        detail: "Source-backed post has no source title or source URL in history metadata.",
+        historyIds: [item.id],
+        severity: "medium",
+        type: "weak_source_attribution"
+      });
+    } else if (item.sourceUrl && !containsUrl(item.postedText)) {
+      const host = sourceHost(item.sourceUrl);
+      const titleWords = item.sourceTitle ? historyTopicWords(item.sourceTitle) : new Set<string>();
+      const postWords = historyTopicWords(item.postedText);
+      if (host && titleWords.size > 0 && setOverlap(titleWords, postWords) === 0) {
+        summary.weak_source_attribution += 1;
+        issues.push({
+          detail: `Post does not include link or recognizable source title terms for ${host}.`,
+          historyIds: [item.id],
+          severity: "low",
+          type: "weak_source_attribution"
+        });
+      }
+    }
+  }
+
+  for (let index = 0; index < recent.length; index += 1) {
+    const item = recent[index]!;
+    const currentWords = historyTopicWords(`${item.sourceTitle ?? ""} ${item.postedText}`);
+    if (currentWords.size < 3) continue;
+    for (const other of recent.slice(index + 1)) {
+      const otherWords = historyTopicWords(`${other.sourceTitle ?? ""} ${other.postedText}`);
+      const overlap = setOverlap(currentWords, otherWords);
+      if (overlap < 4) continue;
+      summary.repeated_topic += 1;
+      issues.push({
+        detail: `Topic overlap detected across recent posts (${overlap} shared terms).`,
+        historyIds: [item.id, other.id],
+        severity: "low",
+        type: "repeated_topic"
+      });
+      break;
+    }
+  }
+
+  return {
+    generatedAt: now.toISOString(),
+    issues,
+    postCount: recent.length,
+    since,
+    summary
+  };
+}
 
 function findDotEnv(startDir = process.cwd()) {
   let current = resolve(startDir);

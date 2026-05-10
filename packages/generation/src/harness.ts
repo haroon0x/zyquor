@@ -41,7 +41,7 @@ export function buildSourceTweetInput(input: {
 
   return {
     idea: [
-      `News headline: ${compact(input.title)}`,
+      input.sourceType === "job" ? `Hiring post: ${compact(input.title)}` : `Source title: ${compact(input.title)}`,
       input.url ? `Original URL: ${input.url}` : null,
       `Known summary: ${compact(input.summary)}`,
       facts.length ? `Verified facts:\n${facts.map((fact) => `- ${fact}`).join("\n")}` : null,

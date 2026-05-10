@@ -5,6 +5,7 @@ import {
   createOpenRouterGenerationProvider,
   GENERATION_MODEL_OPTIONS,
   isCleanTweetText,
+  postProcessTweetText,
   resolveGenerationProviderConfig,
   buildSourceTweetInput,
   renderSourceContext,
@@ -35,7 +36,7 @@ describe("ollama generation", () => {
       fetch: fetchImpl
     });
 
-    const candidates = await provider.generateDraftCandidates({ idea: "Make it local.", count: 2 });
+    const candidates = await provider.generateDraftCandidates({ idea: "Make it local.", count: 2, tweetType: "hiring" });
     const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
 
     expect(calls[0]?.url).toBe("http://127.0.0.1:11434/api/generate");
@@ -44,6 +45,8 @@ describe("ollama generation", () => {
       stream: false,
       format: "json"
     });
+    expect(String(body.system)).toContain("Forbidden characters: — and –");
+    expect(String(body.system)).toContain("not affiliated");
     expect(candidates).toEqual([
       { text: "First local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 1 } },
       { text: "Second local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 2 } }
@@ -70,7 +73,9 @@ describe("ollama generation", () => {
 
     expect(calls).toHaveLength(2);
     expect(JSON.parse(String(calls[0]?.init?.body))).toMatchObject({ format: "json" });
-    expect(JSON.parse(String(calls[1]?.init?.body))).not.toHaveProperty("format");
+    const retryBody = JSON.parse(String(calls[1]?.init?.body)) as Record<string, unknown>;
+    expect(retryBody).not.toHaveProperty("format");
+    expect(String(retryBody.prompt)).toContain("Forbidden characters: — and –");
     expect(candidates).toEqual([
       {
         text: "Keep the automation path auditable before it touches a public account.",
@@ -274,6 +279,38 @@ describe("tweet quality harness", () => {
     expect(isCleanTweetText("Noctua released official fan CAD models so builders can verify fit before buying.")).toBe(true);
   });
 
+  it("post-processes em dashes and drops duplicate candidates", async () => {
+    expect(postProcessTweetText("AI infra — not model demos — is where the bottleneck moved.")).toBe(
+      "AI infra, not model demos, is where the bottleneck moved."
+    );
+    expect(postProcessTweetText("why this matters:\n\n-  models ship faster  \n- users still need trust")).toBe(
+      "why this matters:\n\n- models ship faster\n- users still need trust"
+    );
+
+    const fetchImpl: FetchLike = async () =>
+      jsonResponse({
+        response: JSON.stringify({
+          candidates: [
+            { text: "AI infra — not model demos — is where the bottleneck moved." },
+            { text: "AI infra, not model demos, is where the bottleneck moved." },
+            { text: "Compute supply now decides which AI products can scale." }
+          ]
+        })
+      });
+    const provider = createOllamaGenerationProvider({ fetch: fetchImpl });
+
+    await expect(provider.generateDraftCandidates({ idea: "AI infra bottleneck", count: 3 })).resolves.toEqual([
+      {
+        text: "AI infra, not model demos, is where the bottleneck moved.",
+        score: { provider: "ollama", model: "llama3.1", rank: 1 }
+      },
+      {
+        text: "Compute supply now decides which AI products can scale.",
+        score: { provider: "ollama", model: "llama3.1", rank: 2 }
+      }
+    ]);
+  });
+
   it("builds grounded source context for reusable generation", () => {
     const input = buildSourceTweetInput({
       facts: ["The worker uses Hacker News as a real source.", "The draft is generated before browser posting."],
@@ -285,7 +322,7 @@ describe("tweet quality harness", () => {
       topicTags: ["ai", "devtools"]
     });
 
-    expect(input.idea).toContain("News headline: Automatic posting worker ships");
+    expect(input.idea).toContain("Source title: Automatic posting worker ships");
     expect(input.idea).toContain("Include the source URL only if it makes the post more useful or credible.");
     expect(renderSourceContext(input.source)).toContain("Source type: news");
     expect(renderSourceContext(input.source)).toContain("Topic tags: ai, devtools");

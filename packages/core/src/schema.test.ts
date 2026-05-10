@@ -5,6 +5,7 @@ import {
   approveDraftRequestSchema,
   createDraftBatchRequestSchema,
   createDraftRequestSchema,
+  createSourcePacketRequestSchema,
   postJobSchema
 } from "./index.js";
 
@@ -61,9 +62,30 @@ describe("domain schemas", () => {
         ideas: ["One", "Two"],
         scheduleSpacingMinutes: 90,
         scheduleStart: "2026-04-25T15:30:00.000Z",
-        tweetType: "reply"
+        tweetType: "hiring"
       })
-    ).toMatchObject({ ideas: ["One", "Two"], tweetType: "reply" });
+    ).toMatchObject({ ideas: ["One", "Two"], tweetType: "hiring" });
+  });
+
+  it("accepts hiring source packets and article summary tweet type", () => {
+    expect(
+      createSourcePacketRequestSchema.parse({
+        accountId: "account_personal",
+        sourceType: "job",
+        summary: "Company is hiring infra engineers.",
+        title: "ExampleCo is hiring",
+        tweetType: "hiring",
+        url: "https://example.com/jobs/infra"
+      })
+    ).toMatchObject({ sourceType: "job", tweetType: "hiring" });
+
+    expect(
+      createDraftRequestSchema.parse({
+        accountId: "account_personal",
+        idea: "Read this blog post and summarize why it matters.",
+        tweetType: "article_summary"
+      })
+    ).toMatchObject({ tweetType: "article_summary" });
   });
 
   it("enforces the X free-tier post character limit", () => {

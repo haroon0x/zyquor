@@ -5,6 +5,8 @@ const REDDIT_API_BASE = "https://www.reddit.com";
 export interface RedditAdapterOptions {
   crawlService?: CrawlService;
   maxItems?: number;
+  minComments?: number;
+  minScore?: number;
   subreddit?: string;
   sortBy?: "hot" | "new" | "top" | "rising";
 }
@@ -15,6 +17,8 @@ export interface RedditAdapterOptions {
  */
 export function createRedditAdapter(options: RedditAdapterOptions = {}): SourceAdapter {
   const maxItems = options.maxItems ?? 10;
+  const minComments = options.minComments ?? 0;
+  const minScore = options.minScore ?? 0;
   const subreddit = options.subreddit ?? "";
   const sortBy = options.sortBy ?? "hot";
 
@@ -38,6 +42,7 @@ export function createRedditAdapter(options: RedditAdapterOptions = {}): SourceA
 
         for (const { data: post } of posts.slice(0, maxItems)) {
           if (post.pinned || post.stickied) continue;
+          if (post.score < minScore || post.num_comments < minComments) continue;
 
           // Skip memes, images, NSFW
           if (post.over_18 || post.is_self === false && post.is_video) continue;

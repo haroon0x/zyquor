@@ -73,10 +73,17 @@ export interface ZyquorRepository {
   createPostHistory(input: {
     accountId: string;
     draftId: string;
+    metadata?: Record<string, unknown>;
     postedText: string;
     postUrl: string | null;
+    sourcePacketId?: string | null;
+    sourceTitle?: string | null;
+    sourceType?: PostHistory["sourceType"];
+    sourceUrl?: string | null;
+    tweetType?: PostHistory["tweetType"];
   }): Promise<PostHistory>;
   listPostHistory(): Promise<PostHistory[]>;
+  purgePostHistoryOlderThan(cutoffIso: string): Promise<number>;
   createIngestConfig(input: {
     accountId: string;
     sourceType: SourcePacket["sourceType"];

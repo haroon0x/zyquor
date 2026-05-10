@@ -1,35 +1,62 @@
 # Architecture Notes
 
-Zyquor starts as a single-account, review-first local app. The first proof point is:
+Zyquor is a local-first X posting assistant. Current system covers manual drafts, source packets, scheduled jobs, autopost jobs, browser prepare/post, automated source ingest, and short-window post-history analysis.
+
+Core flow:
 
 ```text
-idea -> LLM draft candidates -> review/edit -> approved job -> Chrome profile -> X compose insertion
+idea/source -> generation -> review/edit or autopost approval -> durable job -> browser prepare/post -> post history
 ```
 
-The implementation is split so browser automation cannot accidentally depend on generation logic, and account profile mapping stays explicit.
+Automated source flow:
+
+```text
+ingest config -> source adapter -> source packet -> one final generated draft -> approved autopost job -> worker/API post path
+```
 
 ## Package Boundaries
 
-- `@zyquor/core`: domain types, validation schemas, lifecycle rules.
-- `@zyquor/accounts`: account config helpers and profile safety rules.
-- `@zyquor/generation`: mock, Ollama, and Gemini provider-backed draft generation.
-- `@zyquor/storage`: SQLite schema, migrations, repositories.
-- `@zyquor/browser`: Playwright prepare/post flows.
-- `@zyquor/voice`: future voice input surface.
+- `@zyquor/core`: domain constants, validation schemas, post-history analysis, shared types.
+- `@zyquor/accounts`: account config and dedicated-profile safety checks.
+- `@zyquor/adapters`: live source adapters, aggregation, source health, optional Crawl4AI client.
+- `@zyquor/automation`: source-packet context cleanup, ingest selection, draft-from-source flow.
+- `@zyquor/generation`: provider clients, prompts, parsing, tweet post-processing.
+- `@zyquor/storage`: SQLite/JSON/memory repositories and persistence mappers.
+- `@zyquor/browser`: Playwright/CDP compose, prepare, post, and verification flow.
+- `apps/api`: Fastify API and local orchestration.
+- `apps/worker`: background polling for async ingest and due jobs.
+- `apps/web`: local operational UI.
 
-## Current Safety Defaults
+## Runtime Rules
 
-- Browser prepare is implemented as the first automation path; final post clicking remains out of scope until compose insertion is proven.
-- Prepare flow is represented as an explicit stub.
-- Dedicated profile directories are ignored by Git.
-- Job state transitions are explicit and tested in core.
+- Browser posting is controlled by `ZYQUOR_ENABLE_BROWSER_POST=1`.
+- Real browser prepare is controlled by `ZYQUOR_ENABLE_BROWSER_PREPARE=1`.
+- Dedicated profile paths must stay under `profiles/`.
+- Failed external post jobs are not auto-retried; a failed click may still have reached X.
+- Source packets can produce up to two posts per account.
+- Post history stores source metadata so posted text can be traced back to packet/source/tweet type.
+- Aggregated source health cools down upstreams that fail or return no items repeatedly.
+
+## Source Health
+
+The aggregated news adapter tracks per-upstream:
+
+- last success time
+- last failure time
+- last item count
+- last error
+- consecutive failures
+- cooldown expiration
+
+After repeated empty/failing runs, that upstream is skipped briefly. This affects execution by keeping ingest cycles focused on sources currently returning data.
 
 ## Generation Boundary
 
-Only `@zyquor/generation` knows provider wire formats. API selects provider from env, UI reads `/generation`, storage persists only generated candidates and provider metadata in `score`.
+Only `@zyquor/generation` knows provider wire formats. API selects provider from environment or saved config. UI reads and updates `/generation`; browser code never calls LLM APIs.
 
 Supported providers:
 
-- `mock`: deterministic offline candidates for tests and local UI work.
-- `ollama`: local `POST /api/generate`, non-streaming JSON response.
-- `gemini`: Google Gemini `models/{model}:generateContent`, JSON response config.
+- `openrouter`: OpenRouter chat completions.
+- `gemini`: Google Gemini `models/{model}:generateContent`.
+- `ollama`: local `/api/generate`.
+- `mock`: deterministic offline provider for tests and local smoke.

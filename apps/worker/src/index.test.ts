@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createWorkerState, processApprovedJobs, processIngest, recoverStaleJobs, runWorkerCycle } from "./index.js";
+import {
+  checkWorkerStartup,
+  createWorkerState,
+  processApprovedJobs,
+  processIngest,
+  processNewSourcePackets,
+  recoverStaleJobs,
+  runWorkerCycle
+} from "./index.js";
 
 const baseJob = {
   accountId: "account_personal",
@@ -58,6 +66,9 @@ describe("worker job processing", () => {
             accounts: [baseAccount]
           });
         }
+        if (url.includes("/browser/x-session")) {
+          return Response.json({ loggedIn: true });
+        }
         return Response.json({ ok: true });
       })
     );
@@ -91,6 +102,9 @@ describe("worker job processing", () => {
             accounts: [baseAccount]
           });
         }
+        if (url.includes("/browser/x-session")) {
+          return Response.json({ loggedIn: true });
+        }
         return Response.json({ ok: true });
       })
     );
@@ -101,11 +115,10 @@ describe("worker job processing", () => {
     expect(calls).toContain("POST http://api.test/jobs/job_auto/post");
   });
 
-  it("posts autopost jobs created by ingest in the same worker cycle", async () => {
+  it("queues async ingest without blocking the worker cycle", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
     const calls: string[] = [];
-    let ingested = false;
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string, init?: RequestInit) => {
@@ -116,22 +129,22 @@ describe("worker job processing", () => {
         if (url.endsWith("/jobs/recover-stale")) {
           return Response.json({ recoveredCount: 0, recovered: [] });
         }
-        if (url.endsWith("/ingest-run")) {
-          ingested = true;
-          return Response.json({ processed: 1 });
+        if (url.endsWith("/ingest-run/async")) {
+          return Response.json({ accepted: true, ingestRun: { processed: 0, running: true } }, { status: 202 });
         }
         if (url.endsWith("/health")) {
           return Response.json({ ok: true });
         }
         if (url.endsWith("/jobs")) {
-          return Response.json({
-            jobs: ingested ? [{ ...baseJob, id: "job_ingested", mode: "autopost" }] : []
-          });
+          return Response.json({ jobs: [] });
         }
         if (url.endsWith("/accounts")) {
           return Response.json({
             accounts: [baseAccount]
           });
+        }
+        if (url.includes("/browser/x-session")) {
+          return Response.json({ loggedIn: true });
         }
         return Response.json({ ok: true });
       })
@@ -142,9 +155,8 @@ describe("worker job processing", () => {
       createWorkerState()
     );
 
-    expect(result.approvedProcessed).toBe(1);
-    expect(calls).toContain("POST http://api.test/ingest-run");
-    expect(calls).toContain("POST http://api.test/jobs/job_ingested/post");
+    expect(result.approvedProcessed).toBe(0);
+    expect(calls).toContain("POST http://api.test/ingest-run/async");
   });
 
   it("submits each autopost job only once even if the API repeats an approved job", async () => {
@@ -161,8 +173,8 @@ describe("worker job processing", () => {
         if (url.endsWith("/jobs/recover-stale")) {
           return Response.json({ recoveredCount: 0, recovered: [] });
         }
-        if (url.endsWith("/ingest-run")) {
-          return Response.json({ processed: 0 });
+        if (url.endsWith("/ingest-run/async")) {
+          return Response.json({ accepted: false, ingestRun: { processed: 0, running: true } }, { status: 202 });
         }
         if (url.endsWith("/health")) {
           return Response.json({ ok: true });
@@ -179,6 +191,9 @@ describe("worker job processing", () => {
           return Response.json({
             accounts: [baseAccount]
           });
+        }
+        if (url.includes("/browser/x-session")) {
+          return Response.json({ loggedIn: true });
         }
         return Response.json({ ok: true });
       })
@@ -208,8 +223,8 @@ describe("worker job processing", () => {
         if (url.endsWith("/drafts/pending")) {
           return Response.json({ drafts: [] });
         }
-        if (url.endsWith("/ingest-run")) {
-          return Response.json({ processed: 0 });
+        if (url.endsWith("/ingest-run/async")) {
+          return Response.json({ accepted: false, ingestRun: { processed: 0, running: true } }, { status: 202 });
         }
         if (url.endsWith("/health")) {
           return Response.json({ ok: true });
@@ -272,6 +287,85 @@ describe("worker job processing", () => {
     expect(calls).toContain("POST http://api.test/jobs/job_ok/prepare");
   });
 
+  it("blocks non-retryable autopost jobs after source packet cap errors", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.endsWith("/health")) {
+          return Response.json({ ok: true });
+        }
+        if (url.endsWith("/jobs")) {
+          return Response.json({
+            jobs: [{ ...baseJob, id: "job_capped", mode: "autopost" }]
+          });
+        }
+        if (url.endsWith("/accounts")) {
+          return Response.json({ accounts: [baseAccount] });
+        }
+        if (url.includes("/browser/x-session")) {
+          return Response.json({ loggedIn: true });
+        }
+        if (url.endsWith("/jobs/job_capped/post")) {
+          return Response.json({ error: "Source packet already reached 2 posts for this account" }, { status: 409 });
+        }
+        return Response.json({ ok: true });
+      })
+    );
+    const state = createWorkerState();
+    const options = { apiUrl: "http://api.test", pollMs: 1000 };
+
+    await processApprovedJobs(options, state);
+    await processApprovedJobs(options, state);
+
+    expect(state.blockedAutopostJobIds.has("job_capped")).toBe(true);
+    expect(calls.filter((call) => call === "POST http://api.test/jobs/job_capped/post")).toHaveLength(1);
+  });
+
+  it("stops submitting more autopost jobs when another browser job is running", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.endsWith("/health")) {
+          return Response.json({ ok: true });
+        }
+        if (url.endsWith("/jobs")) {
+          return Response.json({
+            jobs: [
+              { ...baseJob, id: "job_busy", mode: "autopost" },
+              { ...baseJob, id: "job_later", mode: "autopost" }
+            ]
+          });
+        }
+        if (url.endsWith("/accounts")) {
+          return Response.json({ accounts: [baseAccount] });
+        }
+        if (url.includes("/browser/x-session")) {
+          return Response.json({ loggedIn: true });
+        }
+        if (url.endsWith("/jobs/job_busy/post")) {
+          return Response.json({ error: "Another browser job is already running for this account" }, { status: 409 });
+        }
+        return Response.json({ ok: true });
+      })
+    );
+
+    const processed = await processApprovedJobs({ apiUrl: "http://api.test", pollMs: 1000 }, createWorkerState());
+
+    expect(processed).toBe(0);
+    expect(calls).toContain("POST http://api.test/jobs/job_busy/post");
+    expect(calls).not.toContain("POST http://api.test/jobs/job_later/post");
+  });
+
   it("skips due jobs during account quiet hours", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-25T23:30:00.000Z"));
@@ -328,8 +422,8 @@ describe("worker ingest processing", () => {
         if (url.endsWith("/jobs")) {
           return Response.json({ jobs: [] });
         }
-        if (url.endsWith("/ingest-run")) {
-          return Response.json({ processed: 3 });
+        if (url.endsWith("/ingest-run/async")) {
+          return Response.json({ accepted: true, ingestRun: { processed: 0, running: true } }, { status: 202 });
         }
         return Response.json({ ok: true });
       })
@@ -362,6 +456,106 @@ describe("worker ingest processing", () => {
     }
 
     // Should have 2 ingest calls
-    expect(calls.filter(c => c.includes("/ingest-run"))).toHaveLength(2);
+    expect(calls.filter(c => c.includes("/ingest-run/async"))).toHaveLength(2);
+  });
+
+  it("drafts new source packets as autopost jobs", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.endsWith("/source-packets")) {
+          return Response.json({
+            packets: [
+              {
+                id: "packet_new",
+                accountId: "account_personal",
+                sourceType: "news",
+                title: "Useful AI source",
+                url: "https://example.com/ai",
+                summary: "Useful AI source",
+                facts: ["Useful AI source"],
+                tweetType: "useful_info",
+                status: "new",
+                createdAt: "2026-04-25T12:00:00.000Z",
+                updatedAt: "2026-04-25T12:00:00.000Z"
+              },
+              {
+                id: "packet_drafted",
+                accountId: "account_personal",
+                sourceType: "news",
+                title: "Already drafted",
+                url: "https://example.com/drafted",
+                summary: "Already drafted",
+                facts: ["Already drafted"],
+                tweetType: "useful_info",
+                status: "drafted",
+                createdAt: "2026-04-25T12:00:00.000Z",
+                updatedAt: "2026-04-25T12:00:00.000Z"
+              }
+            ]
+          });
+        }
+        return Response.json({ ok: true });
+      })
+    );
+
+    const processed = await processNewSourcePackets({ apiUrl: "http://api.test", pollMs: 1000 });
+
+    expect(processed).toBe(1);
+    expect(calls).toContain("POST http://api.test/source-packets/packet_new/draft");
+    expect(calls).not.toContain("POST http://api.test/source-packets/packet_drafted/draft");
+  });
+});
+
+describe("worker startup checks", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("warns when worker has no enabled ingest config and auto-seed is disabled", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.endsWith("/health")) return Response.json({ ok: true });
+        if (url.endsWith("/accounts")) return Response.json({ accounts: [baseAccount] });
+        if (url.endsWith("/ingest-configs")) return Response.json({ configs: [] });
+        if (url.includes("/browser/x-session")) return Response.json({ loggedIn: true, error: null });
+        return Response.json({ ok: true });
+      })
+    );
+
+    const result = await checkWorkerStartup({
+      apiUrl: "http://api.test",
+      autoSeedDefaultIngest: false,
+      pollMs: 1000
+    });
+
+    expect(result.seededConfigId).toBeNull();
+    expect(result.warnings).toContain("No enabled ingest configs exist, so worker has no source to pull.");
+  });
+
+  it("seeds default news ingest config when no enabled config exists", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.endsWith("/health")) return Response.json({ ok: true });
+        if (url.endsWith("/accounts")) return Response.json({ accounts: [baseAccount] });
+        if (url.endsWith("/ingest-configs")) return Response.json({ configs: [] });
+        if (url.endsWith("/ingest-configs/default-news")) return Response.json({ config: { id: "ingest_default" } }, { status: 201 });
+        if (url.includes("/browser/x-session")) return Response.json({ loggedIn: true, error: null });
+        return Response.json({ ok: true });
+      })
+    );
+
+    const result = await checkWorkerStartup({ apiUrl: "http://api.test", pollMs: 1000 });
+
+    expect(result.seededConfigId).toBe("ingest_default");
+    expect(result.warnings).toEqual([]);
+    expect(calls).toContain("POST http://api.test/ingest-configs/default-news");
   });
 });

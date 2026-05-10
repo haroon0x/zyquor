@@ -4,19 +4,19 @@ Guidance for agents working in this repository. Favor caution, small changes, an
 
 ## Project Context
 
-Zyquor is a local-first X posting assistant. V1 proves one account and one review-first workflow:
+Zyquor is a local-first X posting assistant. Current flow:
 
 ```
-idea -> draft candidates -> review/edit -> approve -> prepare/post
+idea/source -> generated draft -> review/edit or autopost approval -> prepare/post -> history
 ```
 
 Three creation lanes: `single` (one idea → candidates → approve), `batch` (multiple ideas → multiple jobs, optional schedule spacing), `yolo` (one idea → one candidate → `autopost` immediately).
 
-Future automated lane: deterministic source ingestion (feeds, news, bookmarks, notes) → compact source packet → LLM writes candidate tweet → review/approve → post. LLM never browses, scrapes, schedules, ranks, or decides whether to post.
+Automated lane: deterministic source ingestion → compact source packet → one generated draft → approved autopost job. LLM never browses, scrapes, schedules, ranks, or decides whether to post.
 
-X free-tier character limit enforced at 280. Tweet types: `feed_observation`, `news_context`, `useful_info`, `guide`, `lesson`, `tool`, `opinion`, `reply`.
+X free-tier character limit enforced at 280. Tweet types: `feed_observation`, `news_context`, `useful_info`, `guide`, `lesson`, `tool`, `opinion`, `reply`, `hiring`, `article_summary`, `narrative_history`.
 
-Controlled posting only behind env flags. Multi-account, scheduling, voice, Tauri are future work.
+Controlled posting only behind env flags. Multi-account UI, reply drafting, Tauri, and E2E tests are future work.
 
 ## Architecture
 
@@ -24,7 +24,9 @@ Controlled posting only behind env flags. Multi-account, scheduling, voice, Taur
 - `apps/api`: Fastify API.
 - `apps/worker`: background worker for due jobs.
 - `packages/core`: domain types, Zod schemas.
-- `packages/generation`: mock/Ollama/Gemini providers.
+- `packages/adapters`: source adapters, aggregation, source health.
+- `packages/automation`: ingest and source-packet drafting.
+- `packages/generation`: OpenRouter/Ollama/Gemini/mock providers.
 - `packages/storage`: SQLite + JSON fallback repositories.
 - `packages/browser`: Playwright prepare/post flow.
 - `packages/accounts`: account config helpers.
@@ -43,6 +45,7 @@ Persistence: SQLite via `node:sqlite`, fallback JSON at `data/app.json`.
 - Keep Rust out of browser automation core.
 - Final post action explicit and logged.
 - LLM only writes candidate text; never browses, schedules, ranks, or decides to post.
+- Failed external post jobs are not auto-retried because a failed browser action may still have reached X.
 
 ## Working Rules
 
@@ -80,12 +83,17 @@ Persistence: SQLite via `node:sqlite`, fallback JSON at `data/app.json`.
 - `GET /source-packets?accountId=` — list packets
 - `POST /source-packets` — create packet
 - `POST /source-packets/:id/draft` — generate draft from packet → marks drafted
+- `DELETE /source-packets/:id` — delete packet and safe non-posted draft
 
 ### Ingest Configs (CRUD for automated source ingestion)
 - `GET /ingest-configs?accountId=`
 - `POST /ingest-configs`
+- `POST /ingest-configs/default-news`
 - `PATCH /ingest-configs/:id`
 - `DELETE /ingest-configs/:id`
+- `GET /ingest-sources`
+- `POST /ingest-run`
+- `POST /ingest-run/async`
 
 IngestConfig fields: `accountId`, `sourceType`, `maxPacketsPerDay`, `tweetTypeMix` (Record<TweetType, number>), `scheduleWindowStart` (HH:MM), `scheduleWindowEnd` (HH:MM), `enabled`.
 
@@ -106,7 +114,11 @@ IngestConfig fields: `accountId`, `sourceType`, `maxPacketsPerDay`, `tweetTypeMi
 
 ### History
 - `GET /history`
-- `GET /jobs/:id/attempts`
+- `GET /history/analysis?accountId=&sinceHours=`
+
+### Worker
+- `GET /worker/status`
+- `POST /worker/heartbeat`
 
 ## Web UI State
 
@@ -133,21 +145,23 @@ Removed from UI: noisy account/profile/daily-limit editing. Account config remai
 - Worker polls due jobs every 5s
 
 Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=1`, `ZYQUOR_ENABLE_BROWSER_POST=1`, `ZYQUOR_LLM_PROVIDER=gemini|ollama|mock`.
+Source smoke: `pnpm smoke:adapters`. Product Hunt is optional without `ZYQUOR_PRODUCTHUNT_API_TOKEN`.
 
-## Latest Work (2026-04-26)
+## Latest Work (2026-05-08)
 
-- Ingest config system: schema + storage + API CRUD (`GET/POST/PATCH/DELETE /ingest-configs`)
-- Post-click verification: `resolvePostedPermalink` polls up to 5s after click
-- All tests passing: 14 API, 7 core, 5 generation, 4 storage, 3 browser, 3 worker, 2 accounts
+- Live adapter smoke added and arXiv RSS fallback fixed.
+- Source health now cools down failing/empty aggregated upstreams.
+- Post-history analysis and source metadata tracing exist.
+- Source packet repost cap is 3 per account.
+- TODO pruned so Next tracks remaining work only.
 
 ## Next Steps
 
-**Ingest runner** — next major feature. Needs:
-1. `POST /ingest-run` endpoint (reads enabled configs, creates packets/drafts/jobs)
-2. Source adapter interface (feed/news URL → source packet)
-3. Daily packet count enforcement per config
-4. Schedule window time-of-day guard
-5. Tweet type selection from `tweetTypeMix` weights (not random)
+**Maintainability** — split large API/web/generation/adapters files into route modules, services, components, and focused helpers.
+
+**Worker reliability** — durable async ingest/generation/posting stages, worker UI panel, startup checks for posting readiness.
+
+**Source routing/quality** — route job posts to hiring, blog/feed posts to article summary, preserve links/attribution, reduce generic framing.
 
 **Reply drafting** — explicit reviewable jobs for reply tweets. Needs:
 - Reply target tracking (tweet ID, author handle)

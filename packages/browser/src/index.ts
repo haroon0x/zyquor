@@ -223,7 +223,12 @@ async function openPersistentContext(input: {
   headless?: boolean;
   profileDir: string;
 }) {
-  const browser = input.cdpUrl ? await chromium.connectOverCDP(input.cdpUrl) : null;
+  const browser = input.cdpUrl ? await chromium.connectOverCDP(input.cdpUrl).catch(() => null) : null;
+  if (input.cdpUrl && !browser) {
+    throw new Error(
+      `Chrome CDP is unavailable at ${input.cdpUrl}. Start ./zyquor or pnpm profile:x:cdp and keep that Chrome window open. Refusing to launch a fallback browser against the persistent X profile.`
+    );
+  }
   const browserChannel = input.browserChannel === "chromium" ? null : input.browserChannel;
   const chromeConfigDir = resolve(process.env.ZYQUOR_CHROME_CONFIG_DIR ?? "profiles/chrome-config");
   mkdirSync(chromeConfigDir, { recursive: true });
@@ -283,8 +288,8 @@ export async function preparePost(input: PreparePostInput): Promise<PreparePostR
   }
 
   const artifactsDir = input.artifactsDir ?? "data/artifacts";
-  const actionDelayMs = input.actionDelayMs ?? 2_500;
-  const typingDelayMs = input.typingDelayMs ?? 45;
+  const actionDelayMs = input.actionDelayMs ?? 1_800;
+  const typingDelayMs = input.typingDelayMs ?? 20;
   mkdirSync(artifactsDir, { recursive: true });
   const artifactId = new Date().toISOString().replace(/[:.]/g, "-");
   const screenshotPath = join(artifactsDir, `prepare-${artifactId}.png`);

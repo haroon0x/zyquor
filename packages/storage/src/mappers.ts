@@ -91,6 +91,12 @@ export function toPostHistory(row: Record<string, unknown>): PostHistory {
     draftId: String(row.draft_id),
     postedText: String(row.posted_text),
     postUrl: row.post_url === null ? null : String(row.post_url),
+    sourcePacketId: row.source_packet_id == null ? null : String(row.source_packet_id),
+    sourceType: row.source_type == null ? null : (row.source_type as PostHistory["sourceType"]),
+    sourceTitle: row.source_title == null ? null : String(row.source_title),
+    sourceUrl: row.source_url == null ? null : String(row.source_url),
+    tweetType: row.tweet_type == null ? null : (row.tweet_type as PostHistory["tweetType"]),
+    metadata: JSON.parse(String(row.metadata_json || "{}")) as Record<string, unknown>,
     postedAt: String(row.posted_at)
   };
 }

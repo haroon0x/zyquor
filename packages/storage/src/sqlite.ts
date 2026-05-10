@@ -8,7 +8,7 @@ import type {
   SourcePacket,
   StyleProfile
 } from "@zyquor/core";
-import { canTransitionDraft, canTransitionPostJob } from "@zyquor/core";
+import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob } from "@zyquor/core";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ZyquorRepository } from "./types.js";
@@ -123,6 +123,12 @@ CREATE TABLE IF NOT EXISTS post_history (
   draft_id TEXT NOT NULL REFERENCES drafts(id),
   posted_text TEXT NOT NULL,
   post_url TEXT,
+  source_packet_id TEXT,
+  source_type TEXT,
+  source_title TEXT,
+  source_url TEXT,
+  tweet_type TEXT,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
   posted_at TEXT NOT NULL
 );
 
@@ -174,6 +180,12 @@ CREATE TABLE IF NOT EXISTS ingest_configs (
 CREATE INDEX IF NOT EXISTS idx_ingest_configs_account_id ON ingest_configs(account_id);
 `;
 
+function assertTweetTextFitsLimit(text: string) {
+  if (text.length > X_FREE_POST_CHARACTER_LIMIT) {
+    throw new Error(`Post text exceeds ${X_FREE_POST_CHARACTER_LIMIT} characters`);
+  }
+}
+
 function runTransaction<T>(db: DatabaseSync, fn: () => T): T {
   db.exec("BEGIN IMMEDIATE");
   try {
@@ -198,6 +210,18 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
   if (!ingestColumns.some((column) => column.name === "metadata_json")) {
     db.exec("ALTER TABLE ingest_configs ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'");
   }
+  const historyColumns = rows(db.prepare("PRAGMA table_info(post_history)").all());
+  const ensureHistoryColumn = (name: string, definition: string) => {
+    if (!historyColumns.some((column) => column.name === name)) {
+      db.exec(`ALTER TABLE post_history ADD COLUMN ${definition}`);
+    }
+  };
+  ensureHistoryColumn("source_packet_id", "source_packet_id TEXT");
+  ensureHistoryColumn("source_type", "source_type TEXT");
+  ensureHistoryColumn("source_title", "source_title TEXT");
+  ensureHistoryColumn("source_url", "source_url TEXT");
+  ensureHistoryColumn("tweet_type", "tweet_type TEXT");
+  ensureHistoryColumn("metadata_json", "metadata_json TEXT NOT NULL DEFAULT '{}'");
 
   const styleCount = row(db.prepare("SELECT COUNT(*) AS count FROM style_profiles").get());
   if (Number(styleCount?.count ?? 0) === 0) {
@@ -460,6 +484,7 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
         if (!account) {
           throw new Error(`Account not found: ${input.accountId}`);
         }
+        (input.candidates ?? []).forEach((candidate) => assertTweetTextFitsLimit(candidate.text));
 
         const timestamp = now();
         const firstCandidate = input.candidates && input.candidates.length > 0 ? (input.candidates[0]?.text ?? null) : null;
@@ -539,11 +564,21 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
           sourcePacketId
         )
       );
-      if (!candidate) {
+      if (candidate) {
+        const draftId = String(candidate.draft_id);
+        const draft = row(db.prepare("SELECT * FROM drafts WHERE id = ?").get(draftId));
+        return draft ? { draft: toDraft(draft), candidates: candidatesForDraft(draftId) } : null;
+      }
+
+      const draft = row(
+        db.prepare("SELECT * FROM drafts WHERE json_extract(metadata_json, '$.sourcePacketId') = ? ORDER BY created_at ASC LIMIT 1").get(
+          sourcePacketId
+        )
+      );
+      if (!draft) {
         return null;
       }
-      const draftId = String(candidate.draft_id);
-      const draft = row(db.prepare("SELECT * FROM drafts WHERE id = ?").get(draftId));
+      const draftId = String(draft.id);
       return draft ? { draft: toDraft(draft), candidates: candidatesForDraft(draftId) } : null;
     },
 
@@ -581,6 +616,7 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
         if (draft.status !== "created") {
           throw new Error(`Cannot save candidates for draft with status: ${draft.status}`);
         }
+        candidates.forEach((candidate) => assertTweetTextFitsLimit(candidate.text));
 
         const timestamp = now();
         const firstCandidate = candidates[0]?.text ?? null;
@@ -638,6 +674,7 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
         }
 
         const selected = toCandidate(selectedRow);
+        assertTweetTextFitsLimit(input.editedText ?? selected.text);
         const timestamp = now();
         db.prepare("UPDATE draft_candidates SET selected = 0 WHERE draft_id = ?").run(input.draftId);
         db.prepare("UPDATE draft_candidates SET selected = 1 WHERE id = ?").run(input.candidateId);
@@ -662,6 +699,7 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
         if (!canTransitionDraft(draft.status, "approved")) {
           throw new Error(`Cannot approve draft from status: ${draft.status}`);
         }
+        assertTweetTextFitsLimit(input.editedText);
 
         const timestamp = now();
         const normalizedText = normalizePostText(input.editedText);
@@ -824,21 +862,46 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
         id: id("history"),
         accountId: input.accountId,
         draftId: input.draftId,
+        metadata: input.metadata ?? {},
         postedText: input.postedText,
         postUrl: input.postUrl,
+        sourcePacketId: input.sourcePacketId ?? null,
+        sourceTitle: input.sourceTitle ?? null,
+        sourceType: input.sourceType ?? null,
+        sourceUrl: input.sourceUrl ?? null,
+        tweetType: input.tweetType ?? null,
         postedAt: now()
       };
 
       db.prepare(
-        `INSERT INTO post_history (id, account_id, draft_id, posted_text, post_url, posted_at)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      ).run(history.id, history.accountId, history.draftId, history.postedText, history.postUrl, history.postedAt);
+        `INSERT INTO post_history (
+          id, account_id, draft_id, posted_text, post_url, source_packet_id, source_type, source_title, source_url, tweet_type, metadata_json, posted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        history.id,
+        history.accountId,
+        history.draftId,
+        history.postedText,
+        history.postUrl,
+        history.sourcePacketId,
+        history.sourceType,
+        history.sourceTitle,
+        history.sourceUrl,
+        history.tweetType,
+        JSON.stringify(history.metadata),
+        history.postedAt
+      );
 
       return history;
     },
 
     async listPostHistory() {
       return rows(db.prepare("SELECT * FROM post_history ORDER BY posted_at DESC").all()).map(toPostHistory);
+    },
+
+    async purgePostHistoryOlderThan(cutoffIso) {
+      const result = db.prepare("DELETE FROM post_history WHERE posted_at < ?").run(cutoffIso);
+      return Number((result as { changes?: unknown }).changes ?? 0);
     },
 
     async createIngestConfig(input) {

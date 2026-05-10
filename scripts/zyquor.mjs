@@ -14,6 +14,7 @@ const apiPort = process.env.ZYQUOR_API_PORT_OVERRIDE ?? "3001";
 const apiUrl = process.env.ZYQUOR_API_URL_OVERRIDE ?? `http://127.0.0.1:${apiPort}`;
 const webUrl = "http://127.0.0.1:5173/";
 const cdpUrl = process.env.ZYQUOR_BROWSER_CDP_URL ?? "http://127.0.0.1:9222";
+const profileDir = resolve(rootDir, process.env.ZYQUOR_X_PROFILE_DIR ?? "profiles/personal-main");
 
 function run(commandName, commandArgs, options = {}) {
   const result = spawnSync(commandName, commandArgs, {
@@ -53,6 +54,20 @@ async function httpOk(url) {
   }
 }
 
+async function jsonOrNull(url) {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+async function openCdpPage(url) {
+  await fetch(`${cdpUrl}/json/new?${encodeURIComponent(url)}`, { method: "PUT" }).catch(() => null);
+}
+
 async function waitFor(name, url, timeoutMs = 60_000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -66,17 +81,63 @@ async function waitFor(name, url, timeoutMs = 60_000) {
   return false;
 }
 
+async function ensureCdpChrome() {
+  mkdirSync(profileDir, { recursive: true });
+  const version = await jsonOrNull(`${cdpUrl}/json/version`);
+  if (version) {
+    return true;
+  }
+
+  const code = run("node", ["scripts/open-x-profile-cdp.mjs"], { stdio: "inherit" });
+  if (code !== 0) {
+    return false;
+  }
+  return waitFor("Chrome CDP", `${cdpUrl}/json/version`, 20_000);
+}
+
+async function loginStatus() {
+  return fetch(`${apiUrl}/browser/x-session?accountId=account_personal`)
+    .then((response) => response.json())
+    .catch((error) => ({ error: String(error), loggedIn: false }));
+}
+
+async function ensureXTabForSession(session) {
+  const pages = await jsonOrNull(`${cdpUrl}/json/list`);
+  const xPages = Array.isArray(pages)
+    ? pages.filter((page) => String(page.url ?? "").startsWith("https://x.com/"))
+    : [];
+  if (session.loggedIn) {
+    if (xPages.length === 0) {
+      await openCdpPage("https://x.com/home");
+    }
+    return;
+  }
+
+  const hasLoginPage = xPages.some((page) => {
+    const url = String(page.url ?? "");
+    return url.startsWith("https://x.com/login") || url.startsWith("https://x.com/i/flow/login");
+  });
+  if (!hasLoginPage) {
+    await openCdpPage("https://x.com/login");
+  }
+}
+
 async function printStatus() {
   const health = await fetch(`${apiUrl}/health`).then((response) => response.json()).catch((error) => ({ error: String(error) }));
-  const session = await fetch(`${apiUrl}/browser/x-session?accountId=account_personal`)
-    .then((response) => response.json())
-    .catch((error) => ({ error: String(error) }));
+  const session = await loginStatus();
+  await ensureXTabForSession(session);
 
   console.log("");
   console.log("Zyquor running");
   console.log(`Web: ${webUrl}`);
   console.log(`API: ${apiUrl}`);
+  console.log(`Chrome CDP: ${cdpUrl}`);
+  console.log(`Profile: ${profileDir}`);
   console.log(`X: ${session.loggedIn ? "logged in" : "not logged in"}`);
+  if (!session.loggedIn) {
+    console.log("Posting paused by worker until X login returns.");
+    console.log("Login command: ./zyquor login");
+  }
   console.log(`Generation: ${health.generation?.provider ?? "unknown"} ${health.generation?.model ?? ""}`.trim());
   console.log("");
   console.log("Use web UI for normal work. Keep this terminal open.");
@@ -86,14 +147,8 @@ async function printStatus() {
 }
 
 async function start() {
-  mkdirSync(resolve(rootDir, "profiles/personal-main"), { recursive: true });
-
-  if (!(await httpOk(`${cdpUrl}/json/version`))) {
-    const code = run("node", ["scripts/open-x-profile-cdp.mjs"], { stdio: "inherit" });
-    if (code !== 0) {
-      process.exit(code);
-    }
-    await sleep(3_000);
+  if (!(await ensureCdpChrome())) {
+    process.exit(1);
   }
 
   const commonEnv = {
@@ -153,6 +208,27 @@ async function check() {
   await printStatus();
 }
 
+async function login() {
+  if (!(await ensureCdpChrome())) {
+    process.exit(1);
+  }
+
+  const pages = await jsonOrNull(`${cdpUrl}/json/list`);
+  const hasLoginPage =
+    Array.isArray(pages) &&
+    pages.some((page) => {
+      const url = String(page.url ?? "");
+      return url.startsWith("https://x.com/login") || url.startsWith("https://x.com/i/flow/login");
+    });
+  if (!hasLoginPage) {
+    await openCdpPage("https://x.com/login");
+  }
+
+  console.log(`Chrome CDP: ${cdpUrl}`);
+  console.log(`Profile: ${profileDir}`);
+  console.log("Log into X in opened Chrome. Keep Chrome open. Then run: ./zyquor check");
+}
+
 async function post(jobId) {
   if (!jobId) {
     console.error("Usage: zyquor post <jobId>");
@@ -164,6 +240,41 @@ async function post(jobId) {
   process.exit(response.ok ? 0 : 1);
 }
 
+async function analyze() {
+  if (!(await httpOk(`${apiUrl}/health`))) {
+    console.error(`API not running at ${apiUrl}. Run: zyquor`);
+    process.exit(1);
+  }
+
+  const accountArgIndex = args.findIndex((arg) => arg === "--account");
+  const accountId = accountArgIndex >= 0 ? args[accountArgIndex + 1] : null;
+  const sinceArgIndex = args.findIndex((arg) => arg === "--hours");
+  const sinceHours = sinceArgIndex >= 0 ? args[sinceArgIndex + 1] : null;
+  const query = new URLSearchParams();
+  if (accountId) query.set("accountId", accountId);
+  if (sinceHours) query.set("sinceHours", sinceHours);
+
+  const response = await fetch(`${apiUrl}/history/analysis${query.size ? `?${query}` : ""}`);
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    console.error(body?.error ?? `Analysis failed: ${response.status}`);
+    process.exit(1);
+  }
+
+  const analysis = body.analysis;
+  console.log(`Posts analyzed: ${analysis.postCount}`);
+  console.log(`Since: ${analysis.since}`);
+  console.log("Issues:");
+  if (!analysis.issues.length) {
+    console.log("  none");
+    return;
+  }
+  for (const issue of analysis.issues) {
+    console.log(`  [${issue.severity}] ${issue.type}: ${issue.detail}`);
+    console.log(`    history: ${issue.historyIds.join(", ")}`);
+  }
+}
+
 if (!existsSync(resolve(rootDir, "node_modules"))) {
   console.error("Dependencies missing. Run once: pnpm install");
   process.exit(1);
@@ -173,10 +284,14 @@ if (command === "start") {
   await start();
 } else if (command === "check") {
   await check();
+} else if (command === "login") {
+  await login();
 } else if (command === "post") {
   await post(args[1]);
+} else if (command === "analyze") {
+  await analyze();
 } else if (command === "help" || command === "--help" || command === "-h") {
-  console.log("Usage: zyquor [start|check|post <jobId>]");
+  console.log("Usage: zyquor [start|check|login|post <jobId>|analyze [--account <id>] [--hours <n>]]");
 } else {
   console.error(`Unknown command: ${command}`);
   process.exit(1);

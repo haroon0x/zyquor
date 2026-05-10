@@ -1,4 +1,4 @@
-import type { DraftGenerationProvider, GeneratedDraftCandidate } from "@zyquor/generation";
+import { postProcessTweetText, type DraftGenerationProvider, type GeneratedDraftCandidate } from "@zyquor/generation";
 import type { ZyquorRepository } from "@zyquor/storage";
 import type { Draft, DraftCandidate, PostJob, SourcePacket } from "@zyquor/core";
 import { accountGenerationContext, articleTweetIdea, sourceTweetInput } from "./context.js";
@@ -49,13 +49,43 @@ export async function draftFromSourcePacket(input: {
   };
   const candidates = await generateCandidatesForPacket({
     ...candidateInput
-  });
+  }).then((items) =>
+    items.map((candidate) => ({
+      ...candidate,
+      text: postProcessTweetText(candidate.text)
+    }))
+  );
+  const firstCandidate = candidates[0] ?? null;
+  const sourceMetadata = {
+    ...(input.options?.mediaUrls?.length ? { mediaUrls: input.options.mediaUrls } : {}),
+    sourcePacketId: input.packet.id,
+    sourceType: input.packet.sourceType,
+    tweetType: input.packet.tweetType
+  };
+
+  if (input.options?.autoApprove && firstCandidate) {
+    const draft = await input.repository.createDraft({
+      accountId: input.packet.accountId,
+      sourceInput: articleTweetIdea(input.packet),
+      metadata: {
+        ...sourceMetadata,
+        generatedScore: firstCandidate.score
+      }
+    });
+    const packet = await input.repository.markSourcePacketDrafted(input.packet.id);
+    const approved = await input.repository.approveDraft({
+      draftId: draft.draft.id,
+      editedText: firstCandidate.text,
+      mode: input.options.mode ?? "autopost"
+    });
+
+    return { ...draft, packet, approved };
+  }
+
   const draft = await input.repository.createDraft({
     accountId: input.packet.accountId,
     sourceInput: articleTweetIdea(input.packet),
-    metadata: {
-      ...(input.options?.mediaUrls?.length ? { mediaUrls: input.options.mediaUrls } : {})
-    },
+    metadata: sourceMetadata,
     candidates: candidates.map((candidate) => ({
       text: candidate.text,
       score: {

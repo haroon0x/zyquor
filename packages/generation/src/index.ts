@@ -117,6 +117,23 @@ function normalizeIdea(idea: string) {
   return idea.trim().replace(/\s+/g, " ");
 }
 
+export function postProcessTweetText(text: string) {
+  return text
+    .replace(/\r\n?/g, "\n")
+    .replace(/\s*[\u2013\u2014]\s*/g, ", ")
+    .split("\n")
+    .map((line) =>
+      line
+        .replace(/[^\S\n]+/g, " ")
+        .replace(/\s+([,.!?;:])/g, "$1")
+        .replace(/([,.!?;:]){2,}/g, "$1")
+        .trim()
+    )
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function characterLimit(input: GenerateDraftCandidatesInput) {
   return DEFAULT_CHARACTER_LIMIT;
 }
@@ -129,13 +146,22 @@ const FUTURE_WORKFLOW_PROMPT_RULES = [
 
 const ENGAGEMENT_STYLE_GUIDE = [
   "Tweet style menu: choose one clear CONTENT_STYLE per candidate when it fits the idea.",
-  "CONTENT_STYLE options: HOT_TAKE, OPEN_LOOP_QUESTION, RELATABLE_PAIN_FIX, MICRO_STORY, CHECKLIST, YOURE_DOING_IT_WRONG, WHAT_NO_ONE_TELLS_YOU, SPIKY_COMPARISON, CONFESSION, STATS_SHOCK, THREAD_HOOK, POLL_VIBE_QUESTION.",
-  "FORMAT_STYLE options: SINGLE_LINE_BANGER, DOUBLE_LINE_PUNCH, LIST_DASHES, LIST_ARROWS, RATIO_LAYOUT, TITLE_SUBTITLE, SPARSE_BREAKS, ALL_CAPS_EMPHASIS, QUOTE_FORMAT, TIMELINE, MINI_THREAD_INDICATOR.",
+  "CONTENT_STYLE options: HOT_TAKE, OPEN_LOOP_QUESTION, RELATABLE_PAIN_FIX, MICRO_STORY, HISTORICAL_IRONY, CHECKLIST, YOURE_DOING_IT_WRONG, WHAT_NO_ONE_TELLS_YOU, SPIKY_COMPARISON, CONFESSION, STATS_SHOCK, THREAD_HOOK, POLL_VIBE_QUESTION.",
+  "FORMAT_STYLE options: SINGLE_LINE_BANGER, DOUBLE_LINE_PUNCH, LIST_DASHES, LIST_ARROWS, GREENTEXT_TIMELINE, RATIO_LAYOUT, TITLE_SUBTITLE, SPARSE_BREAKS, ALL_CAPS_EMPHASIS, QUOTE_FORMAT, TIMELINE, MINI_THREAD_INDICATOR.",
   "VOICE_STYLE options: CASUAL_LOWERCASE, SLIGHTLY_CHAOTIC, DRY_SARCASTIC, WHOLESOME_ENCOURAGING, AUTHORITY_BUT_CHILL.",
   "Use Gen-Z-aware internet rhythm without forced slang: short lines, specific hooks, natural lowercase when useful, and zero corporate essay tone.",
+  "Preserve deliberate line breaks when a list, timeline, sparse-break, or double-line format is chosen. Do not flatten those formats into one paragraph.",
+  "A tiny amount of human irregularity is allowed: natural lowercase, a sentence fragment, or a clipped phrase. Do not add random misspellings that reduce clarity.",
   "For high-engagement variants, prefer hooks that create replies, saves, or quote posts: a defensible hot take, a real question, a hidden truth, a sharp comparison, a mini playbook, or a then-vs-now lesson.",
   "Format variety rules: lists may use '-' or '>' lines; comparisons may use 'X > Y' only when defensible; ALL CAPS may emphasize 1-3 words only; timeline posts should use compact year/state lines.",
+  "Narrative history style: when the facts support an inventor, researcher, founder, old paper, standard, or forgotten origin story, you may use a compact greentext timeline: lines starting with '>' followed by a reflective closing sentence. Keep it factual, dryly funny, and under the character limit.",
   "Do not overuse thread markers. Use '(thread)' or '(1/?)' only when the idea genuinely needs follow-up; otherwise each post must remain complete by itself."
+];
+
+const PUNCTUATION_RULES = [
+  "Punctuation rule: never use em dashes or en dashes. Forbidden characters: — and –.",
+  "If you want a pause or contrast, use a comma, colon, period, semicolon, or parentheses instead.",
+  "Hyphen is allowed only inside normal compound words or as a simple '-' list marker when a list format is chosen."
 ];
 
 function tweetTypeInstruction(tweetType: string | undefined) {
@@ -151,7 +177,13 @@ function tweetTypeInstruction(tweetType: string | undefined) {
     lesson: "Tweet type: lesson. Share a learned principle with a specific implication.",
     opinion: "Tweet type: opinion. Make a clear argument without rage bait.",
     reply: "Tweet type: reply. Draft a useful reply to the given post. Add context or a practical point without sounding automated.",
-    tool: "Tweet type: tool. Explain what a tool is useful for and when to use it."
+    tool: "Tweet type: tool. Explain what a tool is useful for and when to use it.",
+    hiring:
+      "Tweet type: hiring. Share a real hiring post with role/company/context and the source link. Make it clear you are not affiliated with the company, just sharing because it may help someone.",
+    article_summary:
+      "Tweet type: article summary. Start with a natural 'read this' or 'worth reading' framing, then explain the article/blog's useful point in plain language. Include the source link when it fits.",
+    narrative_history:
+      "Tweet type: narrative history. Turn verified facts into a compact historical or biographical arc with irony, delayed payoff, and a reflective closing. Greentext-style '>' timeline lines are allowed when they fit. Do not invent dates, causality, or attribution."
   };
 
   return labels[tweetType] ?? `Tweet type: ${tweetType}.`;
@@ -187,8 +219,9 @@ function systemPrompt(input: GenerateDraftCandidatesInput) {
     diversityInstruction,
     "Lead with the sharpest specific fact or implication. Avoid throat-clearing like 'Interesting', 'A reminder', 'In today's world', or 'This shows'.",
     "If using news context, explain the second-order implication: who it affects, what changes, or why builders/investors/operators should care.",
-    "Use strong hooks and tasteful tension when useful. Do not use cheap bait, fake claims, hashtags, emojis, em dashes, or generic startup phrases.",
+    "Use strong hooks and tasteful tension when useful. Do not use cheap bait, fake claims, hashtags, emojis, or generic startup phrases.",
     ...ENGAGEMENT_STYLE_GUIDE,
+    ...PUNCTUATION_RULES,
     "Grounding rule: only use facts supplied by the user or source context. If facts are thin, write a narrower observation instead of inventing missing details.",
     "Context engineering rule: pick one angle per candidate. Do not mash together every fact. Make the most relevant detail carry the post.",
     "Write only public-facing post text. Never mention internal labels like SourcePacket, source packet, compact input, candidate, draft, metadata, JSON, prompt, or distillation.",
@@ -201,6 +234,8 @@ function systemPrompt(input: GenerateDraftCandidatesInput) {
     `Hard limit: every candidate must be ${limit} characters or fewer for X free-tier posts and replies.`,
     "The LLM only writes final tweet text. Do not invent sources, browsing results, dates, numbers, quotes, schedules, or strategy.",
     "You may include the source URL when it improves credibility, context, or usefulness and the post still fits the character limit. Do not force links into every candidate.",
+    "For hiring tweets, include the job/source URL and say you are not affiliated or just sharing.",
+    "For article summary tweets, say what the article/blog is about without pretending you authored it.",
     "Do not imply you read more than the provided context.",
     "Keep human control, auditability, local-first operation, and explicit approval visible when relevant.",
     `Return exactly ${count} non-empty candidates.`,
@@ -230,7 +265,8 @@ function linePrompt(input: GenerateDraftCandidatesInput) {
     "Vary styles across lines: one may be a hot take, one a practical mini-playbook, one an open-loop question, comparison, or then-vs-now lesson.",
     "Use modern X rhythm: concise, casual, specific, no corporate essay tone.",
     "Never mention SourcePacket, source packet, compact input, candidate, draft, metadata, prompt, or distillation.",
-    "Avoid cheap bait, fake claims, hashtags, emojis, and em dashes.",
+    "Avoid cheap bait, fake claims, hashtags, and emojis.",
+    ...PUNCTUATION_RULES,
     "Mention auditability/control/local-first only if it fits the idea."
   ].join("\n");
 }
@@ -285,7 +321,16 @@ function parseCandidateTexts(raw: string, count: number) {
 function candidatesFromText(raw: string, input: GenerateDraftCandidatesInput, provider: GenerationProviderName, model: string) {
   const count = normalizeCount(input.count);
   const limit = characterLimit(input);
-  const texts = parseCandidateTexts(raw, count).filter((text) => text.length <= limit && isCleanTweetText(text));
+  const texts = parseCandidateTexts(raw, count * 2)
+    .map(postProcessTweetText)
+    .filter((text, index, all) => {
+      const normalized = text.toLowerCase().replace(/\s+/g, " ");
+      return (
+        text.length <= limit &&
+        isCleanTweetText(text) &&
+        all.findIndex((candidate) => candidate.toLowerCase().replace(/\s+/g, " ") === normalized) === index
+      );
+    });
   if (texts.length === 0) {
     throw new Error(`${provider} returned no draft candidates`);
   }

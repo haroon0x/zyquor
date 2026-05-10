@@ -1,23 +1,30 @@
-import { loadDotEnv, POST_JOB_STATUSES, type Account, type PostJob, type Draft } from "@zyquor/core";
+import { loadDotEnv, POST_JOB_STATUSES, type Account, type PostJob, type Draft, type SourcePacket } from "@zyquor/core";
 import { pathToFileURL } from "node:url";
 
 loadDotEnv();
 
 export interface WorkerOptions {
   apiUrl: string;
+  autoSeedDefaultIngest?: boolean;
   ingestIntervalMs?: number;
   pollMs: number;
 }
 
 export interface WorkerState {
+  lastError: string | null;
   lastIngestMs: number;
+  lastPostMs: number;
   autopostJobIds: Set<string>;
+  blockedAutopostJobIds: Set<string>;
 }
 
 export function createWorkerState(): WorkerState {
   return {
+    lastError: null,
     lastIngestMs: 0,
-    autopostJobIds: new Set()
+    lastPostMs: 0,
+    autopostJobIds: new Set(),
+    blockedAutopostJobIds: new Set()
   };
 }
 
@@ -84,7 +91,83 @@ async function api<T>(apiUrl: string, path: string, init?: RequestInit): Promise
   return response.json() as Promise<T>;
 }
 
-export async function processApprovedJobs(options: WorkerOptions, state?: Pick<WorkerState, "autopostJobIds">) {
+export async function heartbeat(options: WorkerOptions, state: WorkerState) {
+  try {
+    await api(options.apiUrl, "/worker/heartbeat", {
+      method: "POST",
+      body: JSON.stringify({
+        lastError: state.lastError,
+        lastIngestAt: state.lastIngestMs > 0 ? new Date(state.lastIngestMs).toISOString() : null,
+        lastPostAt: state.lastPostMs > 0 ? new Date(state.lastPostMs).toISOString() : null
+      })
+    });
+  } catch (error) {
+    console.error(`Failed to update worker heartbeat:`, error instanceof Error ? error.message : error);
+  }
+}
+
+export async function checkWorkerStartup(options: WorkerOptions) {
+  const warnings: string[] = [];
+  let seededConfigId: string | null = null;
+
+  try {
+    await api<{ ok: boolean }>(options.apiUrl, "/health");
+  } catch (error) {
+    warnings.push(`API unreachable at ${options.apiUrl}: ${error instanceof Error ? error.message : error}`);
+    return { seededConfigId, warnings };
+  }
+
+  if (process.env.ZYQUOR_ENABLE_BROWSER_POST === "0") {
+    warnings.push("ZYQUOR_ENABLE_BROWSER_POST=0, so autopost jobs cannot submit to X.");
+  }
+
+  const [{ accounts }, { configs }] = await Promise.all([
+    api<{ accounts: Account[] }>(options.apiUrl, "/accounts"),
+    api<{ configs: Array<{ enabled: boolean; id: string }> }>(options.apiUrl, "/ingest-configs")
+  ]);
+  const runnableAccount = accounts.find((account) => account.enabled);
+  const enabledConfigs = configs.filter((config) => config.enabled);
+
+  if (enabledConfigs.length === 0) {
+    if (options.autoSeedDefaultIngest !== false && runnableAccount) {
+      const seeded = await api<{ config: { id: string } }>(options.apiUrl, "/ingest-configs/default-news", { method: "POST" });
+      seededConfigId = seeded.config.id;
+    } else {
+      warnings.push("No enabled ingest configs exist, so worker has no source to pull.");
+    }
+  }
+
+  if (runnableAccount) {
+    try {
+      const session = await api<{ error: string | null; loggedIn: boolean }>(
+        options.apiUrl,
+        `/browser/x-session?accountId=${encodeURIComponent(runnableAccount.id)}`
+      );
+      if (!session.loggedIn) {
+        warnings.push(`X login missing for ${runnableAccount.id}${session.error ? `: ${session.error}` : ""}`);
+      }
+    } catch (error) {
+      warnings.push(`X login check failed: ${error instanceof Error ? error.message : error}`);
+    }
+  } else {
+    warnings.push("No enabled account exists for automatic posting.");
+  }
+
+  return { seededConfigId, warnings };
+}
+
+function isNonRetryablePostError(message: string) {
+  return (
+    message.includes("Source packet already reached") ||
+    message.includes("Duplicate post text for this account") ||
+    message.includes("Daily post limit reached for this account")
+  );
+}
+
+export async function processApprovedJobs(
+  options: WorkerOptions,
+  state?: Pick<WorkerState, "autopostJobIds" | "blockedAutopostJobIds">
+) {
   // Check health
   try {
     const health = await api<{ ok: boolean }>(options.apiUrl, "/health");
@@ -117,6 +200,7 @@ export async function processApprovedJobs(options: WorkerOptions, state?: Pick<W
 
   let processed = 0;
   const seenThisRun = new Set<string>();
+  const loginByAccount = new Map<string, boolean>();
   for (const job of approvedJobs) {
     if (seenThisRun.has(job.id)) {
       continue;
@@ -127,18 +211,46 @@ export async function processApprovedJobs(options: WorkerOptions, state?: Pick<W
     if (action === "post" && state?.autopostJobIds.has(job.id)) {
       continue;
     }
+    if (action === "post" && state?.blockedAutopostJobIds.has(job.id)) {
+      continue;
+    }
+    if (action === "post") {
+      let loggedIn = loginByAccount.get(job.accountId);
+      if (loggedIn === undefined) {
+        const session = await api<{ loggedIn: boolean }>(
+          options.apiUrl,
+          `/browser/x-session?accountId=${encodeURIComponent(job.accountId)}`
+        ).catch((error) => {
+          console.error(`X login check failed for ${job.accountId}:`, error instanceof Error ? error.message : error);
+          return { loggedIn: false };
+        });
+        loggedIn = session.loggedIn;
+        loginByAccount.set(job.accountId, loggedIn);
+      }
+      if (!loggedIn) {
+        console.warn(`Skipping autopost job ${job.id}: X is not logged in for ${job.accountId}`);
+        continue;
+      }
+    }
 
     try {
       await api(options.apiUrl, `/jobs/${job.id}/${action}`, { method: "POST" });
       if (action === "post") {
         state?.autopostJobIds.add(job.id);
+        if ("lastPostMs" in (state ?? {})) {
+          (state as WorkerState).lastPostMs = Date.now();
+        }
       }
       processed += 1;
     } catch (error) {
-      console.error(
-        `Failed to ${action} job ${job.id}:`,
-        error instanceof Error ? error.message : error
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to ${action} job ${job.id}:`, message);
+      if (action === "post" && isNonRetryablePostError(message)) {
+        state?.blockedAutopostJobIds.add(job.id);
+      }
+      if (action === "post" && message.includes("Another browser job is already running for this account")) {
+        break;
+      }
     }
   }
 
@@ -160,10 +272,44 @@ export async function processPendingDrafts(options: WorkerOptions) {
   return drafts.length;
 }
 
+export async function processNewSourcePackets(options: WorkerOptions) {
+  const { packets } = await api<{ packets?: SourcePacket[] }>(options.apiUrl, "/source-packets");
+  const sourcePackets = packets ?? [];
+  const newPackets = sourcePackets.filter((packet) => packet.status === "new");
+  if (newPackets.length === 0) return 0;
+
+  let processed = 0;
+  for (const packet of newPackets) {
+    try {
+      await api(options.apiUrl, `/source-packets/${packet.id}/draft`, {
+        method: "POST",
+        body: JSON.stringify({
+          autoApprove: true,
+          count: 1,
+          mode: "autopost"
+        })
+      });
+      processed += 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to draft source packet ${packet.id}:`, message);
+      if (message.includes("Post text exceeds 280 characters")) {
+        await api(options.apiUrl, `/source-packets/${packet.id}`, { method: "DELETE" }).catch(() => null);
+      }
+    }
+  }
+
+  return processed;
+}
+
 export async function processIngest(options: WorkerOptions) {
   try {
-    const result = await api<{ processed: number }>(options.apiUrl, "/ingest-run", { method: "POST" });
-    return result.processed;
+    const result = await api<{ accepted: boolean; ingestRun: { processed: number; running: boolean } }>(
+      options.apiUrl,
+      "/ingest-run/async",
+      { method: "POST" }
+    );
+    return result.accepted ? 1 : 0;
   } catch (error) {
     console.error(`Failed to run ingest:`, error instanceof Error ? error.message : error);
     return 0;
@@ -181,23 +327,10 @@ export async function recoverStaleJobs(options: WorkerOptions) {
 }
 
 export async function runWorkerCycle(options: WorkerOptions, state: WorkerState) {
+  state.lastError = null;
   const recoveredCount = await recoverStaleJobs(options);
   if (recoveredCount > 0) {
     console.log(`Recovered ${recoveredCount} stale browser job(s)`);
-  }
-
-  const pendingProcessed = await processPendingDrafts(options);
-  if (pendingProcessed > 0) {
-    console.log(`Generated ${pendingProcessed} pending draft(s)`);
-  }
-
-  const now = Date.now();
-  if (now - state.lastIngestMs >= (options.ingestIntervalMs ?? 1 * 60 * 1000)) {
-    state.lastIngestMs = now;
-    const ingestProcessed = await processIngest(options);
-    if (ingestProcessed > 0) {
-      console.log(`Ingested ${ingestProcessed} packet(s)`);
-    }
   }
 
   const approvedProcessed = await processApprovedJobs(options, state);
@@ -205,18 +338,48 @@ export async function runWorkerCycle(options: WorkerOptions, state: WorkerState)
     console.log(`Processed ${approvedProcessed} approved job(s)`);
   }
 
-  return { approvedProcessed, pendingProcessed, recoveredCount };
+  const pendingProcessed = await processPendingDrafts(options);
+  if (pendingProcessed > 0) {
+    console.log(`Generated ${pendingProcessed} pending draft(s)`);
+  }
+
+  const sourcePacketProcessed = await processNewSourcePackets(options);
+  if (sourcePacketProcessed > 0) {
+    console.log(`Drafted ${sourcePacketProcessed} source packet(s)`);
+  }
+
+  const now = Date.now();
+  if (now - state.lastIngestMs >= (options.ingestIntervalMs ?? 1 * 60 * 1000)) {
+    state.lastIngestMs = now;
+    const ingestAccepted = await processIngest(options);
+    if (ingestAccepted > 0) {
+      console.log("Queued async ingest run");
+    }
+  }
+
+  await heartbeat(options, state);
+
+  return { approvedProcessed, pendingProcessed, recoveredCount, sourcePacketProcessed };
 }
 
 export async function runWorker(options: WorkerOptions) {
   console.log(describeWorker());
   const state = createWorkerState();
+  const startup = await checkWorkerStartup(options);
+  for (const warning of startup.warnings) {
+    console.warn(warning);
+  }
+  if (startup.seededConfigId) {
+    console.log(`Seeded default news ingest config ${startup.seededConfigId}`);
+  }
 
   for (;;) {
     try {
       await runWorkerCycle(options, state);
     } catch (error) {
+      state.lastError = error instanceof Error ? error.message : String(error);
       console.error(error instanceof Error ? error.message : error);
+      await heartbeat(options, state);
     }
 
     await new Promise((resolve) => setTimeout(resolve, options.pollMs));
@@ -228,6 +391,7 @@ const isDirectRun = process.argv[1] ? import.meta.url === pathToFileURL(process.
 if (isDirectRun && process.env.ZYQUOR_RUN_WORKER === "1") {
   await runWorker({
     apiUrl: process.env.ZYQUOR_API_URL ?? "http://127.0.0.1:3000",
+    autoSeedDefaultIngest: process.env.ZYQUOR_WORKER_AUTO_SEED_DEFAULT_INGEST !== "0",
     ingestIntervalMs: Number(process.env.ZYQUOR_WORKER_INGEST_INTERVAL_MS ?? 60_000),
     pollMs: Number(process.env.ZYQUOR_WORKER_POLL_MS ?? 5000)
   });

@@ -101,7 +101,6 @@ interface IngestConfig {
   tweetTypeMix: Record<string, number>;
 }
 
-const X_FREE_POST_CHARACTER_LIMIT = 280;
 interface StyleProfile {
   id: string;
   name: string;
@@ -111,6 +110,21 @@ interface StyleProfile {
   bannedPhrases: string[];
   examplePosts: string[];
 }
+
+const X_FREE_POST_CHARACTER_LIMIT = 280;
+const tweetTypeOptions = [
+  "feed_observation",
+  "news_context",
+  "useful_info",
+  "guide",
+  "lesson",
+  "tool",
+  "opinion",
+  "reply",
+  "hiring",
+  "article_summary",
+  "narrative_history"
+];
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = {
@@ -636,6 +650,17 @@ function App() {
     });
   }
 
+  function deleteSourcePacket(packet: SourcePacket) {
+    run(async () => {
+      if (window.confirm("Delete this source? Non-posted source drafts will be removed too.")) {
+        await api(`/source-packets/${packet.id}`, { method: "DELETE" });
+        setDraft(null);
+        setEditedText("");
+        await refresh();
+      }
+    });
+  }
+
   function deleteAllSources() {
     run(async () => {
       if (sourcePackets.length > 0 && window.confirm("Delete all sources for this account? Non-posted source drafts will be removed too.")) {
@@ -786,13 +811,11 @@ function App() {
               value={automationDraft.tweetType}
               onChange={(event) => setAutomationDraft({ ...automationDraft, tweetType: event.target.value })}
             >
-              <option value="news_context">news_context</option>
-              <option value="useful_info">useful_info</option>
-              <option value="feed_observation">feed_observation</option>
-              <option value="guide">guide</option>
-              <option value="lesson">lesson</option>
-              <option value="tool">tool</option>
-              <option value="opinion">opinion</option>
+              {tweetTypeOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
             </select>
           </label>
           <label>
@@ -866,14 +889,11 @@ function App() {
             <label>
               Type
               <select value={tweetType} onChange={(event) => setTweetType(event.target.value)}>
-                <option value="feed_observation">feed_observation</option>
-                <option value="news_context">news_context</option>
-                <option value="useful_info">useful_info</option>
-                <option value="guide">guide</option>
-                <option value="lesson">lesson</option>
-                <option value="tool">tool</option>
-                <option value="opinion">opinion</option>
-                <option value="reply">reply</option>
+                {tweetTypeOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
               </select>
             </label>
           </div>
@@ -976,6 +996,7 @@ function App() {
                   <option value="bookmark">bookmark</option>
                   <option value="note">note</option>
                   <option value="guide">guide</option>
+                  <option value="job">job</option>
                 </select>
               </label>
               <label>
@@ -984,14 +1005,11 @@ function App() {
                   value={packetDraft.tweetType}
                   onChange={(event) => setPacketDraft({ ...packetDraft, tweetType: event.target.value })}
                 >
-                  <option value="feed_observation">feed_observation</option>
-                  <option value="news_context">news_context</option>
-                  <option value="useful_info">useful_info</option>
-                  <option value="guide">guide</option>
-                  <option value="lesson">lesson</option>
-                  <option value="tool">tool</option>
-                  <option value="opinion">opinion</option>
-                  <option value="reply">reply</option>
+                  {tweetTypeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label>
@@ -1055,6 +1073,9 @@ function App() {
                       onClick={() => deleteDraftFromSourcePacket(packet)}
                     >
                       Delete draft
+                    </button>
+                    <button className="secondary danger" disabled={busy} onClick={() => deleteSourcePacket(packet)}>
+                      Delete source
                     </button>
                   </div>
                 </article>

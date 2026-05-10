@@ -1,24 +1,36 @@
 import cors from "@fastify/cors";
 import { assertDedicatedProfileDir, isAccountRunnable } from "@zyquor/accounts";
-import { createAggregatedNewsAdapter, createCrawl4AiService, createRssAdapter, type SourceAdapter } from "@zyquor/adapters";
+import {
+  createAggregatedNewsAdapter,
+  createCrawl4AiService,
+  createRssAdapter,
+  getAggregatedSourceHealth,
+  type SourceAdapter
+} from "@zyquor/adapters";
 import { accountGenerationContext, draftFromSourcePacket, runAutomaticIngest } from "@zyquor/automation";
 import {
   approveDraftRequestSchema,
+  analyzePostHistory,
   createDraftBatchRequestSchema,
   createDraftRequestSchema,
   createIngestConfigRequestSchema,
   createSourcePacketRequestSchema,
   prepareJobRequestSchema,
   selectDraftCandidateRequestSchema,
+  SOURCE_TYPES,
+  TWEET_TYPES,
   updateAccountRequestSchema,
   updateGenerationConfigRequestSchema,
   updateIngestConfigRequestSchema,
   updateStyleProfileRequestSchema,
-  type PostingMode
+  type PostingMode,
+  type SourceType,
+  type TweetType
 } from "@zyquor/core";
 import {
   createGenerationProviderFromEnv,
   GENERATION_MODEL_OPTIONS,
+  postProcessTweetText,
   resolveGenerationProviderConfig,
   type DraftGenerationProvider,
   type GenerationEnvironment
@@ -121,7 +133,7 @@ function workspaceRoot() {
 }
 
 function defaultGenerationConfigPath() {
-  return resolve(workspaceRoot(), ".zyquor/generation.json");
+  return resolve(workspaceRoot(), "data/generation.json");
 }
 
 function resolveProfileDir(profileDir: string) {
@@ -191,6 +203,12 @@ async function isDailyLimitReached(repository: ZyquorRepository, accountId: stri
   return postsToday >= dailyPostLimit;
 }
 
+const POST_HISTORY_TTL_MS = 24 * 60 * 60 * 1000;
+
+async function purgeExpiredPostHistory(repository: ZyquorRepository) {
+  return repository.purgePostHistoryOlderThan(new Date(Date.now() - POST_HISTORY_TTL_MS).toISOString());
+}
+
 async function hasRunningJobForAccount(repository: ZyquorRepository, accountId: string, currentJobId: string) {
   const jobs = await repository.listJobs();
   return jobs.some(
@@ -204,8 +222,24 @@ async function hasPostedTextForAccount(repository: ZyquorRepository, accountId: 
   return history.some((item) => item.accountId === accountId && normalizePostText(item.postedText) === normalized);
 }
 
+const MAX_POSTS_PER_SOURCE_PACKET = 2;
+
+async function postedSourcePacketCountForAccount(repository: ZyquorRepository, accountId: string, draftId: string) {
+  const sourcePacketId = await sourcePacketIdForDraft(repository, draftId);
+  if (!sourcePacketId) {
+    return 0;
+  }
+  const history = await repository.listPostHistory();
+  return history.filter((item) => item.accountId === accountId && item.sourcePacketId === sourcePacketId).length;
+}
+
 async function sourcePacketIdForDraft(repository: ZyquorRepository, draftId: string) {
   const draft = await repository.getDraft(draftId);
+  const metadataSourcePacketId = draft?.draft.metadata.sourcePacketId;
+  if (typeof metadataSourcePacketId === "string") {
+    return metadataSourcePacketId;
+  }
+
   const sourcePacketId = draft?.candidates
     .map((candidate) => candidate.score.sourcePacketId)
     .find((value): value is string => typeof value === "string");
@@ -219,6 +253,65 @@ async function removePostedDraftSourcePacket(repository: ZyquorRepository, draft
   }
   const packet = await repository.getSourcePacket(sourcePacketId);
   return packet ? repository.deleteSourcePacket(sourcePacketId) : null;
+}
+
+function metadataSourceType(value: unknown): SourceType | null {
+  return typeof value === "string" && SOURCE_TYPES.includes(value as SourceType) ? (value as SourceType) : null;
+}
+
+function metadataTweetType(value: unknown): TweetType | null {
+  return typeof value === "string" && TWEET_TYPES.includes(value as TweetType) ? (value as TweetType) : null;
+}
+
+async function postHistorySnapshot(repository: ZyquorRepository, draftId: string) {
+  const draft = await repository.getDraft(draftId);
+  const sourcePacketId = draft ? await sourcePacketIdForDraft(repository, draftId) : null;
+  const packet = sourcePacketId ? await repository.getSourcePacket(sourcePacketId) : null;
+  const metadata = draft?.draft.metadata ?? {};
+
+  return {
+    metadata: {
+      draftMetadata: metadata,
+      ...(packet
+        ? {
+            sourceFacts: packet.facts,
+            sourceSummary: packet.summary
+          }
+        : {})
+    },
+    sourcePacketId,
+    sourceTitle: packet?.title ?? (typeof metadata.sourceTitle === "string" ? metadata.sourceTitle : null),
+    sourceType: packet?.sourceType ?? metadataSourceType(metadata.sourceType),
+    sourceUrl: packet?.url ?? (typeof metadata.sourceUrl === "string" ? metadata.sourceUrl : null),
+    tweetType: packet?.tweetType ?? metadataTweetType(metadata.tweetType)
+  };
+}
+
+async function deleteSourcePacketCascade(repository: ZyquorRepository, packetId: string) {
+  const packet = await repository.getSourcePacket(packetId);
+  if (!packet) {
+    throw new HttpError(404, "Source packet not found");
+  }
+
+  const draft = await repository.getDraftBySourcePacketId(packet.id);
+  if (draft) {
+    const [jobs, history] = await Promise.all([repository.listJobs(), repository.listPostHistory()]);
+    const draftJobs = jobs.filter((job) => job.draftId === draft.draft.id);
+    const hasRunningJob = draftJobs.some((job) => job.status === "running");
+    const hasPostedJob = draftJobs.some((job) => job.status === "posted");
+    const hasPostHistory = history.some((item) => item.draftId === draft.draft.id);
+    if (hasRunningJob) {
+      throw new HttpError(409, "Cannot delete source with a running job");
+    }
+    if (!hasPostedJob && !hasPostHistory) {
+      await repository.deleteDraft(draft.draft.id);
+    }
+  }
+
+  return {
+    draftId: draft?.draft.id ?? null,
+    packet: await repository.deleteSourcePacket(packet.id)
+  };
 }
 
 function isScheduledForFuture(job: { scheduledFor: string | null }) {
@@ -248,7 +341,12 @@ function isPostingMode(value: unknown): value is PostingMode {
   );
 }
 
-const STALE_RUNNING_JOB_MS = 10 * 60 * 1000;
+const DEFAULT_STALE_RUNNING_JOB_MS = 2 * 60 * 1000;
+
+function staleRunningJobMs() {
+  const configured = Number(process.env.ZYQUOR_STALE_RUNNING_JOB_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_STALE_RUNNING_JOB_MS;
+}
 
 async function recoverStaleRunningJobs(
   repository: ZyquorRepository,
@@ -261,7 +359,7 @@ async function recoverStaleRunningJobs(
       (!options.accountId || job.accountId === options.accountId) &&
       (!options.currentJobId || job.id !== options.currentJobId) &&
       job.status === "running" &&
-      now - Date.parse(job.updatedAt) > STALE_RUNNING_JOB_MS
+      now - Date.parse(job.updatedAt) > staleRunningJobMs()
   );
   const recovered = [];
 
@@ -354,9 +452,11 @@ async function postBrowserJob(repository: ZyquorRepository, options: BuildAppOpt
 
   const account = await repository.getAccount(job.accountId);
   const draftWithCandidates = await repository.getDraft(job.draftId);
-  if (!account || !draftWithCandidates?.draft.editedText) {
+  const postedText = draftWithCandidates?.draft.editedText ? postProcessTweetText(draftWithCandidates.draft.editedText) : null;
+  if (!account || !postedText) {
     throw new HttpError(409, "Job is missing account or approved text");
   }
+  const draftForPost = draftWithCandidates!.draft;
   if (isScheduledForFuture(job)) {
     throw new HttpError(409, `Job is scheduled for ${job.scheduledFor}`);
   }
@@ -366,8 +466,26 @@ async function postBrowserJob(repository: ZyquorRepository, options: BuildAppOpt
   if (await isDailyLimitReached(repository, account.id, account.dailyPostLimit)) {
     throw new HttpError(409, "Daily post limit reached for this account");
   }
-  if (await hasPostedTextForAccount(repository, account.id, draftWithCandidates.draft.editedText)) {
+  if (await hasPostedTextForAccount(repository, account.id, postedText)) {
+    await repository.updateJobStatus(job.id, "cancelled");
+    await repository.createAttempt({
+      jobId: job.id,
+      status: "failed",
+      errorCode: "duplicate_post_text",
+      errorMessage: "Duplicate post text for this account"
+    });
     throw new HttpError(409, "Duplicate post text for this account");
+  }
+  const postedSourceCount = await postedSourcePacketCountForAccount(repository, account.id, job.draftId);
+  if (postedSourceCount >= MAX_POSTS_PER_SOURCE_PACKET) {
+    await repository.updateJobStatus(job.id, "cancelled");
+    await repository.createAttempt({
+      jobId: job.id,
+      status: "failed",
+      errorCode: "source_packet_cap_reached",
+      errorMessage: `Source packet already reached ${MAX_POSTS_PER_SOURCE_PACKET} posts for this account`
+    });
+    throw new HttpError(409, `Source packet already reached ${MAX_POSTS_PER_SOURCE_PACKET} posts for this account`);
   }
   await recoverStaleRunningJobs(repository, { accountId: account.id, currentJobId: job.id });
   if (await hasRunningJobForAccount(repository, account.id, job.id)) {
@@ -384,11 +502,11 @@ async function postBrowserJob(repository: ZyquorRepository, options: BuildAppOpt
 
   try {
     const preparePost = options.preparePost ?? (await import("@zyquor/browser")).preparePost;
-    const mediaPaths = await mediaPathsForDraft(draftWithCandidates.draft);
+    const mediaPaths = await mediaPathsForDraft(draftForPost);
     const result = await preparePost({
       profileDir: resolveProfileDir(account.profileDir),
-      text: draftWithCandidates.draft.editedText,
-      replyToUrl: draftWithCandidates.draft.replyToUrl ?? null,
+      text: postedText,
+      replyToUrl: draftForPost.replyToUrl ?? null,
       ...(mediaPaths.length ? { mediaPaths } : {}),
       ...browserOptions(options),
       submit: true
@@ -398,8 +516,9 @@ async function postBrowserJob(repository: ZyquorRepository, options: BuildAppOpt
     const history = await repository.createPostHistory({
       accountId: job.accountId,
       draftId: job.draftId,
-      postedText: draftWithCandidates.draft.editedText,
-      postUrl: result.postUrl
+      postedText,
+      postUrl: result.postUrl,
+      ...(await postHistorySnapshot(repository, job.draftId))
     });
     await removePostedDraftSourcePacket(repository, job.draftId);
     await repository.createAttempt({ jobId: job.id, status: "verified" });
@@ -436,6 +555,35 @@ export function buildApp(options: BuildAppOptions = {}) {
     ...readSavedGenerationEnv(generationConfigPath)
   };
   let generationProvider = options.generationProvider ?? createGenerationProviderFromEnv(generationEnv);
+  let workerHeartbeat: {
+    lastError: string | null;
+    lastHeartbeatAt: string;
+    lastIngestAt: string | null;
+    lastPostAt: string | null;
+  } | null = null;
+  let ingestRunState: {
+    errors: Array<{ configId: string; error: string }>;
+    finishedAt: string | null;
+    lastStartedAt: string | null;
+    processed: number;
+    running: boolean;
+    skippedByReason?: {
+      blockedUrl: number;
+      duplicatePacket: number;
+      duplicatePostedUrl: number;
+      hostCap: number;
+      packetCap: number;
+      scheduleWindow: number;
+      thinContext: number;
+      topicOverlap: number;
+    };
+  } = {
+    errors: [],
+    finishedAt: null,
+    lastStartedAt: null,
+    processed: 0,
+    running: false
+  };
 
   app.register(cors, {
     origin: true
@@ -474,6 +622,52 @@ export function buildApp(options: BuildAppOptions = {}) {
       model: generationProvider.model
     }
   }));
+
+  app.get("/worker/status", async () => {
+    const repository = await repositoryPromise;
+    const [configs, jobs, packets] = await Promise.all([
+      repository.listIngestConfigs(),
+      repository.listJobs(),
+      repository.listSourcePackets()
+    ]);
+    const enabledConfigs = configs.filter((config) => config.enabled);
+    const latestPacket = packets
+      .filter((packet) => packet.sourceType === "news" || packet.sourceType === "feed")
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+    const latestPosted = jobs
+      .filter((job) => job.status === "posted")
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
+
+    return {
+      ok: true,
+      enabledIngestConfigCount: enabledConfigs.length,
+      hasEnabledIngestConfigs: enabledConfigs.length > 0,
+      lastHeartbeatAt: workerHeartbeat?.lastHeartbeatAt ?? null,
+      lastIngestAt: workerHeartbeat?.lastIngestAt ?? latestPacket?.createdAt ?? null,
+      lastPostAt: workerHeartbeat?.lastPostAt ?? latestPosted?.updatedAt ?? null,
+      lastError: workerHeartbeat?.lastError ?? null,
+      ingestRun: ingestRunState,
+      nextIngestRunAt: workerHeartbeat ? new Date(Date.parse(workerHeartbeat.lastHeartbeatAt) + 60_000).toISOString() : null,
+      workerRunning:
+        workerHeartbeat !== null && Date.now() - Date.parse(workerHeartbeat.lastHeartbeatAt) < 2 * 60 * 1000
+    };
+  });
+
+  app.post("/worker/heartbeat", async (request) => {
+    const body = (request.body ?? {}) as {
+      lastError?: unknown;
+      lastIngestAt?: unknown;
+      lastPostAt?: unknown;
+    };
+    workerHeartbeat = {
+      lastError: typeof body.lastError === "string" ? body.lastError : null,
+      lastHeartbeatAt: new Date().toISOString(),
+      lastIngestAt: typeof body.lastIngestAt === "string" ? body.lastIngestAt : null,
+      lastPostAt: typeof body.lastPostAt === "string" ? body.lastPostAt : null
+    };
+
+    return { ok: true, worker: workerHeartbeat };
+  });
 
   app.get("/generation", async () => ({
     generation: resolveGenerationProviderConfig(generationEnv),
@@ -560,6 +754,13 @@ export function buildApp(options: BuildAppOptions = {}) {
     };
   });
 
+  app.delete("/source-packets/:id", async (request) => {
+    const { id } = request.params as { id: string };
+    const repository = await repositoryPromise;
+    const result = await deleteSourcePacketCascade(repository, id);
+    return { deleted: true, ...result };
+  });
+
   app.delete("/source-packets", async (request) => {
     const { accountId } = request.query as { accountId?: string };
     const repository = await repositoryPromise;
@@ -574,7 +775,7 @@ export function buildApp(options: BuildAppOptions = {}) {
         const draftJobs = jobs.filter((job) => job.draftId === draft.draft.id);
         const hasPostedJob = draftJobs.some((job) => job.status === "posted");
         const hasPostHistory = history.some((item) => item.draftId === draft.draft.id);
-        const hasRunningJob = draftJobs.some((job) => job.status === "running" || job.status === "queued");
+        const hasRunningJob = draftJobs.some((job) => job.status === "running");
         if (hasRunningJob) {
           results.push({ deleted: false, draftId: draft.draft.id, packetId: packet.id, reason: "job_running" });
           continue;
@@ -613,16 +814,28 @@ export function buildApp(options: BuildAppOptions = {}) {
 
   app.post("/source-packets/:id/draft", async (request, reply) => {
     const { id } = request.params as { id: string };
+    const body = (request.body ?? {}) as {
+      autoApprove?: boolean;
+      count?: number;
+      mode?: PostingMode;
+    };
     const repository = await repositoryPromise;
     const packet = await repository.getSourcePacket(id);
     if (!packet) {
       return reply.code(404).send({ error: "Source packet not found" });
     }
 
+    const count = body.count;
+    const draftOptions = {
+      ...(body.autoApprove === true ? { autoApprove: true } : {}),
+      ...(typeof count === "number" && Number.isInteger(count) && count > 0 ? { count } : {}),
+      ...(isPostingMode(body.mode) ? { mode: body.mode } : {})
+    };
     const draft = await draftFromSourcePacket({
       generationProvider,
       packet,
-      repository
+      repository,
+      options: draftOptions
     });
 
     return reply.code(201).send(draft);
@@ -669,6 +882,7 @@ export function buildApp(options: BuildAppOptions = {}) {
 
   app.get("/ingest-sources", async () => ({
     sources: [...sourceAdapters.values()].map((adapter) => ({
+      health: adapter.name === "aggregated-news" ? getAggregatedSourceHealth() : null,
       name: adapter.name,
       sourceType: adapter.sourceType
     }))
@@ -689,6 +903,50 @@ export function buildApp(options: BuildAppOptions = {}) {
     });
 
     return reply.code(201).send({ config });
+  });
+
+  app.post("/ingest-configs/default-news", async (_request, reply) => {
+    const repository = await repositoryPromise;
+    const configs = await repository.listIngestConfigs();
+    const existing = configs.find((config) => config.enabled && config.sourceType === "news");
+    if (existing) {
+      return { config: existing, created: false };
+    }
+
+    const accounts = await repository.listAccounts();
+    const account = accounts.find((item) => item.enabled) ?? accounts[0];
+    if (!account) {
+      return reply.code(409).send({ error: "No account available for default ingest config" });
+    }
+
+    const config = await repository.createIngestConfig({
+      accountId: account.id,
+      enabled: true,
+      maxPacketsPerDay: 48,
+      metadata: {
+        includeArxiv: true,
+        includeCompanyRss: true,
+        includeExpandedHackerNews: true,
+        includeGitHub: true,
+        includeHiring: true,
+        includeProductHunt: true,
+        includeReddit: true,
+        includeTechCrunch: true,
+        maxItems: 100,
+        requireTopicMatch: false
+      },
+      scheduleWindowEnd: "23:59",
+      scheduleWindowStart: "00:00",
+      sourceType: "news",
+      tweetTypeMix: {
+        article_summary: 20,
+        feed_observation: 25,
+        narrative_history: 15,
+        useful_info: 55
+      }
+    });
+
+    return reply.code(201).send({ config, created: true });
   });
 
   app.patch("/ingest-configs/:id", async (request, reply) => {
@@ -735,6 +993,54 @@ export function buildApp(options: BuildAppOptions = {}) {
     }
 
     return result;
+  });
+
+  app.post("/ingest-run/async", async (request, reply) => {
+    if (ingestRunState.running) {
+      return reply.code(202).send({ accepted: false, ingestRun: ingestRunState, reason: "already_running" });
+    }
+
+    ingestRunState = {
+      errors: [],
+      finishedAt: null,
+      lastStartedAt: new Date().toISOString(),
+      processed: 0,
+      running: true
+    };
+
+    void (async () => {
+      try {
+        const repository = await repositoryPromise;
+        const result = await runAutomaticIngest({
+          adapters: sourceAdapters,
+          generationProvider,
+          repository
+        });
+        for (const error of result.errors) {
+          app.log.error(`Async ingest run failed for config ${error.configId}: ${error.error}`);
+        }
+        ingestRunState = {
+          errors: result.errors,
+          finishedAt: new Date().toISOString(),
+          lastStartedAt: ingestRunState.lastStartedAt,
+          processed: result.processed,
+          running: false,
+          skippedByReason: result.skippedByReason
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown ingest error";
+        app.log.error(`Async ingest run failed: ${message}`);
+        ingestRunState = {
+          errors: [{ configId: "unknown", error: message }],
+          finishedAt: new Date().toISOString(),
+          lastStartedAt: ingestRunState.lastStartedAt,
+          processed: 0,
+          running: false
+        };
+      }
+    })();
+
+    return reply.code(202).send({ accepted: true, ingestRun: ingestRunState });
   });
 
   app.get("/style-profiles/:id", async (request, reply) => {
@@ -797,7 +1103,13 @@ export function buildApp(options: BuildAppOptions = {}) {
       ...(metadata.tweetType ? { tweetType: metadata.tweetType as string } : {})
     });
 
-    const updated = await repository.saveDraftCandidates(draft.id, candidates);
+    const updated = await repository.saveDraftCandidates(
+      draft.id,
+      candidates.map((candidate) => ({
+        ...candidate,
+        text: postProcessTweetText(candidate.text)
+      }))
+    );
 
     if (metadata.yolo) {
       const selectedText = updated.candidates[0]?.text;
@@ -805,7 +1117,7 @@ export function buildApp(options: BuildAppOptions = {}) {
         const mode = metadata.autopost ? "autopost" : isPostingMode(metadata.mode) ? metadata.mode : "prepare_only";
         const approved = await repository.approveDraft({
           draftId: draft.id,
-          editedText: selectedText,
+          editedText: postProcessTweetText(selectedText),
           mode,
           replyToUrl: draft.replyToUrl ?? null,
           scheduledFor: (metadata.scheduleStart as string | null | undefined) ?? null
@@ -887,7 +1199,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     return repository.selectCandidate({
       draftId: id,
       candidateId: input.candidateId,
-      ...(input.editedText ? { editedText: input.editedText } : {})
+      ...(input.editedText ? { editedText: postProcessTweetText(input.editedText) } : {})
     });
   });
 
@@ -905,7 +1217,7 @@ export function buildApp(options: BuildAppOptions = {}) {
 
     const result = await repository.approveDraft({
       draftId: id,
-      editedText: input.editedText,
+      editedText: postProcessTweetText(input.editedText),
       ...(input.mode ? { mode: input.mode } : {}),
       scheduledFor: input.scheduledFor ?? null,
       replyToUrl: existing.draft.replyToUrl ?? null
@@ -922,9 +1234,29 @@ export function buildApp(options: BuildAppOptions = {}) {
     };
   });
 
-  app.get("/history", async () => ({
-    history: await (await repositoryPromise).listPostHistory()
-  }));
+  app.get("/history", async () => {
+    const repository = await repositoryPromise;
+    await purgeExpiredPostHistory(repository);
+    return {
+      history: await repository.listPostHistory()
+    };
+  });
+
+  app.get("/history/analysis", async (request) => {
+    const { accountId, sinceHours } = request.query as { accountId?: string; sinceHours?: string };
+    const repository = await repositoryPromise;
+    await purgeExpiredPostHistory(repository);
+    const parsedSinceHours = sinceHours ? Number(sinceHours) : undefined;
+
+    return {
+      analysis: analyzePostHistory(await repository.listPostHistory(), {
+        ...(accountId ? { accountId } : {}),
+        ...(Number.isFinite(parsedSinceHours) && parsedSinceHours && parsedSinceHours > 0
+          ? { sinceHours: parsedSinceHours }
+          : {})
+      })
+    };
+  });
 
   app.get("/jobs/:id/attempts", async (request) => {
     const { id } = request.params as { id: string };
@@ -1056,9 +1388,11 @@ export function buildApp(options: BuildAppOptions = {}) {
 
     const account = await repository.getAccount(job.accountId);
     const draftWithCandidates = await repository.getDraft(job.draftId);
-    if (!account || !draftWithCandidates?.draft.editedText) {
+    const preparedText = draftWithCandidates?.draft.editedText ? postProcessTweetText(draftWithCandidates.draft.editedText) : null;
+    if (!account || !preparedText) {
       return reply.code(409).send({ error: "Job is missing account or approved text" });
     }
+    const draftForPrepare = draftWithCandidates!.draft;
     if (isScheduledForFuture(job)) {
       return reply.code(409).send({ error: `Job is scheduled for ${job.scheduledFor}` });
     }
@@ -1086,11 +1420,11 @@ export function buildApp(options: BuildAppOptions = {}) {
 
     try {
       const preparePost = options.preparePost ?? (await import("@zyquor/browser")).preparePost;
-      const mediaPaths = await mediaPathsForDraft(draftWithCandidates.draft);
+      const mediaPaths = await mediaPathsForDraft(draftForPrepare);
       await preparePost({
         profileDir: resolveProfileDir(account.profileDir),
-        text: draftWithCandidates.draft.editedText,
-        replyToUrl: draftWithCandidates.draft.replyToUrl ?? null,
+        text: preparedText,
+        replyToUrl: draftForPrepare.replyToUrl ?? null,
         ...(mediaPaths.length ? { mediaPaths } : {}),
         ...browserOptions(options),
         closeAfterPrepare: options.closeAfterPrepare ?? true
