@@ -1,5 +1,7 @@
 import { loadDotEnv, POST_JOB_STATUSES, type Account, type PostJob, type Draft, type SourcePacket } from "@zyquor/core";
-import { pathToFileURL } from "node:url";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 loadDotEnv();
 
@@ -16,6 +18,64 @@ export interface WorkerState {
   lastPostMs: number;
   autopostJobIds: Set<string>;
   blockedAutopostJobIds: Set<string>;
+}
+
+function pidIsAlive(pid: number) {
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) {
+    return false;
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+
+function acquireWorkerLock(lockPath = resolve(process.env.ZYQUOR_WORKER_LOCK_PATH ?? resolve(repoRoot, "data/zyquor-worker.lock"))) {
+  mkdirSync(dirname(lockPath), { recursive: true });
+  if (existsSync(lockPath)) {
+    const existingPid = Number(readFileSync(lockPath, "utf8").trim());
+    if (pidIsAlive(existingPid)) {
+      console.warn(`Another Zyquor worker is already running with pid ${existingPid}. Exiting duplicate worker.`);
+      return null;
+    }
+    rmSync(lockPath, { force: true });
+  }
+
+  let fd: number;
+  try {
+    fd = openSync(lockPath, "wx");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      console.warn("Another Zyquor worker acquired the lock first. Exiting duplicate worker.");
+      return null;
+    }
+    throw error;
+  }
+  writeFileSync(fd, `${process.pid}\n`);
+  closeSync(fd);
+
+  const release = () => {
+    try {
+      const currentPid = Number(readFileSync(lockPath, "utf8").trim());
+      if (currentPid === process.pid) {
+        rmSync(lockPath, { force: true });
+      }
+    } catch {
+      // Lock already removed.
+    }
+  };
+  process.once("exit", release);
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.once(signal, () => {
+      release();
+      process.exit(0);
+    });
+  }
+  return release;
 }
 
 export function createWorkerState(): WorkerState {
@@ -389,6 +449,9 @@ export async function runWorker(options: WorkerOptions) {
 const isDirectRun = process.argv[1] ? import.meta.url === pathToFileURL(process.argv[1]).href : false;
 
 if (isDirectRun && process.env.ZYQUOR_RUN_WORKER === "1") {
+  if (!acquireWorkerLock()) {
+    process.exit(0);
+  }
   await runWorker({
     apiUrl: process.env.ZYQUOR_API_URL ?? "http://127.0.0.1:3000",
     autoSeedDefaultIngest: process.env.ZYQUOR_WORKER_AUTO_SEED_DEFAULT_INGEST !== "0",

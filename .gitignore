@@ -8,11 +8,13 @@ coverage/
 data/*.sqlite
 data/*.sqlite-*
 data/*.json
+data/*.lock
 data/artifacts/
 data/media/
 apps/*/data/*.sqlite
 apps/*/data/*.sqlite-*
 apps/*/data/*.json
+apps/*/data/*.lock
 apps/*/data/artifacts/
 profiles/
 scratch/

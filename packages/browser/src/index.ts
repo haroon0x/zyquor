@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { chromium, type Locator, type Page } from "playwright";
+import { chromium, type BrowserContext, type Locator, type Page } from "playwright";
 
 export interface PreparePostInput {
   profileDir: string;
@@ -107,6 +107,39 @@ async function gotoXCompose(page: Page, xUrl: string, replyToUrl?: string | null
     const replyButton = page.locator('[data-testid="reply"]').first();
     await replyButton.click({ timeout: 15_000 }).catch(() => undefined);
   }
+}
+
+function isXPage(page: Page) {
+  const url = page.url();
+  return url.startsWith("https://x.com/") || url.startsWith("https://twitter.com/");
+}
+
+function existingXPage(context: BrowserContext) {
+  return (
+    context.pages().find((item) => item.url().startsWith("https://x.com/compose")) ??
+    context.pages().find((item) => item.url().startsWith("https://twitter.com/compose")) ??
+    context.pages().find((item) => item.url().startsWith("https://x.com/")) ??
+    context.pages().find((item) => item.url().startsWith("https://twitter.com/")) ??
+    null
+  );
+}
+
+async function pageForSessionCheck(context: BrowserContext, input: CheckXLoginInput) {
+  const xPage = existingXPage(context);
+  if (xPage) return xPage;
+  if (input.cdpUrl) {
+    throw new Error("No existing X tab is open in Chrome CDP. Open one X tab and retry.");
+  }
+  return context.pages()[0] ?? (await context.newPage());
+}
+
+async function pageForPost(context: BrowserContext, input: PreparePostInput) {
+  const xPage = existingXPage(context);
+  if (xPage) return xPage;
+  if (input.cdpUrl) {
+    throw new Error("No existing X tab is open in Chrome CDP. Open one X tab and retry.");
+  }
+  return context.pages()[0] ?? (await context.newPage());
 }
 
 async function visibleEditorTexts(page: Page) {
@@ -253,12 +286,8 @@ export async function checkXLogin(input: CheckXLoginInput): Promise<CheckXLoginR
   const { context, ownsContext } = await openPersistentContext(input);
 
   try {
-    const page =
-      context.pages().find((item) => item.url().startsWith("https://x.com/") || item.url().startsWith("https://twitter.com/")) ??
-      context.pages()[0] ??
-      (await context.newPage());
-    const currentUrl = page.url();
-    if (!currentUrl.startsWith("https://x.com/") && !currentUrl.startsWith("https://twitter.com/")) {
+    const page = await pageForSessionCheck(context, input);
+    if (!isXPage(page)) {
       await page.goto(input.xHomeUrl ?? "https://x.com/home", { waitUntil: "domcontentloaded", timeout: 15_000 });
     }
     await page.waitForTimeout(2_500);
@@ -301,12 +330,7 @@ export async function preparePost(input: PreparePostInput): Promise<PreparePostR
     context.setDefaultTimeout(30_000);
     context.setDefaultNavigationTimeout(45_000);
     await context.tracing.start({ screenshots: true, snapshots: true });
-    const page =
-      context.pages().find((item) => item.url().startsWith("https://x.com/compose")) ??
-      context.pages().find((item) => item.url().startsWith("https://twitter.com/compose")) ??
-      context.pages().find((item) => item.url().startsWith("https://x.com/")) ??
-      context.pages()[0] ??
-      (await context.newPage());
+    const page = await pageForPost(context, input);
     page.on("dialog", (dialog) => {
       void dialog.dismiss().catch(() => undefined);
     });
