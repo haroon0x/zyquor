@@ -2,6 +2,7 @@ import { postProcessTweetText, type DraftGenerationProvider, type GeneratedDraft
 import type { ZyquorRepository } from "@zyquor/storage";
 import type { Draft, DraftCandidate, PostJob, SourcePacket } from "@zyquor/core";
 import { accountGenerationContext, articleTweetIdea, sourceTweetInput } from "./context.js";
+import { validateSourcePostQuality } from "./quality.js";
 
 export interface PacketDraftOptions {
   autoApprove?: boolean;
@@ -56,6 +57,15 @@ export async function draftFromSourcePacket(input: {
     }))
   );
   const firstCandidate = candidates[0] ?? null;
+  const history = input.options?.autoApprove ? await input.repository.listPostHistory() : [];
+  const approvedCandidate =
+    firstCandidate && input.options?.autoApprove
+      ? validateSourcePostQuality({
+          history,
+          packet: input.packet,
+          text: firstCandidate.text
+        })
+      : null;
   const sourceMetadata = {
     ...(input.options?.mediaUrls?.length ? { mediaUrls: input.options.mediaUrls } : {}),
     sourcePacketId: input.packet.id,
@@ -64,6 +74,9 @@ export async function draftFromSourcePacket(input: {
   };
 
   if (input.options?.autoApprove && firstCandidate) {
+    if (!approvedCandidate?.ok) {
+      throw new Error(`Source post failed quality gate: ${approvedCandidate?.reasons.join(", ") || "unknown"}`);
+    }
     const draft = await input.repository.createDraft({
       accountId: input.packet.accountId,
       sourceInput: articleTweetIdea(input.packet),
@@ -75,7 +88,7 @@ export async function draftFromSourcePacket(input: {
     const packet = await input.repository.markSourcePacketDrafted(input.packet.id);
     const approved = await input.repository.approveDraft({
       draftId: draft.draft.id,
-      editedText: firstCandidate.text,
+      editedText: approvedCandidate.text,
       mode: input.options.mode ?? "autopost"
     });
 

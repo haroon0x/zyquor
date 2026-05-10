@@ -4,6 +4,7 @@ import { createMemoryRepository } from "@zyquor/storage";
 import { afterEach, describe, expect, it } from "vitest";
 import { runAutomaticIngest } from "./index.js";
 import { cleanSentence, inferTweetTypeFromText, packetFieldsFromItem } from "./context.js";
+import { validateSourcePostQuality } from "./quality.js";
 
 const testProvider: DraftGenerationProvider = {
   name: "ollama",
@@ -123,6 +124,104 @@ describe("automatic ingest", () => {
     });
     expect(draft?.candidates).toEqual([]);
     expect(draft?.draft.editedText).toBe("Useful read: HN: automatic workers changes how teams think about automation.");
+  });
+
+  it("repairs source-backed generated text before auto-approve", async () => {
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z"
+    });
+    const adapter: SourceAdapter = {
+      name: "article-news",
+      sourceType: "news",
+      async fetch() {
+        return [
+          {
+            title: "Company blog explains safer database failover",
+            url: "https://example.com/database-failover",
+            content:
+              "The article explains safer database failover defaults for operators. It includes specific recovery tradeoffs and rollout notes."
+          }
+        ];
+      }
+    };
+    const provider: DraftGenerationProvider = {
+      name: "ollama",
+      model: "test",
+      async generateDraftCandidates() {
+        return [
+          {
+            text: "> old failover was brittle > new defaults reduce operator risk",
+            score: {}
+          }
+        ];
+      }
+    };
+    await repository.createIngestConfig({
+      accountId: "account_personal",
+      enabled: true,
+      maxPacketsPerDay: 1,
+      metadata: {},
+      scheduleWindowEnd: "23:59",
+      scheduleWindowStart: "00:00",
+      sourceType: "news",
+      tweetTypeMix: { article_summary: 100 }
+    });
+
+    await runAutomaticIngest({
+      adapters: new Map([["news", adapter]]),
+      generationProvider: provider,
+      now: new Date("2026-04-24T17:00:00.000Z"),
+      repository
+    });
+
+    const jobs = await repository.listJobs();
+    const draft = await repository.getDraft(jobs[0]!.draftId);
+    expect(draft?.draft.editedText).toBe(
+      "> old failover was brittle\n> new defaults reduce operator risk\nhttps://example.com/database-failover"
+    );
+  });
+
+  it("blocks immediate second post from the same source packet", () => {
+    const packet = {
+      accountId: "account_personal",
+      createdAt: "2026-04-24T15:00:00.000Z",
+      facts: ["Show HN: local database tool", "Tool adds reproducible local graph queries."],
+      id: "packet_1",
+      sourceType: "news" as const,
+      status: "drafted" as const,
+      summary: "Tool adds reproducible local graph queries.",
+      title: "Show HN: local database tool",
+      tweetType: "useful_info" as const,
+      updatedAt: "2026-04-24T15:00:00.000Z",
+      url: "https://example.com/local-db"
+    };
+
+    const result = validateSourcePostQuality({
+      history: [
+        {
+          accountId: "account_personal",
+          draftId: "draft_1",
+          id: "history_1",
+          metadata: {},
+          postedAt: "2026-04-24T16:30:00.000Z",
+          postedText: "First angle.",
+          postUrl: "https://x.com/example/status/1",
+          sourcePacketId: "packet_1",
+          sourceTitle: packet.title,
+          sourceType: "news",
+          sourceUrl: packet.url,
+          tweetType: "useful_info"
+        }
+      ],
+      now: new Date("2026-04-24T17:00:00.000Z"),
+      packet,
+      text: "Second angle."
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      reasons: ["same_source_packet_cooldown"]
+    });
   });
 
   it("prioritizes broader preferred news signals during ingest", async () => {
@@ -251,7 +350,7 @@ describe("automatic ingest", () => {
 
     expect(result.processed).toBe(1);
     expect(result.results).toMatchObject([{ url: "https://example.com/good-generated" }]);
-    expect(result.errors[0]?.error).toContain("Post text exceeds 280 characters");
+    expect(result.errors[0]?.error).toContain("post_text_too_long_after_quality_repair");
     await expect(repository.getSourcePacketByUrl("https://example.com/already-posted", "account_personal")).resolves.toBeNull();
     await expect(repository.getSourcePacketByUrl("https://example.com/bad-generated", "account_personal")).resolves.toBeNull();
   });

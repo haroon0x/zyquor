@@ -773,6 +773,58 @@ describe("api workflow", () => {
     await app.close();
   });
 
+  it("adds required article source URL before browser posting", async () => {
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z"
+    });
+    let postedText = "";
+    const app = buildApp({
+      enableBrowserPost: true,
+      generationProvider: testGenerationProvider,
+      preparePost: async (input) => {
+        postedText = input.text;
+        return { postUrl: "https://x.com/personal/status/article-link" };
+      },
+      repository
+    });
+    const packet = await repository.createSourcePacket({
+      accountId: "account_personal",
+      facts: ["Database failover article", "Operators get safer recovery defaults."],
+      sourceType: "news",
+      summary: "Operators get safer recovery defaults.",
+      title: "Database failover article",
+      tweetType: "article_summary",
+      url: "https://example.com/database-failover"
+    });
+    const draft = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "Article draft",
+      metadata: { sourcePacketId: packet.id },
+      candidates: [{ text: "Database failover got safer defaults for operators.", score: { sourcePacketId: packet.id } }]
+    });
+    const approved = await repository.approveDraft({
+      draftId: draft.draft.id,
+      editedText: "Database failover got safer defaults for operators.",
+      mode: "autopost"
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/jobs/${approved.job.id}/post`
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(postedText).toBe("Database failover got safer defaults for operators. https://example.com/database-failover");
+    await expect(repository.listPostHistory()).resolves.toMatchObject([
+      {
+        postedText: "Database failover got safer defaults for operators. https://example.com/database-failover",
+        sourceUrl: "https://example.com/database-failover"
+      }
+    ]);
+
+    await app.close();
+  });
+
   it("purges posted tweet history after 24 hours", async () => {
     let nowMs = Date.parse("2026-04-24T17:00:00.000Z");
     vi.spyOn(Date, "now").mockImplementation(() => nowMs);

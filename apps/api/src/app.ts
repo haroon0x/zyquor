@@ -7,7 +7,7 @@ import {
   getAggregatedSourceHealth,
   type SourceAdapter
 } from "@zyquor/adapters";
-import { accountGenerationContext, draftFromSourcePacket, runAutomaticIngest } from "@zyquor/automation";
+import { accountGenerationContext, draftFromSourcePacket, runAutomaticIngest, validateSourcePostQuality } from "@zyquor/automation";
 import {
   approveDraftRequestSchema,
   analyzePostHistory,
@@ -487,6 +487,27 @@ async function postBrowserJob(repository: ZyquorRepository, options: BuildAppOpt
     });
     throw new HttpError(409, `Source packet already reached ${MAX_POSTS_PER_SOURCE_PACKET} posts for this account`);
   }
+  const sourcePacketId = await sourcePacketIdForDraft(repository, job.draftId);
+  const sourcePacket = sourcePacketId ? await repository.getSourcePacket(sourcePacketId) : null;
+  const qualityText = { value: postedText };
+  if (sourcePacket) {
+    const quality = validateSourcePostQuality({
+      history: await repository.listPostHistory(),
+      packet: sourcePacket,
+      text: postedText
+    });
+    if (!quality.ok) {
+      await repository.updateJobStatus(job.id, "cancelled");
+      await repository.createAttempt({
+        jobId: job.id,
+        status: "failed",
+        errorCode: "post_quality_gate_failed",
+        errorMessage: `Post failed quality gate: ${quality.reasons.join(", ")}`
+      });
+      throw new HttpError(409, `Post failed quality gate: ${quality.reasons.join(", ")}`);
+    }
+    qualityText.value = quality.text;
+  }
   await recoverStaleRunningJobs(repository, { accountId: account.id, currentJobId: job.id });
   if (await hasRunningJobForAccount(repository, account.id, job.id)) {
     throw new HttpError(409, "Another browser job is already running for this account");
@@ -505,7 +526,7 @@ async function postBrowserJob(repository: ZyquorRepository, options: BuildAppOpt
     const mediaPaths = await mediaPathsForDraft(draftForPost);
     const result = await preparePost({
       profileDir: resolveProfileDir(account.profileDir),
-      text: postedText,
+      text: qualityText.value,
       replyToUrl: draftForPost.replyToUrl ?? null,
       ...(mediaPaths.length ? { mediaPaths } : {}),
       ...browserOptions(options),
@@ -516,7 +537,7 @@ async function postBrowserJob(repository: ZyquorRepository, options: BuildAppOpt
     const history = await repository.createPostHistory({
       accountId: job.accountId,
       draftId: job.draftId,
-      postedText,
+      postedText: qualityText.value,
       postUrl: result.postUrl,
       ...(await postHistorySnapshot(repository, job.draftId))
     });
