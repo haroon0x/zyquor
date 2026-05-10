@@ -172,7 +172,6 @@ async function start() {
     ? null
     : spawnService("web", "pnpm", ["--filter", "@zyquor/web", "dev"], {
         ...commonEnv,
-        CHOKIDAR_USEPOLLING: process.env.CHOKIDAR_USEPOLLING ?? "1",
         ZYQUOR_API_URL: apiUrl
       });
   const worker = spawnService("worker", "pnpm", ["--filter", "@zyquor/worker", "dev"], {

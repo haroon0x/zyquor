@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { chromium, type BrowserContext, type Locator, type Page } from "playwright";
+import { chromium, type Locator, type Page } from "playwright";
 
 export interface PreparePostInput {
   profileDir: string;
@@ -49,33 +49,16 @@ export class BrowserPrepareError extends Error {
 }
 
 async function firstVisibleEditor(page: Page) {
-  const editors = page.locator(
-    [
-      '[data-testid="tweetTextarea_0"]',
-      '[aria-label*="Post text"]',
-      '[aria-label*="Tweet text"]',
-      '.DraftEditor-root [contenteditable="true"]',
-      '[role="textbox"][contenteditable="true"]',
-      '[contenteditable="true"]'
-    ].join(", ")
-  );
-  const direct = await largestVisibleLocator(editors, 5_000);
-  if (direct) return direct;
-  const textbox = await largestVisibleLocator(page.getByRole("textbox"), 5_000);
-  if (textbox) return textbox;
-  return page.getByRole("textbox").first();
-}
-
-async function largestVisibleLocator(locator: Locator, timeout: number) {
-  if (!(await locator.first().isVisible({ timeout }).catch(() => false))) {
-    return null;
+  const editors = page.locator('[data-testid="tweetTextarea_0"], [aria-label*="Post text"], [aria-label*="Tweet text"]');
+  if (!(await editors.first().isVisible({ timeout: 5_000 }).catch(() => false))) {
+    return page.getByRole("textbox").first();
   }
-  const count = await locator.count();
-  let best = locator.first();
+  const count = await editors.count();
+  let best = editors.first();
   let bestArea = -1;
 
   for (let index = 0; index < count; index += 1) {
-    const candidate = locator.nth(index);
+    const candidate = editors.nth(index);
     if (!(await candidate.isVisible().catch(() => false))) {
       continue;
     }
@@ -88,12 +71,6 @@ async function largestVisibleLocator(locator: Locator, timeout: number) {
   }
 
   return best;
-}
-
-async function waitForComposeEditor(page: Page) {
-  const editor = await firstVisibleEditor(page);
-  await editor.waitFor({ state: "visible", timeout: 30_000 });
-  return editor;
 }
 
 async function assertNotLoginPage(page: Page) {
@@ -130,57 +107,6 @@ async function gotoXCompose(page: Page, xUrl: string, replyToUrl?: string | null
     const replyButton = page.locator('[data-testid="reply"]').first();
     await replyButton.click({ timeout: 15_000 }).catch(() => undefined);
   }
-}
-
-async function clickComposeShortcut(page: Page) {
-  const buttons = [
-    page.locator('[data-testid="SideNav_NewTweet_Button"]').first(),
-    page.locator('a[href="/compose/post"]').first(),
-    page.getByRole("link", { name: /^post$/i }).first(),
-    page.getByRole("button", { name: /^post$/i }).first()
-  ];
-  for (const button of buttons) {
-    if (await button.isVisible({ timeout: 1_000 }).catch(() => false)) {
-      await button.click({ timeout: 5_000 }).catch(() => undefined);
-      return;
-    }
-  }
-}
-
-async function openComposeWithRetry(page: Page, input: { actionDelayMs: number; replyToUrl?: string | null; xUrl: string }) {
-  await gotoXCompose(page, input.xUrl, input.replyToUrl);
-  await page.waitForTimeout(input.actionDelayMs);
-  await assertNotLoginPage(page);
-  try {
-    return await waitForComposeEditor(page);
-  } catch (firstError) {
-    if (input.replyToUrl) {
-      throw firstError;
-    }
-    await page.goto("https://x.com/home", { waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => undefined);
-    await page.waitForTimeout(input.actionDelayMs);
-    await assertNotLoginPage(page);
-    await clickComposeShortcut(page);
-    await page.waitForTimeout(Math.max(input.actionDelayMs, 2_000));
-    if (!(await page.locator('[data-testid="tweetTextarea_0"], [role="textbox"][contenteditable="true"]').first().isVisible({ timeout: 3_000 }).catch(() => false))) {
-      await gotoXCompose(page, input.xUrl, null);
-      await page.waitForTimeout(Math.max(input.actionDelayMs, 2_000));
-    }
-    return waitForComposeEditor(page);
-  }
-}
-
-async function automationPage(context: BrowserContext, input: PreparePostInput) {
-  if (input.cdpUrl) {
-    return context.newPage();
-  }
-  return (
-    context.pages().find((item) => item.url().startsWith("https://x.com/compose")) ??
-    context.pages().find((item) => item.url().startsWith("https://twitter.com/compose")) ??
-    context.pages().find((item) => item.url().startsWith("https://x.com/")) ??
-    context.pages()[0] ??
-    context.newPage()
-  );
 }
 
 async function visibleEditorTexts(page: Page) {
@@ -375,15 +301,21 @@ export async function preparePost(input: PreparePostInput): Promise<PreparePostR
     context.setDefaultTimeout(30_000);
     context.setDefaultNavigationTimeout(45_000);
     await context.tracing.start({ screenshots: true, snapshots: true });
-    const page = await automationPage(context, input);
+    const page =
+      context.pages().find((item) => item.url().startsWith("https://x.com/compose")) ??
+      context.pages().find((item) => item.url().startsWith("https://twitter.com/compose")) ??
+      context.pages().find((item) => item.url().startsWith("https://x.com/")) ??
+      context.pages()[0] ??
+      (await context.newPage());
     page.on("dialog", (dialog) => {
       void dialog.dismiss().catch(() => undefined);
     });
-    const editor = await openComposeWithRetry(page, {
-      actionDelayMs,
-      ...(input.replyToUrl !== undefined ? { replyToUrl: input.replyToUrl } : {}),
-      xUrl: input.xUrl ?? "https://x.com/compose/post"
-    });
+    await gotoXCompose(page, input.xUrl ?? "https://x.com/compose/post", input.replyToUrl);
+    await page.waitForTimeout(actionDelayMs);
+    await assertNotLoginPage(page);
+
+    const editor = await firstVisibleEditor(page);
+    await editor.waitFor({ state: "visible", timeout: 30_000 });
     await page.waitForTimeout(actionDelayMs);
     await typeIntoEditor(page, editor, text, typingDelayMs);
     await page.waitForTimeout(actionDelayMs);
