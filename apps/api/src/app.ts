@@ -943,7 +943,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     const config = await repository.createIngestConfig({
       accountId: account.id,
       enabled: true,
-      maxPacketsPerDay: 48,
+      maxPacketsPerDay: 1000,
       metadata: {
         includeArxiv: true,
         includeCompanyRss: true,

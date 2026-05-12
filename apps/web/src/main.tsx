@@ -183,7 +183,7 @@ function App() {
   const [automationDraft, setAutomationDraft] = useState({
     enabled: false,
     feedUrl: "",
-    maxPacketsPerDay: 3,
+    maxPacketsPerDay: 1000,
     scheduleWindowEnd: "23:59",
     scheduleWindowStart: "00:00",
     sourceType: "news",
@@ -822,7 +822,7 @@ function App() {
             Daily max
             <input
               min="1"
-              max="300"
+              max="1000"
               type="number"
               value={automationDraft.maxPacketsPerDay}
               onChange={(event) => setAutomationDraft({ ...automationDraft, maxPacketsPerDay: Number(event.target.value) })}

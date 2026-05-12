@@ -52,7 +52,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       styleProfileId: styleProfile.id,
       postingMode: "prepare_only",
       enabled: true,
-      dailyPostLimit: 300,
+      dailyPostLimit: 1000,
       quietHoursStart: null,
       quietHoursEnd: null,
       createdAt: now(),
