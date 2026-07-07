@@ -26,3 +26,5 @@ __pycache__/
 playwright-report/
 test-results/
 *.log
+
+apps/desktop/release/

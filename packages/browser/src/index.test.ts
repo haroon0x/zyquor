@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chromium } from "playwright";
+import { chromium } from "playwright-core";
 import { describe, expect, it } from "vitest";
 import { checkXLogin, preparePost } from "./index.js";
 
