@@ -17,6 +17,7 @@
     "smoke:http": "node --no-warnings scripts/smoke-http.mjs",
     "smoke:adapters": "pnpm --filter @zyquor/adapters build && node --no-warnings scripts/test-adapters.mjs",
     "smoke:generation": "pnpm --filter @zyquor/generation build && node scripts/smoke-generation.mjs",
+    "spacing:check": "pnpm --filter @zyquor/core build && node scripts/verify-spacing.mjs",
     "harness:tweets": "pnpm --filter @zyquor/generation build && node scripts/tweet-harness.mjs",
     "profile:x": "node scripts/open-x-profile.mjs",
     "profile:x:check": "pnpm --filter @zyquor/browser build && node scripts/check-x-login.mjs",

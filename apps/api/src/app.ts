@@ -10,6 +10,7 @@ import {
 import { accountGenerationContext, draftFromSourcePacket, runAutomaticIngest, validateSourcePostQuality } from "@zyquor/automation";
 import {
   approveDraftRequestSchema,
+  AI_SLOP_PHRASES,
   analyzePostHistory,
   createDraftBatchRequestSchema,
   createDraftRequestSchema,
@@ -43,6 +44,24 @@ import { createHash } from "node:crypto";
 import { dirname, extname, isAbsolute, resolve } from "node:path";
 import { ZodError } from "zod";
 
+let postProcessorTraceSeq = 0;
+function tracePostProcessTweetText(label: string, text: string) {
+  postProcessorTraceSeq += 1;
+  const traceId = `pp-${Date.now().toString(36)}-${postProcessorTraceSeq}`;
+  const before = text;
+  const after = postProcessTweetText(text);
+  const beforeHasUpper = /[A-Z]/.test(before);
+  const afterHasUpper = /[A-Z]/.test(after);
+  const changed = before !== after;
+  console.log(
+    `[trace=${traceId}] [post-process] label=${label} ` +
+      `beforeLen=${before.length} afterLen=${after.length} changed=${changed} ` +
+      `beforeHasUpper=${beforeHasUpper} afterHasUpper=${afterHasUpper} ` +
+      `beforeHead=${JSON.stringify(before.slice(0, 60))} afterHead=${JSON.stringify(after.slice(0, 60))}`
+  );
+  return after;
+}
+
 export interface BuildAppOptions {
   repository?: ZyquorRepository;
   generationProvider?: DraftGenerationProvider;
@@ -71,6 +90,7 @@ export interface BuildAppOptions {
     typingDelayMs?: number;
   }) => Promise<{ postUrl: string | null }>;
   closeAfterPrepare?: boolean;
+  closeAfterPost?: boolean;
 }
 
 class HttpError extends Error {
@@ -192,15 +212,46 @@ async function mediaPathsForDraft(draft: { metadata: Record<string, unknown> }) 
   return downloadMediaUrls(mediaUrlsFromDraftMetadata(draft.metadata));
 }
 
+const ABSOLUTE_DAILY_POST_LIMIT = 15;
+
+function dailyVarianceCap(): { min: number; max: number; value: number; traceId: string; absolute: number } {
+  const min = Math.max(1, Number(process.env.ZYQUOR_DAILY_POST_VARIANCE_MIN ?? 10));
+  const requestedMax = Math.max(min, Number(process.env.ZYQUOR_DAILY_POST_VARIANCE_MAX ?? 12));
+  const max = Math.min(requestedMax, ABSOLUTE_DAILY_POST_LIMIT);
+  const seed = new Date().toISOString().slice(0, 10);
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  const span = max - min + 1;
+  const value = min + (hash % span);
+  return { min, max, value, traceId: seed, absolute: ABSOLUTE_DAILY_POST_LIMIT };
+}
+
 async function isDailyLimitReached(repository: ZyquorRepository, accountId: string, dailyPostLimit: number | null) {
+  const variance = dailyVarianceCap();
+  const effectiveLimit = Math.min(dailyPostLimit ?? Number.POSITIVE_INFINITY, variance.value);
+  const traceId = variance.traceId;
+
   if (!dailyPostLimit) {
+    console.log(
+      `[trace=${traceId}] [daily-limit] account=${accountId} accountDailyPostLimit=null ` +
+        `varianceCap=${variance.value} (min=${variance.min} max=${variance.max}) absoluteCeiling=${variance.absolute} ` +
+        `effectiveLimit=${effectiveLimit} -> false (no account limit)`
+    );
     return false;
   }
 
   const today = new Date().toISOString().slice(0, 10);
   const history = await repository.listPostHistory();
   const postsToday = history.filter((item) => item.accountId === accountId && item.postedAt.startsWith(today)).length;
-  return postsToday >= dailyPostLimit;
+  const reached = postsToday >= effectiveLimit;
+  console.log(
+    `[trace=${traceId}] [daily-limit] account=${accountId} accountDailyPostLimit=${dailyPostLimit} ` +
+      `varianceCap=${variance.value} (min=${variance.min} max=${variance.max}) absoluteCeiling=${variance.absolute} ` +
+      `postsToday=${postsToday} effectiveLimit=${effectiveLimit} reached=${reached}`
+  );
+  return reached;
 }
 
 const POST_HISTORY_TTL_MS = 24 * 60 * 60 * 1000;
@@ -452,7 +503,7 @@ async function postBrowserJob(repository: ZyquorRepository, options: BuildAppOpt
 
   const account = await repository.getAccount(job.accountId);
   const draftWithCandidates = await repository.getDraft(job.draftId);
-  const postedText = draftWithCandidates?.draft.editedText ? postProcessTweetText(draftWithCandidates.draft.editedText) : null;
+  const postedText = draftWithCandidates?.draft.editedText ? tracePostProcessTweetText("post-job", draftWithCandidates.draft.editedText) : null;
   if (!account || !postedText) {
     throw new HttpError(409, "Job is missing account or approved text");
   }
@@ -521,8 +572,10 @@ async function postBrowserJob(repository: ZyquorRepository, options: BuildAppOpt
   await repository.updateJobStatus(job.id, "running");
   await repository.createAttempt({ jobId: job.id, status: "started" });
 
+  const browserModule = await import("@zyquor/browser");
+
   try {
-    const preparePost = options.preparePost ?? (await import("@zyquor/browser")).preparePost;
+    const preparePost = options.preparePost ?? browserModule.preparePost;
     const mediaPaths = await mediaPathsForDraft(draftForPost);
     const result = await preparePost({
       profileDir: resolveProfileDir(account.profileDir),
@@ -543,8 +596,16 @@ async function postBrowserJob(repository: ZyquorRepository, options: BuildAppOpt
     });
     await removePostedDraftSourcePacket(repository, job.draftId);
     await repository.createAttempt({ jobId: job.id, status: "verified" });
+
+    if (options.closeAfterPost && options.browserCdpUrl) {
+      await browserModule.closeBrowserCdp(options.browserCdpUrl).catch(() => undefined);
+    }
+
     return { job: posted, history };
   } catch (error) {
+    if (options.closeAfterPost && options.browserCdpUrl) {
+      await browserModule.closeBrowserCdp(options.browserCdpUrl).catch(() => undefined);
+    }
     const message = error instanceof Error ? error.message : "Unknown browser error";
     const artifacts = browserArtifacts(error);
     await repository.updateJobStatus(job.id, "failed");
@@ -1128,17 +1189,47 @@ export function buildApp(options: BuildAppOptions = {}) {
       draft.id,
       candidates.map((candidate) => ({
         ...candidate,
-        text: postProcessTweetText(candidate.text)
+        text: tracePostProcessTweetText("select-candidate", candidate.text)
       }))
     );
 
     if (metadata.yolo) {
-      const selectedText = updated.candidates[0]?.text;
+      const qualityMin = Number(process.env.ZYQUOR_QUALITY_MIN ?? 3);
+      const sortedCandidates = [...updated.candidates].sort(
+        (a, b) => Number(b.score.quality ?? -Infinity) - Number(a.score.quality ?? -Infinity)
+      );
+      const bestCandidate = sortedCandidates[0];
+      const bestQuality = Number(bestCandidate?.score.quality ?? -Infinity);
+      const slopPhrase = bestCandidate
+        ? AI_SLOP_PHRASES.find((phrase) => bestCandidate.text.toLowerCase().includes(phrase)) ?? null
+        : null;
+      if (!bestCandidate || bestQuality < qualityMin || slopPhrase) {
+        await repository.updateDraftMetadata(draft.id, {
+          ...metadata,
+          qualityGate: {
+            bestQuality: Number.isFinite(bestQuality) ? bestQuality : null,
+            bestCandidateId: bestCandidate?.id ?? null,
+            threshold: qualityMin,
+            slopPhrase,
+            rejectedAt: new Date().toISOString(),
+            reason: slopPhrase ? "ai_slop_phrase_detected" : "all_below_quality_floor"
+          }
+        });
+        return reply.code(201).send({
+          draft: (await repository.getDraft(draft.id))?.draft,
+          candidates: updated.candidates,
+          reason: slopPhrase ? "ai_slop_phrase_detected" : "all_below_quality_floor",
+          bestQuality: Number.isFinite(bestQuality) ? bestQuality : null,
+          threshold: qualityMin,
+          slopPhrase
+        });
+      }
+      const selectedText = bestCandidate.text;
       if (selectedText) {
         const mode = metadata.autopost ? "autopost" : isPostingMode(metadata.mode) ? metadata.mode : "prepare_only";
         const approved = await repository.approveDraft({
           draftId: draft.id,
-          editedText: postProcessTweetText(selectedText),
+          editedText: tracePostProcessTweetText("manual-select", selectedText),
           mode,
           replyToUrl: draft.replyToUrl ?? null,
           scheduledFor: (metadata.scheduleStart as string | null | undefined) ?? null
@@ -1220,7 +1311,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     return repository.selectCandidate({
       draftId: id,
       candidateId: input.candidateId,
-      ...(input.editedText ? { editedText: postProcessTweetText(input.editedText) } : {})
+      ...(input.editedText ? { editedText: tracePostProcessTweetText("edit-draft", input.editedText) } : {})
     });
   });
 
@@ -1238,7 +1329,7 @@ export function buildApp(options: BuildAppOptions = {}) {
 
     const result = await repository.approveDraft({
       draftId: id,
-      editedText: postProcessTweetText(input.editedText),
+      editedText: tracePostProcessTweetText("update-draft", input.editedText),
       ...(input.mode ? { mode: input.mode } : {}),
       scheduledFor: input.scheduledFor ?? null,
       replyToUrl: existing.draft.replyToUrl ?? null
@@ -1397,6 +1488,30 @@ export function buildApp(options: BuildAppOptions = {}) {
     return { job: await repository.deleteJob(id) };
   });
 
+  app.patch("/jobs/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = (request.body ?? {}) as { scheduledFor?: string | null };
+    const repository = await repositoryPromise;
+    const job = await repository.getJob(id);
+    if (!job) {
+      return reply.code(404).send({ error: "Job not found" });
+    }
+    if (job.status !== "approved" && job.status !== "queued") {
+      return reply.code(409).send({ error: `Cannot reschedule a job in status: ${job.status}` });
+    }
+    if (body.scheduledFor === undefined) {
+      return reply.code(400).send({ error: "scheduledFor is required" });
+    }
+    const scheduledFor = body.scheduledFor === null ? null : body.scheduledFor;
+    if (scheduledFor !== null && Number.isNaN(Date.parse(scheduledFor))) {
+      return reply.code(400).send({ error: "scheduledFor must be a valid ISO timestamp" });
+    }
+    const updated = scheduledFor === null
+      ? await repository.updateJobStatus(id, job.status)
+      : await repository.assignJobSchedule(id, scheduledFor);
+    return { job: updated };
+  });
+
   app.post("/jobs/:id/prepare", async (request, reply) => {
     const { id } = request.params as { id: string };
     const repository = await repositoryPromise;
@@ -1409,7 +1524,7 @@ export function buildApp(options: BuildAppOptions = {}) {
 
     const account = await repository.getAccount(job.accountId);
     const draftWithCandidates = await repository.getDraft(job.draftId);
-    const preparedText = draftWithCandidates?.draft.editedText ? postProcessTweetText(draftWithCandidates.draft.editedText) : null;
+    const preparedText = draftWithCandidates?.draft.editedText ? tracePostProcessTweetText("prepare-job", draftWithCandidates.draft.editedText) : null;
     if (!account || !preparedText) {
       return reply.code(409).send({ error: "Job is missing account or approved text" });
     }

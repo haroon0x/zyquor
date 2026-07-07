@@ -845,7 +845,8 @@ describe("api workflow", () => {
     const approved = await repository.approveDraft({
       draftId: draft.draft.id,
       editedText: "History ttl text",
-      mode: "autopost"
+      mode: "autopost",
+      scheduledFor: new Date(nowMs).toISOString()
     });
 
     expect((await app.inject({ method: "POST", url: `/jobs/${approved.job.id}/post` })).statusCode).toBe(200);

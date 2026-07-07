@@ -350,7 +350,7 @@ describe("automatic ingest", () => {
 
     expect(result.processed).toBe(1);
     expect(result.results).toMatchObject([{ url: "https://example.com/good-generated" }]);
-    expect(result.errors[0]?.error).toContain("post_text_too_long_after_quality_repair");
+    expect(result.errors[0]?.error).toContain("Post text exceeds 280 characters");
     await expect(repository.getSourcePacketByUrl("https://example.com/already-posted", "account_personal")).resolves.toBeNull();
     await expect(repository.getSourcePacketByUrl("https://example.com/bad-generated", "account_personal")).resolves.toBeNull();
   });

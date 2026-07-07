@@ -7,6 +7,7 @@ import {
   isCleanTweetText,
   postProcessTweetText,
   resolveGenerationProviderConfig,
+  scoreTweetQuality,
   buildSourceTweetInput,
   renderSourceContext,
   type FetchLike
@@ -48,8 +49,8 @@ describe("ollama generation", () => {
     expect(String(body.system)).toContain("Forbidden characters: — and –");
     expect(String(body.system)).toContain("not affiliated");
     expect(candidates).toEqual([
-      { text: "First local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 1 } },
-      { text: "Second local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 2 } }
+      { text: "First local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 1, quality: 0 } },
+      { text: "Second local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 2, quality: 0 } }
     ]);
   });
 
@@ -79,11 +80,11 @@ describe("ollama generation", () => {
     expect(candidates).toEqual([
       {
         text: "Keep the automation path auditable before it touches a public account.",
-        score: { provider: "ollama", model: "qwen2.5:0.5b", rank: 1 }
+        score: { provider: "ollama", model: "qwen2.5:0.5b", rank: 1, quality: 1 }
       },
       {
         text: "Local-first tools should make every browser action inspectable.",
-        score: { provider: "ollama", model: "qwen2.5:0.5b", rank: 2 }
+        score: { provider: "ollama", model: "qwen2.5:0.5b", rank: 2, quality: 1 }
       }
     ]);
   });
@@ -98,7 +99,7 @@ describe("openrouter generation", () => {
         return jsonResponse({
           data: [
             {
-              id: "minimax/minimax-m2.5:free",
+              id: "moonshotai/kimi-k2.6:free",
               pricing: { prompt: "0", completion: "0", request: "0" }
             }
           ]
@@ -118,7 +119,7 @@ describe("openrouter generation", () => {
     };
     const provider = createOpenRouterGenerationProvider({
       apiKey: "test-key",
-      model: "minimax/minimax-m2.5:free",
+      model: "moonshotai/kimi-k2.6:free",
       fetch: fetchImpl
     });
 
@@ -129,10 +130,10 @@ describe("openrouter generation", () => {
     expect(calls[0]?.url).toBe("https://openrouter.ai/api/v1/models");
     expect(calls[1]?.url).toBe("https://openrouter.ai/api/v1/chat/completions");
     expect(headers.authorization).toBe("Bearer test-key");
-    expect(body).toMatchObject({ model: "minimax/minimax-m2.5:free", response_format: { type: "json_object" } });
+    expect(body).toMatchObject({ model: "moonshotai/kimi-k2.6:free", response_format: { type: "json_object" } });
     expect(candidates).toEqual([
-      { text: "A clean OpenRouter draft.", score: { provider: "openrouter", model: "minimax/minimax-m2.5:free", rank: 1 } },
-      { text: "Another clean OpenRouter draft.", score: { provider: "openrouter", model: "minimax/minimax-m2.5:free", rank: 2 } }
+      { text: "Another clean OpenRouter draft.", score: { provider: "openrouter", model: "moonshotai/kimi-k2.6:free", rank: 1, quality: 0 } },
+      { text: "A clean OpenRouter draft.", score: { provider: "openrouter", model: "moonshotai/kimi-k2.6:free", rank: 2, quality: -1 } }
     ]);
   });
 
@@ -144,7 +145,7 @@ describe("openrouter generation", () => {
         return jsonResponse({
           data: [
             {
-              id: "minimax/minimax-m2.5:free",
+              id: "moonshotai/kimi-k2.6:free",
               pricing: { prompt: "0", completion: "0", request: "0" }
             }
           ]
@@ -174,7 +175,7 @@ describe("openrouter generation", () => {
     };
     const provider = createOpenRouterGenerationProvider({
       apiKey: "test-key",
-      model: "minimax/minimax-m2.5:free",
+      model: "moonshotai/kimi-k2.6:free",
       fetch: fetchImpl
     });
 
@@ -192,11 +193,11 @@ describe("openrouter generation", () => {
     expect(candidates).toEqual([
       {
         text: "Keep Zyquor ingest drafts human-reviewed before anything reaches X.",
-        score: { provider: "openrouter", model: "minimax/minimax-m2.5:free", rank: 1 }
+        score: { provider: "openrouter", model: "moonshotai/kimi-k2.6:free", rank: 1, quality: 1 }
       },
       {
         text: "Make local posting automation auditable enough that every account action has a trail.",
-        score: { provider: "openrouter", model: "minimax/minimax-m2.5:free", rank: 2 }
+        score: { provider: "openrouter", model: "moonshotai/kimi-k2.6:free", rank: 2, quality: 1 }
       }
     ]);
   });
@@ -208,7 +209,7 @@ describe("openrouter generation", () => {
       return jsonResponse({
         data: [
           {
-            id: "minimax/minimax-m2.5:free",
+            id: "moonshotai/kimi-k2.6:free",
             pricing: { prompt: "0.000001", completion: "0", request: "0" }
           }
         ]
@@ -216,12 +217,12 @@ describe("openrouter generation", () => {
     };
     const provider = createOpenRouterGenerationProvider({
       apiKey: "test-key",
-      model: "minimax/minimax-m2.5:free",
+      model: "moonshotai/kimi-k2.6:free",
       fetch: fetchImpl
     });
 
     await expect(provider.generateDraftCandidates({ idea: "Make it safe.", count: 1 })).rejects.toThrow(
-      "OpenRouter model is not confirmed free: minimax/minimax-m2.5:free"
+      "OpenRouter model is not confirmed free: moonshotai/kimi-k2.6:free"
     );
     expect(calls.map((call) => call.url)).toEqual(["https://openrouter.ai/api/v1/models"]);
   });
@@ -266,7 +267,7 @@ describe("gemini generation", () => {
       }
     });
     expect(candidates).toEqual([
-      { text: "A clean Gemini draft.", score: { provider: "gemini", model: "gemini-2.0-flash", rank: 1 } }
+      { text: "A clean Gemini draft.", score: { provider: "gemini", model: "gemini-2.0-flash", rank: 1, quality: 0 } }
     ]);
   });
 });
@@ -277,6 +278,22 @@ describe("tweet quality harness", () => {
     expect(isCleanTweetText("Noctua released CAD models for its fans,")).toBe(false);
     expect(isCleanTweetText("This release is a game changer for developers.")).toBe(false);
     expect(isCleanTweetText("Noctua released official fan CAD models so builders can verify fit before buying.")).toBe(true);
+  });
+
+  it("rejects AI-slop formula patterns", () => {
+    expect(isCleanTweetText("Hot take: serverless is overrated for steady workloads.")).toBe(false);
+    expect(isCleanTweetText("Unpopular opinion that most startups ship too slowly.")).toBe(false);
+    expect(isCleanTweetText("Most AI startups will fail this year. Let that sink in.")).toBe(false);
+    expect(isCleanTweetText("It's not the model, it's the data pipeline that decides quality.")).toBe(false);
+    expect(isCleanTweetText("Nobody talks about how expensive vector databases get at scale.")).toBe(false);
+    expect(isCleanTweetText("OpenAI just shipped a 10M token context window. Wild.")).toBe(false);
+    expect(isCleanTweetText("Serverless billing punishes steady workloads: you pay for elasticity you never use.")).toBe(true);
+  });
+
+  it("scores specific candidates above vague ones", () => {
+    const specific = "SQLite handles about 35% of production write loads fine if you batch transactions over 60 rows.";
+    const vague = "Interesting how databases keep evolving!";
+    expect(scoreTweetQuality(specific)).toBeGreaterThan(scoreTweetQuality(vague));
   });
 
   it("post-processes em dashes and drops duplicate candidates", async () => {
@@ -302,11 +319,11 @@ describe("tweet quality harness", () => {
     await expect(provider.generateDraftCandidates({ idea: "AI infra bottleneck", count: 3 })).resolves.toEqual([
       {
         text: "AI infra, not model demos, is where the bottleneck moved.",
-        score: { provider: "ollama", model: "llama3.1", rank: 1 }
+        score: { provider: "ollama", model: "llama3.1", rank: 1, quality: 1 }
       },
       {
         text: "Compute supply now decides which AI products can scale.",
-        score: { provider: "ollama", model: "llama3.1", rank: 2 }
+        score: { provider: "ollama", model: "llama3.1", rank: 2, quality: 0 }
       }
     ]);
   });
@@ -372,7 +389,7 @@ describe("generation config", () => {
       })
     ).toMatchObject({
       provider: "openrouter",
-      model: "nvidia/nemotron-3-super-120b-a12b:free",
+      model: "openrouter/owl-alpha",
       configured: true
     });
 
@@ -380,11 +397,11 @@ describe("generation config", () => {
       resolveGenerationProviderConfig({
         ZYQUOR_LLM_PROVIDER: "openrouter",
         ZYQUOR_OPENROUTER_API_KEY: "test-key",
-        ZYQUOR_OPENROUTER_MODEL: "minimax/minimax-m2.5:free"
+        ZYQUOR_OPENROUTER_MODEL: "moonshotai/kimi-k2.6:free"
       })
     ).toMatchObject({
       provider: "openrouter",
-      model: "minimax/minimax-m2.5:free",
+      model: "moonshotai/kimi-k2.6:free",
       configured: true
     });
 
@@ -392,11 +409,11 @@ describe("generation config", () => {
       resolveGenerationProviderConfig({
         ZYQUOR_LLM_PROVIDER: "openrouter",
         ZYQUOR_OPENROUTER_API_KEY: "test-key",
-        ZYQUOR_OPENROUTER_MODEL: "tencent/hy3-preview:free"
+        ZYQUOR_OPENROUTER_MODEL: "z-ai/glm-4.5-air:free"
       })
     ).toMatchObject({
       provider: "openrouter",
-      model: "tencent/hy3-preview:free",
+      model: "z-ai/glm-4.5-air:free",
       configured: true
     });
 
@@ -404,18 +421,18 @@ describe("generation config", () => {
       resolveGenerationProviderConfig({
         ZYQUOR_LLM_PROVIDER: "openrouter",
         ZYQUOR_OPENROUTER_API_KEY: "test-key",
-        ZYQUOR_OPENROUTER_MODEL: "inclusionai/ling-2.6-1t:free"
+        ZYQUOR_OPENROUTER_MODEL: "qwen/qwen3-next-80b-a3b-instruct:free"
       })
     ).toMatchObject({
       provider: "openrouter",
-      model: "inclusionai/ling-2.6-1t:free",
+      model: "qwen/qwen3-next-80b-a3b-instruct:free",
       configured: true
     });
   });
 
   it("exposes provider-specific model dropdown options", () => {
-    expect(GENERATION_MODEL_OPTIONS.openrouter).toContain("minimax/minimax-m2.5:free");
-    expect(GENERATION_MODEL_OPTIONS.openrouter).toContain("inclusionai/ling-2.6-1t:free");
+    expect(GENERATION_MODEL_OPTIONS.openrouter).toContain("moonshotai/kimi-k2.6:free");
+    expect(GENERATION_MODEL_OPTIONS.openrouter).toContain("openrouter/owl-alpha");
     expect(GENERATION_MODEL_OPTIONS.gemini).toContain("gemini-2.0-flash");
     expect(GENERATION_MODEL_OPTIONS.ollama).toContain("llama3.1");
   });

@@ -367,7 +367,7 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
             repository: options.repository,
             options: {
               autoApprove: true,
-              count: 1,
+              count: 3,
               ...(item.imageUrl ? { mediaUrls: [item.imageUrl] } : {}),
               mode: "autopost"
             }

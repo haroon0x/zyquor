@@ -15,6 +15,7 @@ const browserTypingDelayMs = process.env.ZYQUOR_BROWSER_TYPING_DELAY_MS
   ? Number(process.env.ZYQUOR_BROWSER_TYPING_DELAY_MS)
   : undefined;
 const closeAfterPrepare = process.env.ZYQUOR_BROWSER_CLOSE_AFTER_PREPARE !== "0";
+const closeAfterPost = process.env.ZYQUOR_BROWSER_CLOSE_AFTER_POST !== "0";
 const app = buildApp({
   enableBrowserPrepare,
   enableBrowserPost,
@@ -22,7 +23,8 @@ const app = buildApp({
   ...(browserTypingDelayMs ? { browserTypingDelayMs } : {}),
   ...(browserChannel ? { browserChannel: browserChannel === "chromium" ? null : browserChannel } : {}),
   ...(browserCdpUrl ? { browserCdpUrl } : {}),
-  closeAfterPrepare
+  closeAfterPrepare,
+  closeAfterPost
 });
 
 try {

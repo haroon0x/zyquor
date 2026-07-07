@@ -182,8 +182,8 @@ describe("worker job processing", () => {
         if (url.endsWith("/jobs")) {
           return Response.json({
             jobs: [
-              { ...baseJob, id: "job_auto", mode: "autopost" },
-              { ...baseJob, id: "job_auto", mode: "autopost" }
+              { ...baseJob, id: "job_auto", mode: "autopost", scheduledFor: "2026-04-25T11:00:00.000Z" },
+              { ...baseJob, id: "job_auto", mode: "autopost", scheduledFor: "2026-04-25T11:00:00.000Z" }
             ]
           });
         }
@@ -207,6 +207,63 @@ describe("worker job processing", () => {
     expect(first.approvedProcessed).toBe(1);
     expect(second.approvedProcessed).toBe(0);
     expect(calls.filter((call) => call === "POST http://api.test/jobs/job_auto/post")).toHaveLength(1);
+  });
+
+  it("back-fills a random 30-90 min scheduledFor on legacy autopost jobs with no schedule", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
+    const calls: string[] = [];
+    const patchBodies: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (init?.body) patchBodies.push(JSON.parse(init.body as string));
+        if (url.endsWith("/drafts/pending")) {
+          return Response.json({ drafts: [] });
+        }
+        if (url.endsWith("/jobs/recover-stale")) {
+          return Response.json({ recoveredCount: 0, recovered: [] });
+        }
+        if (url.endsWith("/ingest-run/async")) {
+          return Response.json({ accepted: false, ingestRun: { processed: 0, running: true } }, { status: 202 });
+        }
+        if (url.endsWith("/health")) {
+          return Response.json({ ok: true });
+        }
+        if (url.endsWith("/jobs") && init?.method !== "PATCH") {
+          return Response.json({
+            jobs: [{ ...baseJob, id: "job_legacy", mode: "autopost" }]
+          });
+        }
+        if (url.endsWith("/accounts")) {
+          return Response.json({ accounts: [baseAccount] });
+        }
+        if (url.includes("/browser/x-session")) {
+          return Response.json({ loggedIn: true });
+        }
+        return Response.json({ ok: true });
+      })
+    );
+    const state = createWorkerState();
+    const options = { apiUrl: "http://api.test", pollMs: 1000, ingestIntervalMs: 60_000 };
+
+    const result = await runWorkerCycle(options, state);
+
+    expect(result.approvedProcessed).toBe(0);
+    const patchCalls = calls.filter((call) => call === "PATCH http://api.test/jobs/job_legacy");
+    expect(patchCalls).toHaveLength(1);
+    const body = patchBodies.find((raw) => {
+      const obj = raw as { scheduledFor?: unknown };
+      return typeof obj?.scheduledFor === "string";
+    }) as { scheduledFor: string } | undefined;
+    expect(body).toBeDefined();
+    expect(body!.scheduledFor).toBeTruthy();
+    const scheduledMs = Date.parse(body!.scheduledFor);
+    const nowMs = Date.parse("2026-04-25T12:00:00.000Z");
+    const gapMinutes = (scheduledMs - nowMs) / 60_000;
+    expect(gapMinutes).toBeGreaterThanOrEqual(30);
+    expect(gapMinutes).toBeLessThanOrEqual(90 * 1.2);
   });
 
   it("recovers stale jobs before processing approved jobs in a worker cycle", async () => {
@@ -301,7 +358,7 @@ describe("worker job processing", () => {
         }
         if (url.endsWith("/jobs")) {
           return Response.json({
-            jobs: [{ ...baseJob, id: "job_capped", mode: "autopost" }]
+            jobs: [{ ...baseJob, id: "job_capped", mode: "autopost", scheduledFor: "2026-04-25T11:00:00.000Z" }]
           });
         }
         if (url.endsWith("/accounts")) {
@@ -341,8 +398,8 @@ describe("worker job processing", () => {
         if (url.endsWith("/jobs")) {
           return Response.json({
             jobs: [
-              { ...baseJob, id: "job_busy", mode: "autopost" },
-              { ...baseJob, id: "job_later", mode: "autopost" }
+              { ...baseJob, id: "job_busy", mode: "autopost", scheduledFor: "2026-04-25T11:00:00.000Z" },
+              { ...baseJob, id: "job_later", mode: "autopost", scheduledFor: "2026-04-25T11:00:00.000Z" }
             ]
           });
         }

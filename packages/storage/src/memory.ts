@@ -9,7 +9,7 @@ import type {
   StyleProfile,
   IngestConfig
 } from "@zyquor/core";
-import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob } from "@zyquor/core";
+import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor } from "@zyquor/core";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ZyquorRepository, RepositorySnapshot, ContentFingerprint } from "./types.js";
@@ -378,6 +378,14 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       return { draft: updatedDraft, candidates: candidatesForDraft(draftId) };
     },
 
+    async updateDraftMetadata(draftId, metadata) {
+      const draft = requireDraft(draftId);
+      const updated: Draft = { ...draft, metadata, updatedAt: now() };
+      drafts.set(draftId, updated);
+      persist();
+      return updated;
+    },
+
     async selectCandidate(input) {
       const draft = requireDraft(input.draftId);
       if (!canTransitionDraft(draft.status, "selected") && draft.status !== "selected") {
@@ -434,13 +442,42 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       drafts.set(updatedDraft.id, updatedDraft);
 
       const jobMode = input.mode ?? (input.scheduledFor ? "scheduled" : "prepare_only");
+      let scheduledFor: string | null = input.scheduledFor ?? null;
+      if (!scheduledFor && jobMode === "autopost") {
+        const accountJobs = [...jobs.values()]
+          .filter((j) => j.accountId === draft.accountId && j.mode === "autopost")
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        const lastAutopost = accountJobs[0];
+        const lastScheduledFor = lastAutopost?.scheduledFor ?? null;
+        const recentGapMs: number[] = [];
+        for (let i = 0; i < accountJobs.length - 1; i += 1) {
+          const curr = accountJobs[i];
+          const next = accountJobs[i + 1];
+          if (!curr || !next) continue;
+          const currMs = Date.parse(curr.scheduledFor ?? curr.createdAt);
+          const nextMs = Date.parse(next.scheduledFor ?? next.createdAt);
+          if (Number.isFinite(currMs) && Number.isFinite(nextMs)) {
+            recentGapMs.push(Math.abs(currMs - nextMs));
+          }
+        }
+        const gapMinMinutes = Number(process.env.ZYQUOR_POST_GAP_MIN_MINUTES ?? 30);
+        const gapMaxMinutes = Number(process.env.ZYQUOR_POST_GAP_MAX_MINUTES ?? 90);
+        const next = nextAutopostScheduledFor({
+          lastScheduledFor,
+          timestamp,
+          gapMinMinutes,
+          gapMaxMinutes,
+          recentGapMs
+        });
+        scheduledFor = next.scheduledFor;
+      }
       const job: PostJob = {
         id: id("job"),
         accountId: draft.accountId,
         draftId: draft.id,
         status: "approved",
         mode: jobMode,
-        scheduledFor: input.scheduledFor ?? null,
+        scheduledFor,
         approvedAt: timestamp,
         createdAt: timestamp,
         updatedAt: timestamp
@@ -491,6 +528,14 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       }
 
       const updatedJob = { ...job, status, updatedAt: now() };
+      jobs.set(id, updatedJob);
+      persist();
+      return updatedJob;
+    },
+
+    async assignJobSchedule(id, scheduledFor) {
+      const job = requireJob(id);
+      const updatedJob = { ...job, scheduledFor, updatedAt: now() };
       jobs.set(id, updatedJob);
       persist();
       return updatedJob;

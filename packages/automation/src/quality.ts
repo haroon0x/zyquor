@@ -1,5 +1,5 @@
 import type { PostHistory, SourcePacket } from "@zyquor/core";
-import { X_FREE_POST_CHARACTER_LIMIT } from "@zyquor/core";
+import { AI_SLOP_PHRASES, X_FREE_POST_CHARACTER_LIMIT } from "@zyquor/core";
 import { postProcessTweetText } from "@zyquor/generation";
 
 export interface PostQualityInput {
@@ -91,6 +91,14 @@ export function validateSourcePostQuality(input: PostQualityInput): PostQualityR
     reasons.push("risky_unsupported_absolute_claim");
   }
   if (hasBrokenQuoteTimeline(text)) reasons.push("broken_quote_timeline_format");
+
+  const lowerText = text.toLowerCase();
+  for (const phrase of AI_SLOP_PHRASES) {
+    if (lowerText.includes(phrase)) {
+      reasons.push(`ai_slop_phrase:${phrase}`);
+      break;
+    }
+  }
 
   return {
     ok: reasons.length === 0,

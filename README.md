@@ -107,11 +107,8 @@ cp .env.example .env
 # edit .env:
 # ZYQUOR_LLM_PROVIDER=openrouter
 # ZYQUOR_OPENROUTER_API_KEY=...
-# Allowed free OpenRouter models:
-# nvidia/nemotron-3-super-120b-a12b:free
-# minimax/minimax-m2.5:free
-# tencent/hy3-preview:free
-# ZYQUOR_OPENROUTER_MODEL=nvidia/nemotron-3-super-120b-a12b:free
+# Full free-model allowlist is in OPENROUTER_MODELS in packages/generation/src/index.ts.
+# Default: openrouter/owl-alpha
 pnpm dev:api
 ```
 

@@ -1,6 +1,111 @@
-import { mkdirSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { chromium, type BrowserContext, type Locator, type Page } from "playwright";
+
+const isWsl = existsSync("/proc/sys/fs/binfmt_misc/WSLInterop") || Boolean(process.env.WSL_DISTRO_NAME);
+
+let activeCdpPid: number | null = null;
+
+export async function ensureBrowserCdp(cdpUrl: string, profileDir: string): Promise<boolean> {
+  const browser = await chromium.connectOverCDP(cdpUrl).catch(() => null);
+  if (browser) {
+    return true;
+  }
+
+  const port = process.env.ZYQUOR_BROWSER_CDP_PORT ?? new URL(cdpUrl).port;
+  const workspaceRoot = process.env.ZYQUOR_WORKSPACE_ROOT ?? resolve(process.cwd(), "../..");
+
+  if (isWsl) {
+    const profileName = profileDir.split(/[\\/]/).filter(Boolean).pop() ?? profileDir;
+    const windowsUserDir = `C:\\Users\\asus\\zyquor-profiles\\${profileName}`;
+    const wslUserDir = `/mnt/c/Users/asus/zyquor-profiles/${profileName}`;
+    mkdirSync(wslUserDir, { recursive: true });
+
+    const psScript = [
+      '$chrome = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"',
+      "$chromeArgs = @(",
+      `  '--user-data-dir=${windowsUserDir}',`,
+      "  '--profile-directory=Default',",
+      `  '--remote-debugging-port=${port}',`,
+      "  '--remote-debugging-address=0.0.0.0',",
+      "  '--no-first-run',",
+      "  '--no-default-browser-check',",
+      "  '--disable-blink-features=AutomationControlled',",
+      "  '--no-sandbox',",
+      "  '--disable-dev-shm-usage',",
+      "  'https://x.com/home'",
+      ")",
+      "Start-Process -FilePath $chrome -ArgumentList $chromeArgs"
+    ].join("\n");
+
+    const psPath = "/tmp/launch-chrome-cdp.ps1";
+    writeFileSync(psPath, psScript);
+
+    const child = spawn("powershell.exe", ["-ExecutionPolicy", "Bypass", "-File", psPath.replace("/mnt/c/", "C:\\").replace(/\//g, "\\")], {
+      detached: true,
+      stdio: "ignore"
+    });
+    child.on("error", () => undefined);
+    child.unref();
+    activeCdpPid = child.pid ?? null;
+  } else {
+    const chromeBin = process.env.CHROME_BIN ?? "google-chrome-stable";
+    const chromeConfigDir = resolve(process.env.ZYQUOR_CHROME_CONFIG_DIR ?? "profiles/chrome-config");
+    mkdirSync(chromeConfigDir, { recursive: true });
+    const child = spawn(chromeBin, [
+      `--user-data-dir=${resolve(profileDir)}`,
+      "--profile-directory=Default",
+      `--remote-debugging-port=${port}`,
+      "--remote-debugging-address=127.0.0.1",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-blink-features=AutomationControlled",
+      "--no-sandbox",
+      "--disable-crash-reporter",
+      "--disable-dev-shm-usage",
+      "--ozone-platform=x11",
+      "https://x.com/home"
+    ], {
+      detached: true,
+      env: { ...process.env, XDG_CONFIG_HOME: chromeConfigDir },
+      stdio: "ignore"
+    });
+    child.on("error", () => undefined);
+    child.unref();
+    activeCdpPid = child.pid ?? null;
+  }
+
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    await new Promise((r) => setTimeout(r, 1_000));
+    const connected = await chromium.connectOverCDP(cdpUrl).catch(() => null);
+    if (connected) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export async function closeBrowserCdp(cdpUrl: string): Promise<void> {
+  try {
+    const browser = await chromium.connectOverCDP(cdpUrl).catch(() => null);
+    if (browser) {
+      await browser.close().catch(() => undefined);
+    }
+  } catch {
+    /* ignore */
+  }
+
+  if (activeCdpPid) {
+    try {
+      process.kill(activeCdpPid, "SIGTERM");
+    } catch {
+      /* already gone */
+    }
+    activeCdpPid = null;
+  }
+}
 
 export interface PreparePostInput {
   profileDir: string;
@@ -132,10 +237,9 @@ async function pageForSessionCheck(context: BrowserContext, input: CheckXLoginIn
   await closeDuplicateXPages(context);
   const xPage = existingXPage(context);
   if (xPage) return xPage;
-  if (input.cdpUrl) {
-    throw new Error("No existing X tab is open in Chrome CDP. Open one X tab and retry.");
-  }
-  return context.pages()[0] ?? (await context.newPage());
+  const page = context.pages()[0] ?? (await context.newPage());
+  await page.goto(input.xHomeUrl ?? "https://x.com/home", { waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => undefined);
+  return page;
 }
 
 async function pageForPost(context: BrowserContext, input: PreparePostInput) {
@@ -257,13 +361,24 @@ async function resolvePostedPermalink(page: Page) {
 }
 
 async function openPersistentContext(input: {
+  autoLaunchCdp?: boolean;
   browserChannel?: string | null;
   cdpUrl?: string;
   headless?: boolean;
   profileDir: string;
 }) {
-  const browser = input.cdpUrl ? await chromium.connectOverCDP(input.cdpUrl).catch(() => null) : null;
-  if (input.cdpUrl && !browser) {
+  let browser = input.cdpUrl ? await chromium.connectOverCDP(input.cdpUrl).catch(() => null) : null;
+  if (input.cdpUrl && !browser && input.autoLaunchCdp !== false) {
+    const autoLaunched = await ensureBrowserCdp(input.cdpUrl, input.profileDir);
+    if (autoLaunched) {
+      browser = await chromium.connectOverCDP(input.cdpUrl).catch(() => null);
+    }
+    if (!browser) {
+      throw new Error(
+        `Chrome CDP is unavailable at ${input.cdpUrl}. Launch failed or CDP did not become available within 30 seconds.`
+      );
+    }
+  } else if (input.cdpUrl && !browser) {
     throw new Error(
       `Chrome CDP is unavailable at ${input.cdpUrl}. Start ./zyquor or pnpm profile:x:cdp and keep that Chrome window open. Refusing to launch a fallback browser against the persistent X profile.`
     );
@@ -289,14 +404,13 @@ async function openPersistentContext(input: {
 }
 
 export async function checkXLogin(input: CheckXLoginInput): Promise<CheckXLoginResult> {
-  const { context, ownsContext } = await openPersistentContext(input);
+  const { context, ownsContext } = await openPersistentContext({
+    ...input,
+    autoLaunchCdp: false
+  });
 
   try {
     const page = await pageForSessionCheck(context, input);
-    if (!isXPage(page)) {
-      await page.goto(input.xHomeUrl ?? "https://x.com/home", { waitUntil: "domcontentloaded", timeout: 15_000 });
-    }
-    await page.waitForTimeout(2_500);
     await assertNotLoginPage(page);
     const result = { loggedIn: true, url: page.url() };
     if (ownsContext) {
@@ -330,7 +444,10 @@ export async function preparePost(input: PreparePostInput): Promise<PreparePostR
   const screenshotPath = join(artifactsDir, `prepare-${artifactId}.png`);
   const tracePath = join(artifactsDir, `prepare-${artifactId}.zip`);
 
-  const { context, ownsContext } = await openPersistentContext(input);
+  const { context, ownsContext } = await openPersistentContext({
+    ...input,
+    autoLaunchCdp: true
+  });
 
   try {
     context.setDefaultTimeout(30_000);

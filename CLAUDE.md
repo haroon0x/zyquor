@@ -140,12 +140,34 @@ Removed from UI: noisy account/profile/daily-limit editing. Account config remai
 ```
 
 - Chrome CDP: `http://127.0.0.1:9222`, profile `profiles/personal-main`
-- API: `http://127.0.0.1:3001`
+- API: `http://127.0.0.1:3000` (falls back to 3001 if 3000 is busy)
 - Web: `http://127.0.0.1:5173/`
 - Worker polls due jobs every 5s
 
-Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=1`, `ZYQUOR_ENABLE_BROWSER_POST=1`, `ZYQUOR_LLM_PROVIDER=gemini|ollama|mock`.
+Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (disabled by default for safety), `ZYQUOR_LLM_PROVIDER=openrouter|gemini|ollama|auto|mock`.
 Source smoke: `pnpm smoke:adapters`. Product Hunt is optional without `ZYQUOR_PRODUCTHUNT_API_TOKEN`.
+
+### pnpm Setup
+Do not use the Hermes-installed pnpm. Install globally via npm:
+```bash
+npm install -g pnpm
+ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
+```
+
+### Generation Provider Resolution
+- Provider is resolved in order: saved `data/generation.json` > `.env` > `process.env`.
+- Setting `ZYQUOR_LLM_PROVIDER=openrouter` without `ZYQUOR_OPENROUTER_API_KEY` crashes the API. Use `auto` if the key is not yet available — it falls back through available providers.
+- Shell env vars take precedence over `.env`; the dotenv loader skips already-set vars.
+- Preferred provider is OpenRouter. Default model is `openrouter/owl-alpha`. The full free-model allowlist lives in `OPENROUTER_MODELS` in `packages/generation/src/index.ts`. Setting a model not in the list silently coerces to the default.
+
+### Browser Automation Caveats
+- Playwright bundled Chromium (`playwright install chromium`) fails on Ubuntu 26.04+ — it's unsupported on newer distros.
+- On such systems, install system Chrome and set `ZYQUOR_BROWSER_CHANNEL=chrome`:
+  ```bash
+  wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+  sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list'
+  sudo apt update && sudo apt install google-chrome-stable
+  ```
 
 ## Latest Work (2026-05-08)
 

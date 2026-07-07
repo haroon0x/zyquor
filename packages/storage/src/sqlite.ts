@@ -8,7 +8,7 @@ import type {
   SourcePacket,
   StyleProfile
 } from "@zyquor/core";
-import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob } from "@zyquor/core";
+import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor } from "@zyquor/core";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ZyquorRepository } from "./types.js";
@@ -659,6 +659,16 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
       });
     },
 
+    async updateDraftMetadata(draftId, metadata) {
+      const timestamp = now();
+      db.prepare("UPDATE drafts SET metadata_json = ?, updated_at = ? WHERE id = ?").run(
+        JSON.stringify(metadata),
+        timestamp,
+        draftId
+      );
+      return requireDraft(draftId);
+    },
+
     async selectCandidate(input) {
       return runTransaction(db, () => {
         const draft = requireDraft(input.draftId);
@@ -719,13 +729,46 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
         );
 
         const jobMode = input.mode ?? (input.scheduledFor ? "scheduled" : "prepare_only");
+        let scheduledFor: string | null = input.scheduledFor ?? null;
+        if (!scheduledFor && jobMode === "autopost") {
+          const lastAutopost = row(
+            db.prepare("SELECT scheduled_for FROM post_jobs WHERE account_id = ? AND mode = 'autopost' ORDER BY created_at DESC LIMIT 1").get(draft.accountId)
+          );
+          const lastScheduledFor = typeof lastAutopost?.scheduled_for === "string" ? lastAutopost.scheduled_for : null;
+          const recentRows = rows(
+            db.prepare(
+              "SELECT scheduled_for, created_at FROM post_jobs WHERE account_id = ? AND mode = 'autopost' ORDER BY created_at DESC LIMIT 5"
+            ).all(draft.accountId)
+          );
+          const recentGapMs: number[] = [];
+          for (let i = 0; i < recentRows.length - 1; i += 1) {
+            const curr = recentRows[i] as { scheduled_for?: string | null; created_at: string } | undefined;
+            const next = recentRows[i + 1] as { scheduled_for?: string | null; created_at: string } | undefined;
+            if (!curr || !next) continue;
+            const currMs = Date.parse(curr.scheduled_for ?? curr.created_at);
+            const nextMs = Date.parse(next.scheduled_for ?? next.created_at);
+            if (Number.isFinite(currMs) && Number.isFinite(nextMs)) {
+              recentGapMs.push(Math.abs(currMs - nextMs));
+            }
+          }
+          const gapMinMinutes = Number(process.env.ZYQUOR_POST_GAP_MIN_MINUTES ?? 30);
+          const gapMaxMinutes = Number(process.env.ZYQUOR_POST_GAP_MAX_MINUTES ?? 90);
+          const next = nextAutopostScheduledFor({
+            lastScheduledFor,
+            timestamp,
+            gapMinMinutes,
+            gapMaxMinutes,
+            recentGapMs
+          });
+          scheduledFor = next.scheduledFor;
+        }
         const job: PostJob = {
           id: id("job"),
           accountId: draft.accountId,
           draftId: draft.id,
           status: "approved",
           mode: jobMode,
-          scheduledFor: input.scheduledFor ?? null,
+          scheduledFor,
           replyToUrl: input.replyToUrl ?? null,
           approvedAt: timestamp,
           createdAt: timestamp,
@@ -788,6 +831,16 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
 
       const timestamp = now();
       db.prepare("UPDATE post_jobs SET status = ?, updated_at = ? WHERE id = ?").run(status, timestamp, jobId);
+      return requireJob(jobId);
+    },
+
+    async assignJobSchedule(jobId, scheduledFor) {
+      const timestamp = now();
+      db.prepare("UPDATE post_jobs SET scheduled_for = ?, updated_at = ? WHERE id = ?").run(
+        scheduledFor,
+        timestamp,
+        jobId
+      );
       return requireJob(jobId);
     },
 

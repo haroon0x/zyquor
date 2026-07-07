@@ -1,4 +1,4 @@
-import { loadDotEnv, POST_JOB_STATUSES, type Account, type PostJob, type Draft, type SourcePacket } from "@zyquor/core";
+import { loadDotEnv, nextAutopostScheduledFor, POST_JOB_STATUSES, type Account, type PostJob, type Draft, type SourcePacket } from "@zyquor/core";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -274,32 +274,55 @@ export async function processApprovedJobs(
     if (action === "post" && state?.blockedAutopostJobIds.has(job.id)) {
       continue;
     }
-    if (action === "post") {
-      let loggedIn = loginByAccount.get(job.accountId);
-      if (loggedIn === undefined) {
-        const session = await api<{ loggedIn: boolean }>(
-          options.apiUrl,
-          `/browser/x-session?accountId=${encodeURIComponent(job.accountId)}`
-        ).catch((error) => {
-          console.error(`X login check failed for ${job.accountId}:`, error instanceof Error ? error.message : error);
-          return { loggedIn: false };
-        });
-        loggedIn = session.loggedIn;
-        loginByAccount.set(job.accountId, loggedIn);
+    if (action === "post" && !job.scheduledFor) {
+      // Legacy autopost jobs (created before the spacing helper, or retried
+      // failed posts) may have scheduledFor = null. Back-fill a random 30-90 min
+      // gap and persist it before posting, so we never fire two posts back-to-back.
+      const recentAccountJobs = approvedJobs
+        .filter((other) => other.accountId === job.accountId && other.scheduledFor)
+        .map((other) => Date.parse(other.scheduledFor!))
+        .filter((ms) => Number.isFinite(ms))
+        .sort((a, b) => a - b);
+      const recentGapMs: number[] = [];
+      for (let i = 1; i < recentAccountJobs.length; i += 1) {
+        recentGapMs.push(Math.abs(recentAccountJobs[i]! - recentAccountJobs[i - 1]!));
       }
-      if (!loggedIn) {
-        console.warn(`Skipping autopost job ${job.id}: X is not logged in for ${job.accountId}`);
+      const timestamp = new Date().toISOString();
+      const next = nextAutopostScheduledFor({
+        lastScheduledFor: null,
+        timestamp,
+        gapMinMinutes: Number(process.env.ZYQUOR_POST_GAP_MIN_MINUTES ?? 30),
+        gapMaxMinutes: Number(process.env.ZYQUOR_POST_GAP_MAX_MINUTES ?? 90),
+        recentGapMs,
+        traceId: `backfill-${job.id.slice(0, 8)}`
+      });
+      try {
+        await api(options.apiUrl, `/jobs/${job.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ scheduledFor: next.scheduledFor })
+        });
+        job.scheduledFor = next.scheduledFor;
+        console.log(`Back-filled autopost job ${job.id} with scheduledFor=${next.scheduledFor} (${next.gapMinutes.toFixed(1)} min)`);
+        continue;
+      } catch (error) {
+        console.error(`Failed to back-fill schedule for ${job.id}:`, error instanceof Error ? error.message : error);
         continue;
       }
     }
+    if (action === "post") {
+      // Login is verified during browser post by the API (with auto-launch).
+    }
 
     try {
+      const traceId = `job-${job.id.slice(0, 8)}-${action}`;
+      console.log(`[trace=${traceId}] [worker] firing ${action} account=${job.accountId} mode=${job.mode} scheduledFor=${job.scheduledFor ?? "null"}`);
       await api(options.apiUrl, `/jobs/${job.id}/${action}`, { method: "POST" });
       if (action === "post") {
         state?.autopostJobIds.add(job.id);
         if ("lastPostMs" in (state ?? {})) {
           (state as WorkerState).lastPostMs = Date.now();
         }
+        console.log(`[trace=${traceId}] [worker] post-success account=${job.accountId}`);
       }
       processed += 1;
     } catch (error) {
@@ -307,6 +330,7 @@ export async function processApprovedJobs(
       console.error(`Failed to ${action} job ${job.id}:`, message);
       if (action === "post" && isNonRetryablePostError(message)) {
         state?.blockedAutopostJobIds.add(job.id);
+        console.log(`[trace=job-${job.id.slice(0, 8)}-post] [worker] non-retryable error: ${message}`);
       }
       if (action === "post" && message.includes("Another browser job is already running for this account")) {
         break;
@@ -345,7 +369,7 @@ export async function processNewSourcePackets(options: WorkerOptions) {
         method: "POST",
         body: JSON.stringify({
           autoApprove: true,
-          count: 1,
+          count: 5,
           mode: "autopost"
         })
       });
