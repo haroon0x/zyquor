@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { apiUrl } from "./api-base.js";
 import "./styles.css";
 
 interface Account {
@@ -131,7 +132,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     ...(init?.body ? { "content-type": "application/json" } : {}),
     ...init?.headers
   };
-  const response = await fetch(`/api${path}`, {
+  const response = await fetch(apiUrl(path), {
     ...init,
     headers
   });
