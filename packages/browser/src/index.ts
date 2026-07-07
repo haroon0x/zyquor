@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { chromium, type BrowserContext, type Locator, type Page } from "playwright";
+import { dataPath, profilesPath } from "@zyquor/core";
 
 const isWsl = existsSync("/proc/sys/fs/binfmt_misc/WSLInterop") || Boolean(process.env.WSL_DISTRO_NAME);
 
@@ -14,12 +15,13 @@ export async function ensureBrowserCdp(cdpUrl: string, profileDir: string): Prom
   }
 
   const port = process.env.ZYQUOR_BROWSER_CDP_PORT ?? new URL(cdpUrl).port;
-  const workspaceRoot = process.env.ZYQUOR_WORKSPACE_ROOT ?? resolve(process.cwd(), "../..");
+  const workspaceRoot = process.env.ZYQUOR_DATA_ROOT ?? process.env.ZYQUOR_WORKSPACE_ROOT ?? resolve(process.cwd(), "../..");
 
-  if (isWsl) {
+  if (isWsl && process.env.ZYQUOR_WSL_PROFILE_BASE) {
+    const wslBase = process.env.ZYQUOR_WSL_PROFILE_BASE;
     const profileName = profileDir.split(/[\\/]/).filter(Boolean).pop() ?? profileDir;
-    const windowsUserDir = `C:\\Users\\asus\\zyquor-profiles\\${profileName}`;
-    const wslUserDir = `/mnt/c/Users/asus/zyquor-profiles/${profileName}`;
+    const windowsUserDir = `${wslBase.replace("/mnt/c/", "C:\\").replace(/\//g, "\\")}\\${profileName}`;
+    const wslUserDir = `${wslBase}/${profileName}`;
     mkdirSync(wslUserDir, { recursive: true });
 
     const psScript = [
@@ -51,7 +53,7 @@ export async function ensureBrowserCdp(cdpUrl: string, profileDir: string): Prom
     activeCdpPid = child.pid ?? null;
   } else {
     const chromeBin = process.env.CHROME_BIN ?? "google-chrome-stable";
-    const chromeConfigDir = resolve(process.env.ZYQUOR_CHROME_CONFIG_DIR ?? "profiles/chrome-config");
+    const chromeConfigDir = process.env.ZYQUOR_CHROME_CONFIG_DIR ? resolve(process.env.ZYQUOR_CHROME_CONFIG_DIR) : profilesPath("chrome-config");
     mkdirSync(chromeConfigDir, { recursive: true });
     const child = spawn(chromeBin, [
       `--user-data-dir=${resolve(profileDir)}`,
@@ -384,7 +386,7 @@ async function openPersistentContext(input: {
     );
   }
   const browserChannel = input.browserChannel === "chromium" ? null : input.browserChannel;
-  const chromeConfigDir = resolve(process.env.ZYQUOR_CHROME_CONFIG_DIR ?? "profiles/chrome-config");
+  const chromeConfigDir = process.env.ZYQUOR_CHROME_CONFIG_DIR ? resolve(process.env.ZYQUOR_CHROME_CONFIG_DIR) : profilesPath("chrome-config");
   mkdirSync(chromeConfigDir, { recursive: true });
   const context =
     browser?.contexts()[0] ??

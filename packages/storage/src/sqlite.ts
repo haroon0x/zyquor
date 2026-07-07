@@ -8,7 +8,7 @@ import type {
   SourcePacket,
   StyleProfile
 } from "@zyquor/core";
-import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor } from "@zyquor/core";
+import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor, dataPath } from "@zyquor/core";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ZyquorRepository } from "./types.js";
@@ -25,7 +25,9 @@ import {
   toIngestConfig
 } from "./mappers.js";
 
-export const DEFAULT_DATABASE_PATH = "data/app.sqlite";
+export function defaultDatabasePath(): string {
+  return dataPath("data", "app.sqlite");
+}
 
 interface DatabaseSync {
   exec(sql: string): void;
@@ -198,7 +200,7 @@ function runTransaction<T>(db: DatabaseSync, fn: () => T): T {
   }
 }
 
-export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): Promise<ZyquorRepository> {
+export async function createSqliteRepository(filePath = defaultDatabasePath()): Promise<ZyquorRepository> {
   mkdirSync(dirname(filePath), { recursive: true });
   const sqlite = (await import("node:sqlite")) as unknown as SqliteModule;
   const db = new sqlite.DatabaseSync(filePath);

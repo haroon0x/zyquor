@@ -9,13 +9,15 @@ import type {
   StyleProfile,
   IngestConfig
 } from "@zyquor/core";
-import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor } from "@zyquor/core";
+import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor, dataPath } from "@zyquor/core";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ZyquorRepository, RepositorySnapshot, ContentFingerprint } from "./types.js";
 import { id as idGen, normalizePostText, hashPostText } from "./utils.js";
 
-export const DEFAULT_JSON_DATABASE_PATH = "data/app.json";
+export function defaultJsonDatabasePath(): string {
+  return dataPath("data", "app.json");
+}
 
 export interface MemoryRepositoryOptions {
   now?: () => string;
@@ -670,7 +672,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
   };
 }
 
-export function createJsonFileRepository(filePath = DEFAULT_JSON_DATABASE_PATH): ZyquorRepository {
+export function createJsonFileRepository(filePath = defaultJsonDatabasePath()): ZyquorRepository {
   mkdirSync(dirname(filePath), { recursive: true });
 
   let snapshot: Partial<RepositorySnapshot> | undefined;

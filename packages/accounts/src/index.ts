@@ -1,4 +1,6 @@
 import type { Account } from "@zyquor/core";
+import { profilesPath } from "@zyquor/core";
+import { resolve } from "node:path";
 
 const blockedProfileFragments = [
   ".config/google-chrome",
@@ -14,7 +16,9 @@ export function isAccountRunnable(account: Account) {
 export function assertDedicatedProfileDir(profileDir: string) {
   const normalized = profileDir.replaceAll("\\", "/");
 
-  if (!normalized.startsWith("profiles/") && !normalized.includes("/profiles/")) {
+  const isUnderDataRootProfiles = resolve(profileDir).startsWith(profilesPath() + "/");
+
+  if (!isUnderDataRootProfiles && !normalized.startsWith("profiles/") && !normalized.includes("/profiles/")) {
     throw new Error(`Profile directory must live under profiles/: ${profileDir}`);
   }
 
