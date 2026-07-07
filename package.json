@@ -27,6 +27,8 @@
     "dev:api": "pnpm --filter @zyquor/api dev",
     "dev:web": "pnpm --filter @zyquor/web dev",
     "dev:worker": "pnpm --filter @zyquor/worker dev",
+    "dev:desktop": "pnpm --filter @zyquor/desktop dev",
+    "smoke:desktop": "pnpm --filter @zyquor/api --filter @zyquor/worker build && pnpm --filter @zyquor/desktop smoke",
     "dev:crawl4ai": "node scripts/crawl4ai-service.mjs",
     "test": "pnpm build && pnpm -r test"
   },

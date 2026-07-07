@@ -1,0 +1,24 @@
+{
+  "name": "@zyquor/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "dev": "pnpm build && electron dist/main.js",
+    "smoke": "pnpm build && node scripts/logic-smoke.mjs",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@zyquor/api": "workspace:*",
+    "@zyquor/core": "workspace:*",
+    "@zyquor/storage": "workspace:*",
+    "@zyquor/worker": "workspace:*"
+  },
+  "devDependencies": {
+    "electron": "^37.0.0",
+    "typescript": "^5.7.2"
+  }
+}
