@@ -31,6 +31,7 @@ export interface BuildAppOptions {
   }) => Promise<{ postUrl: string | null }>;
   closeAfterPrepare?: boolean;
   closeAfterPost?: boolean;
+  launchPostingChrome?: (input: { accountId: string }) => Promise<{ launched: boolean; reason?: string }>;
 }
 
 export interface AppDeps {
@@ -39,6 +40,7 @@ export interface AppDeps {
   generationEnv: GenerationEnvironment;
   generationProvider: DraftGenerationProvider;
   generationConfigPath: string | null;
+  launchPostingChrome: ((input: { accountId: string }) => Promise<{ launched: boolean; reason?: string }>) | undefined;
   workerHeartbeat: {
     lastError: string | null;
     lastHeartbeatAt: string;

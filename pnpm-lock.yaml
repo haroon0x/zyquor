@@ -53,6 +53,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@zyquor/accounts':
+        specifier: workspace:*
+        version: link:../../packages/accounts
       '@zyquor/api':
         specifier: workspace:*
         version: link:../api

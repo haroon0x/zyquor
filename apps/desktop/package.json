@@ -12,6 +12,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@zyquor/accounts": "workspace:*",
     "@zyquor/api": "workspace:*",
     "@zyquor/core": "workspace:*",
     "@zyquor/storage": "workspace:*",

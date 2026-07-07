@@ -1,7 +1,9 @@
-import { app, BrowserWindow, Menu, nativeImage, Tray } from "electron";
+import { app, BrowserWindow, dialog, Menu, nativeImage, Tray } from "electron";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { profilesPath } from "@zyquor/core";
+import { launchPostingChrome } from "./chrome.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -18,6 +20,31 @@ function makeTrayIcon(): Electron.NativeImage {
 }
 
 let isQuitting = false;
+
+function getCdpPort(): number {
+  const cdpUrl = process.env.ZYQUOR_BROWSER_CDP_URL;
+  if (cdpUrl) {
+    const match = /:(\d+)$/.exec(cdpUrl);
+    if (match) return Number(match[1]);
+  }
+  return Number(process.env.ZYQUOR_BROWSER_CDP_PORT ?? 9222);
+}
+
+async function createLaunchPostingChrome() {
+  const { createLocalRepository } = await import("@zyquor/storage");
+  const repository = await createLocalRepository();
+
+  return async (input: { accountId: string }): Promise<{ launched: boolean; reason?: string }> => {
+    const accounts = await repository.listAccounts();
+    const account = accounts.find((a) => a.id === input.accountId) ?? accounts[0];
+    if (!account) {
+      return { launched: false, reason: "account-not-found" };
+    }
+    const profileDir = profilesPath(account.profileDir.replace(/^profiles\//, ""));
+    const port = getCdpPort();
+    return launchPostingChrome({ profileDir, cdpPort: port });
+  };
+}
 
 async function main() {
   const headlessSmoke = process.argv.includes("--headless-smoke");
@@ -58,6 +85,8 @@ async function main() {
   const closeAfterPrepare = process.env.ZYQUOR_BROWSER_CLOSE_AFTER_PREPARE !== "0";
   const closeAfterPost = process.env.ZYQUOR_BROWSER_CLOSE_AFTER_POST !== "0";
 
+  const desktopLaunchPostingChrome = await createLaunchPostingChrome();
+
   const api = buildApp({
     enableBrowserPrepare,
     enableBrowserPost,
@@ -67,6 +96,7 @@ async function main() {
     ...(browserCdpUrl ? { browserCdpUrl } : {}),
     closeAfterPrepare,
     closeAfterPost,
+    launchPostingChrome: desktopLaunchPostingChrome,
   });
 
   await api.listen({ host: "127.0.0.1", port: 0 });
@@ -157,6 +187,41 @@ async function main() {
       click: () => {
         win.show();
         win.focus();
+      },
+    },
+    { type: "separator" },
+    {
+      label: "Launch posting Chrome",
+      click: async () => {
+        if (headlessSmoke) return;
+        try {
+          const result = await desktopLaunchPostingChrome({ accountId: "account_personal" });
+          const message = result.launched
+            ? "Chrome launched"
+            : `Chrome not launched: ${result.reason ?? "unknown"}`;
+          tray.setToolTip(`Zyquor — ${message}`);
+          if (result.launched) {
+            dialog.showMessageBox(win, {
+              type: "info",
+              title: "Chrome",
+              message: "Posting Chrome launched with CDP",
+            });
+          } else {
+            dialog.showMessageBox(win, {
+              type: "warning",
+              title: "Chrome",
+              message: `Could not launch Chrome: ${result.reason ?? "unknown"}`,
+            });
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Unknown error";
+          tray.setToolTip(`Zyquor — Chrome error: ${msg}`);
+          dialog.showMessageBox(win, {
+            type: "error",
+            title: "Chrome",
+            message: `Chrome launch error: ${msg}`,
+          });
+        }
       },
     },
     { type: "separator" },

@@ -52,4 +52,13 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: AppDeps): void
       };
     }
   });
+
+  if (deps.launchPostingChrome) {
+    app.post("/browser/launch-chrome", async (request, reply) => {
+      const { accountId } = (request.body ?? {}) as { accountId?: string };
+      const resolvedId = accountId ?? "account_personal";
+      const result = await deps.launchPostingChrome!({ accountId: resolvedId });
+      return result;
+    });
+  }
 }

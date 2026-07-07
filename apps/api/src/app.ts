@@ -55,6 +55,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       ...readSavedGenerationEnv(generationConfigPath)
     }),
     generationConfigPath,
+    launchPostingChrome: options.launchPostingChrome,
     workerHeartbeat: null,
     ingestRunState: {
       errors: [],
