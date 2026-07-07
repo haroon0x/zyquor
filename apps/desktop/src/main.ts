@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { profilesPath } from "@zyquor/core";
 import { launchPostingChrome } from "./chrome.js";
+import { applySettingsToEnv, loadSettings, saveSettings, type DesktopSettings } from "./settings.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -66,6 +67,11 @@ async function main() {
     process.env.ZYQUOR_DATA_ROOT = app.getPath("userData");
   }
 
+  // Load desktop settings and apply to env before packages read process.env.
+  // Keys are stored plain in userData; OS keychain integration is future work.
+  const desktopSettings = loadSettings(process.env.ZYQUOR_DATA_ROOT);
+  applySettingsToEnv(desktopSettings);
+
   const { ensureFirstRun, detectSqliteSupport } = await import("@zyquor/storage");
   ensureFirstRun(process.env.ZYQUOR_DATA_ROOT);
 
@@ -94,6 +100,26 @@ async function main() {
 
   const desktopLaunchPostingChrome = await createLaunchPostingChrome();
 
+  const dataRoot = process.env.ZYQUOR_DATA_ROOT;
+  let currentSettings = desktopSettings;
+  const desktopSettingsDep = {
+    get(): DesktopSettings {
+      return currentSettings;
+    },
+    update(patch: DesktopSettings): DesktopSettings {
+      currentSettings = { ...currentSettings, ...patch };
+      for (const key of Object.keys(patch) as (keyof DesktopSettings)[]) {
+        const value = patch[key];
+        if (value === "") {
+          delete currentSettings[key];
+        }
+      }
+      saveSettings(dataRoot, currentSettings);
+      applySettingsToEnv(currentSettings);
+      return currentSettings;
+    },
+  };
+
   const api = buildApp({
     enableBrowserPrepare,
     enableBrowserPost,
@@ -104,6 +130,7 @@ async function main() {
     closeAfterPrepare,
     closeAfterPost,
     launchPostingChrome: desktopLaunchPostingChrome,
+    desktopSettings: desktopSettingsDep,
   });
 
   await api.listen({ host: "127.0.0.1", port: 0 });

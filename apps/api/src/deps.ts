@@ -2,6 +2,22 @@ import type { SourceAdapter } from "@zyquor/adapters";
 import type { DraftGenerationProvider, GenerationEnvironment } from "@zyquor/generation";
 import type { ZyquorRepository } from "@zyquor/storage";
 
+export interface DesktopSettingsData {
+  enableBrowserPrepare?: boolean;
+  enableBrowserPost?: boolean;
+  llmProvider?: string;
+  openrouterApiKey?: string;
+  geminiApiKey?: string;
+  chromePath?: string;
+  cdpPort?: number;
+  startWithWindows?: boolean;
+}
+
+export interface DesktopSettingsConfig {
+  get(): DesktopSettingsData;
+  update(patch: DesktopSettingsData): DesktopSettingsData;
+}
+
 export interface BuildAppOptions {
   repository?: ZyquorRepository;
   generationProvider?: DraftGenerationProvider;
@@ -32,6 +48,7 @@ export interface BuildAppOptions {
   closeAfterPrepare?: boolean;
   closeAfterPost?: boolean;
   launchPostingChrome?: (input: { accountId: string }) => Promise<{ launched: boolean; reason?: string }>;
+  desktopSettings?: DesktopSettingsConfig;
 }
 
 export interface AppDeps {
@@ -41,6 +58,7 @@ export interface AppDeps {
   generationProvider: DraftGenerationProvider;
   generationConfigPath: string | null;
   launchPostingChrome: ((input: { accountId: string }) => Promise<{ launched: boolean; reason?: string }>) | undefined;
+  desktopSettings: DesktopSettingsConfig | undefined;
   workerHeartbeat: {
     lastError: string | null;
     lastHeartbeatAt: string;

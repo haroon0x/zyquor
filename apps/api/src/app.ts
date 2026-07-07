@@ -19,6 +19,7 @@ import { registerDraftsRoutes } from "./routes/drafts.js";
 import { registerBatchesRoutes } from "./routes/batches.js";
 import { registerJobsRoutes } from "./routes/jobs.js";
 import { registerHistoryRoutes } from "./routes/history.js";
+import { registerSettingsRoutes } from "./routes/settings.js";
 
 export { type BuildAppOptions };
 
@@ -56,6 +57,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     }),
     generationConfigPath,
     launchPostingChrome: options.launchPostingChrome,
+    desktopSettings: options.desktopSettings,
     workerHeartbeat: null,
     ingestRunState: {
       errors: [],
@@ -119,6 +121,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   registerBatchesRoutes(app, deps);
   registerJobsRoutes(app, deps);
   registerHistoryRoutes(app, deps);
+  registerSettingsRoutes(app, deps);
 
   return app;
 }
