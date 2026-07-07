@@ -12,6 +12,11 @@ export interface WorkerOptions {
   pollMs: number;
 }
 
+export interface WorkerHandle {
+  finished: Promise<void>;
+  stop(): Promise<void>;
+}
+
 export interface WorkerState {
   lastError: string | null;
   lastIngestMs: number;
@@ -446,28 +451,91 @@ export async function runWorkerCycle(options: WorkerOptions, state: WorkerState)
   return { approvedProcessed, pendingProcessed, recoveredCount, sourcePacketProcessed };
 }
 
-export async function runWorker(options: WorkerOptions) {
-  console.log(describeWorker());
+export function startWorker(
+  options: WorkerOptions,
+  _deps?: { checkStartup?: typeof checkWorkerStartup }
+): WorkerHandle {
+  const checkStartup = _deps?.checkStartup ?? checkWorkerStartup;
   const state = createWorkerState();
-  const startup = await checkWorkerStartup(options);
-  for (const warning of startup.warnings) {
-    console.warn(warning);
-  }
-  if (startup.seededConfigId) {
-    console.log(`Seeded default news ingest config ${startup.seededConfigId}`);
-  }
+  let stopping = false;
+  let currentCycle: Promise<void> | null = null;
+  let timerId: ReturnType<typeof setTimeout> | null = null;
 
-  for (;;) {
+  let finish!: () => void;
+  let fail!: (reason: unknown) => void;
+  const finished: Promise<void> = new Promise((resolve, reject) => {
+    finish = resolve;
+    fail = reject;
+  });
+
+  // Prevent unhandledRejection for embedders who ignore finished.
+  // The .catch() creates a separate chain; awaiting finished still sees the rejection.
+  finished.catch(() => {});
+
+  (async () => {
     try {
-      await runWorkerCycle(options, state);
+      console.log(describeWorker());
+      const startup = await checkStartup(options);
+      for (const warning of startup.warnings) {
+        console.warn(warning);
+      }
+      if (startup.seededConfigId) {
+        console.log(`Seeded default news ingest config ${startup.seededConfigId}`);
+      }
     } catch (error) {
       state.lastError = error instanceof Error ? error.message : String(error);
       console.error(error instanceof Error ? error.message : error);
-      await heartbeat(options, state);
+      fail(error instanceof Error ? error : new Error(String(error)));
+      return;
     }
 
-    await new Promise((resolve) => setTimeout(resolve, options.pollMs));
-  }
+    const tick = async () => {
+      if (stopping) {
+        finish();
+        return;
+      }
+      currentCycle = (async () => {
+        try {
+          await runWorkerCycle(options, state);
+        } catch (error) {
+          state.lastError = error instanceof Error ? error.message : String(error);
+          console.error(error instanceof Error ? error.message : error);
+          await heartbeat(options, state);
+        }
+      })();
+      await currentCycle;
+      currentCycle = null;
+      if (stopping) {
+        finish();
+        return;
+      }
+      timerId = setTimeout(tick, options.pollMs);
+    };
+
+    tick();
+  })();
+
+  return {
+    finished,
+    async stop() {
+      stopping = true;
+      if (timerId !== null) {
+        clearTimeout(timerId);
+        timerId = null;
+      }
+      if (currentCycle !== null) {
+        await currentCycle;
+        currentCycle = null;
+      }
+      finish();
+      await finished.catch(() => {});
+    }
+  };
+}
+
+export async function runWorker(options: WorkerOptions) {
+  const handle = startWorker(options);
+  await handle.finished;
 }
 
 const isDirectRun = process.argv[1] ? import.meta.url === pathToFileURL(process.argv[1]).href : false;

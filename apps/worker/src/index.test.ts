@@ -6,7 +6,9 @@ import {
   processIngest,
   processNewSourcePackets,
   recoverStaleJobs,
-  runWorkerCycle
+  runWorkerCycle,
+  startWorker,
+  type WorkerHandle
 } from "./index.js";
 
 const baseJob = {
@@ -614,5 +616,153 @@ describe("worker startup checks", () => {
     expect(result.seededConfigId).toBe("ingest_default");
     expect(result.warnings).toEqual([]);
     expect(calls).toContain("POST http://api.test/ingest-configs/default-news");
+  });
+});
+
+describe("startWorker", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("runs at least one cycle after starting", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
+    const cycleCalls: number[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.endsWith("/health")) return Response.json({ ok: true });
+        if (url.endsWith("/accounts")) return Response.json({ accounts: [baseAccount] });
+        if (url.endsWith("/ingest-configs")) return Response.json({ configs: [{ id: "cfg1", enabled: true }] });
+        if (url.includes("/browser/x-session")) return Response.json({ loggedIn: true, error: null });
+        if (url.endsWith("/jobs/recover-stale")) { cycleCalls.push(1); return Response.json({ recoveredCount: 0 }); }
+        if (url.endsWith("/jobs")) return Response.json({ jobs: [] });
+        if (url.endsWith("/drafts/pending")) return Response.json({ drafts: [] });
+        if (url.endsWith("/source-packets")) return Response.json({ packets: [] });
+        if (url.endsWith("/ingest-run/async")) return Response.json({ accepted: false, ingestRun: { processed: 0, running: true } });
+        return Response.json({ ok: true });
+      })
+    );
+
+    const handle = startWorker({ apiUrl: "http://api.test", pollMs: 100 });
+
+    // Advance time enough for startup + at least one cycle
+    await vi.advanceTimersByTimeAsync(500);
+    await handle.stop();
+
+    expect(cycleCalls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("stop() prevents further cycles from running", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
+    const cycleCalls: number[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.endsWith("/health")) return Response.json({ ok: true });
+        if (url.endsWith("/accounts")) return Response.json({ accounts: [baseAccount] });
+        if (url.endsWith("/ingest-configs")) return Response.json({ configs: [{ id: "cfg1", enabled: true }] });
+        if (url.includes("/browser/x-session")) return Response.json({ loggedIn: true, error: null });
+        if (url.endsWith("/jobs/recover-stale")) { cycleCalls.push(1); return Response.json({ recoveredCount: 0 }); }
+        if (url.endsWith("/jobs")) return Response.json({ jobs: [] });
+        if (url.endsWith("/drafts/pending")) return Response.json({ drafts: [] });
+        if (url.endsWith("/source-packets")) return Response.json({ packets: [] });
+        if (url.endsWith("/ingest-run/async")) return Response.json({ accepted: false, ingestRun: { processed: 0, running: true } });
+        return Response.json({ ok: true });
+      })
+    );
+
+    const handle = startWorker({ apiUrl: "http://api.test", pollMs: 100 });
+
+    // Let startup + one cycle run
+    await vi.advanceTimersByTimeAsync(500);
+    const countBeforeStop = cycleCalls.length;
+    expect(countBeforeStop).toBeGreaterThanOrEqual(1);
+
+    await handle.stop();
+    const countAfterStop = cycleCalls.length;
+
+    // Advance well beyond the poll interval
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(cycleCalls.length).toBe(countAfterStop);
+  });
+
+  it("stop() waits for an in-flight slow cycle to complete", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
+    let cycleStarted = false;
+    let cycleFinished = false;
+    let cycleResolve!: () => void;
+    const resumePromise = new Promise<void>((resolve) => { cycleResolve = resolve; });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.endsWith("/health")) return Response.json({ ok: true });
+        if (url.endsWith("/accounts")) return Response.json({ accounts: [baseAccount] });
+        if (url.endsWith("/ingest-configs")) return Response.json({ configs: [{ id: "cfg1", enabled: true }] });
+        if (url.includes("/browser/x-session")) return Response.json({ loggedIn: true, error: null });
+        if (url.endsWith("/jobs/recover-stale")) {
+          cycleStarted = true;
+          await resumePromise;
+          cycleFinished = true;
+          return Response.json({ recoveredCount: 0 });
+        }
+        if (url.endsWith("/jobs")) return Response.json({ jobs: [] });
+        if (url.endsWith("/drafts/pending")) return Response.json({ drafts: [] });
+        if (url.endsWith("/source-packets")) return Response.json({ packets: [] });
+        if (url.endsWith("/ingest-run/async")) return Response.json({ accepted: false, ingestRun: { processed: 0, running: true } });
+        return Response.json({ ok: true });
+      })
+    );
+
+    const handle = startWorker({ apiUrl: "http://api.test", pollMs: 100 });
+
+    // Let startup run + start first cycle (which will hang in recover-stale)
+    await vi.advanceTimersByTimeAsync(500);
+    expect(cycleStarted).toBe(true);
+    expect(cycleFinished).toBe(false);
+
+    // Initiate stop — it should NOT resolve yet since cycle is in-flight
+    let stopped = false;
+    const stopPromise = handle.stop().then(() => { stopped = true; });
+
+    // Advance time — stop should still be pending
+    await vi.advanceTimersByTimeAsync(500);
+    expect(stopped).toBe(false);
+
+    // Release the in-flight cycle
+    cycleResolve();
+    await vi.runAllTimersAsync();
+    await stopPromise;
+
+    expect(stopped).toBe(true);
+    expect(cycleFinished).toBe(true);
+  });
+
+  it("startup failure: finished rejects and stop() still resolves normally", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const startupError = new Error("API unreachable");
+    const mockCheckStartup = vi.fn().mockRejectedValue(startupError);
+
+    const handle = startWorker(
+      { apiUrl: "http://api.test", pollMs: 100 },
+      { checkStartup: mockCheckStartup }
+    );
+
+    // finished should reject with the startup error
+    await expect(handle.finished).rejects.toThrow("API unreachable");
+
+    // stop() should still resolve normally after a startup failure
+    await handle.stop();
+    // stop() called twice is idempotent
+    await handle.stop();
+
+    expect(mockCheckStartup).toHaveBeenCalledTimes(1);
   });
 });
