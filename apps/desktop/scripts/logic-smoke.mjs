@@ -9,6 +9,9 @@ const apiUrl = `http://127.0.0.1:${process.env.ZYQUOR_API_PORT ?? 0}`;
 async function main() {
   process.env.ZYQUOR_DATA_ROOT = process.env.ZYQUOR_DATA_ROOT ?? "/tmp/zyq-desktop-smoke";
 
+  const { ensureFirstRun } = await import("@zyquor/storage");
+  ensureFirstRun(process.env.ZYQUOR_DATA_ROOT);
+
   const { buildApp } = await import("@zyquor/api");
   const { startWorker } = await import("@zyquor/worker");
 

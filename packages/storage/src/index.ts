@@ -7,6 +7,7 @@ export * from "./sqlite.js";
 export * from "./memory.js";
 export * from "./mappers.js";
 export * from "./utils.js";
+export { ensureFirstRun } from "./firstrun.js";
 
 export async function createLocalRepository(filePath = defaultDatabasePath()): Promise<ZyquorRepository> {
   try {
