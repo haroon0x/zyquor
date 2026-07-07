@@ -9,8 +9,15 @@ const apiUrl = `http://127.0.0.1:${process.env.ZYQUOR_API_PORT ?? 0}`;
 async function main() {
   process.env.ZYQUOR_DATA_ROOT = process.env.ZYQUOR_DATA_ROOT ?? "/tmp/zyq-desktop-smoke";
 
-  const { ensureFirstRun } = await import("@zyquor/storage");
+  const { ensureFirstRun, detectSqliteSupport } = await import("@zyquor/storage");
   ensureFirstRun(process.env.ZYQUOR_DATA_ROOT);
+
+  const sqliteCheck = await detectSqliteSupport();
+  if (sqliteCheck.available) {
+    console.log("storage: node:sqlite available");
+  } else {
+    console.warn(`storage: node:sqlite unavailable (${sqliteCheck.error}) — falling back to JSON file storage`);
+  }
 
   const { buildApp } = await import("@zyquor/api");
   const { startWorker } = await import("@zyquor/worker");

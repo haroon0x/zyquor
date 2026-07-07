@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createMemoryRepository } from "./index.js";
+import { createMemoryRepository, detectSqliteSupport } from "./index.js";
 
 const times = [
   "2026-04-24T17:00:00.000Z",
@@ -272,5 +272,23 @@ describe("repository workflow", () => {
     await expect(repository.resetSourcePacket(packet.id)).resolves.toMatchObject({ status: "new" });
     await expect(repository.getDraft(created.draft.id)).resolves.toBeNull();
     await expect(repository.listJobs()).resolves.toHaveLength(0);
+  });
+});
+
+describe("detectSqliteSupport", () => {
+  it("returns available on Node >= 22.5", async () => {
+    const nodeVersion = process.versions.node;
+    const [major, minor] = nodeVersion.split(".").map(Number);
+    if (major! < 22 || (major === 22 && minor! < 5)) {
+      const result = await detectSqliteSupport();
+      expect(result.available).toBe(false);
+      expect(result.error).toBeDefined();
+      return;
+    }
+    const result = await detectSqliteSupport();
+    if (!result.available) {
+      console.error("detectSqliteSupport error:", result.error);
+    }
+    expect(result.available).toBe(true);
   });
 });
