@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, Menu, nativeImage, Tray } from "electron";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { profilesPath } from "@zyquor/core";
 import { launchPostingChrome } from "./chrome.js";
 import { initFileLog, logLine } from "./log.js";
@@ -101,6 +101,7 @@ async function main() {
   const desktopLaunchPostingChrome = await createLaunchPostingChrome();
 
   const dataRoot = process.env.ZYQUOR_DATA_ROOT;
+  app.setPath("crashDumps", join(dataRoot, "crashes"));
   let currentSettings = desktopSettings;
   const desktopSettingsDep = {
     get(): DesktopSettings {
@@ -262,6 +263,7 @@ async function main() {
       label: "Launch posting Chrome",
       click: async () => {
         if (headlessSmoke) return;
+        const dialogParent = win && !win.isDestroyed() ? win : undefined;
         try {
           const result = await desktopLaunchPostingChrome({ accountId: "account_personal" });
           const message = result.launched
@@ -270,13 +272,13 @@ async function main() {
           logLine(result.launched ? "info" : "warn", `chrome launch: ${message}`);
           tray.setToolTip(`Zyquor — ${message}`);
           if (result.launched) {
-            dialog.showMessageBox(win!, {
+            dialog.showMessageBox(dialogParent!, {
               type: "info",
               title: "Chrome",
               message: "Posting Chrome launched with CDP",
             });
           } else {
-            dialog.showMessageBox(win!, {
+            dialog.showMessageBox(dialogParent!, {
               type: "warning",
               title: "Chrome",
               message: `Could not launch Chrome: ${result.reason ?? "unknown"}`,
@@ -286,7 +288,7 @@ async function main() {
           const msg = err instanceof Error ? err.message : "Unknown error";
           logLine("error", `chrome launch error: ${msg}`);
           tray.setToolTip(`Zyquor — Chrome error: ${msg}`);
-          dialog.showMessageBox(win!, {
+          dialog.showMessageBox(dialogParent!, {
             type: "error",
             title: "Chrome",
             message: `Chrome launch error: ${msg}`,
@@ -341,5 +343,13 @@ async function main() {
     await api.close();
   });
 }
+
+app.on("child-process-gone", (_e, details) =>
+  logLine("error", "child-process-gone: " + JSON.stringify(details))
+);
+app.on("render-process-gone", (_e, _wc, details) =>
+  logLine("error", "render-process-gone: " + JSON.stringify(details))
+);
+process.on("exit", (code) => logLine("info", "process exit code " + code));
 
 app.whenReady().then(main);
