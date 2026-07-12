@@ -34,6 +34,9 @@ files:
 asar: true
 
 win:
+  # Cross-build from Linux/WSL without wine: skip exe resource editing/signing.
+  # Exe keeps default Electron metadata; harmless on windows-latest CI too.
+  signAndEditExecutable: false
   target:
     - target: nsis
       arch:
