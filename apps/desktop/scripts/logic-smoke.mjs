@@ -9,6 +9,10 @@ const apiUrl = `http://127.0.0.1:${process.env.ZYQUOR_API_PORT ?? 0}`;
 async function main() {
   process.env.ZYQUOR_DATA_ROOT = process.env.ZYQUOR_DATA_ROOT ?? "/tmp/zyq-desktop-smoke";
 
+  const { initFileLog, logLine } = await import("../dist/log.js");
+  initFileLog(process.env.ZYQUOR_DATA_ROOT);
+  logLine("info", "logic-smoke boot");
+
   const { ensureFirstRun, detectSqliteSupport } = await import("@zyquor/storage");
   ensureFirstRun(process.env.ZYQUOR_DATA_ROOT);
 
@@ -34,6 +38,7 @@ async function main() {
   if (!address || typeof address === "string") throw new Error("Failed to get port");
   const port = address.port;
   const url = `http://127.0.0.1:${port}`;
+  logLine("info", `api listening on port ${port}`);
 
   const workerHandle = startWorker({
     apiUrl: url,
@@ -41,6 +46,7 @@ async function main() {
     ingestIntervalMs: 60_000,
     pollMs: 60_000,
   });
+  logLine("info", "worker started");
 
   await new Promise((resolve) => setTimeout(resolve, 800));
 
@@ -79,6 +85,7 @@ async function main() {
 
   await workerHandle.stop();
   await api.close();
+  logLine("info", "logic-smoke done");
 
   if (ok) {
     console.log("LOGIC SMOKE OK");

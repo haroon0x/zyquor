@@ -43,7 +43,7 @@ const testGenerationProvider: DraftGenerationProvider = {
     const count = Math.max(1, Math.min(input.count ?? 3, 5));
     return Array.from({ length: count }, (_, index) => ({
       text: `${input.idea.trim()} Test candidate ${index + 1}.`.slice(0, 240),
-      score: { provider: "test", rank: index + 1 }
+      score: { provider: "test", rank: index + 1, quality: 5 }
     }));
   }
 };
@@ -513,7 +513,7 @@ describe("api workflow", () => {
       total: 3
     });
     expect(postedTexts).toHaveLength(3);
-    expect(new Set(postedTexts)).toEqual(new Set(["Ready one", "Ready two", "Ready three"]));
+    expect(new Set(postedTexts)).toEqual(new Set(["ready one", "ready two", "ready three"]));
     await expect(repository.listPostHistory()).resolves.toHaveLength(3);
     await expect(repository.getJob(response.json().results[0].jobId)).resolves.toMatchObject({ status: "posted" });
 
@@ -814,10 +814,10 @@ describe("api workflow", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(postedText).toBe("Database failover got safer defaults for operators. https://example.com/database-failover");
+    expect(postedText).toBe("database failover got safer defaults for operators. https://example.com/database-failover");
     await expect(repository.listPostHistory()).resolves.toMatchObject([
       {
-        postedText: "Database failover got safer defaults for operators. https://example.com/database-failover",
+        postedText: "database failover got safer defaults for operators. https://example.com/database-failover",
         sourceUrl: "https://example.com/database-failover"
       }
     ]);
@@ -948,11 +948,11 @@ describe("api workflow", () => {
     expect(approveResponse.statusCode).toBe(201);
     expect(approveResponse.json()).toMatchObject({
       draft: {
-        editedText: "Local-first, auditable, posting works."
+        editedText: "local-first, auditable, posting works."
       }
     });
     expect((await app.inject({ method: "POST", url: `/jobs/${approveResponse.json().job.id}/post` })).statusCode).toBe(200);
-    expect(postedText).toBe("Local-first, auditable, posting works.");
+    expect(postedText).toBe("local-first, auditable, posting works.");
 
     await app.close();
   });
@@ -1307,7 +1307,7 @@ describe("api workflow", () => {
     expect((await app.inject({ method: "GET", url: "/source-packets?accountId=account_personal" })).json().packets).toHaveLength(0);
     await expect(repository.listPostHistory()).resolves.toMatchObject([
       {
-        postedText: "Science funding is becoming a markets story.",
+        postedText: "science funding is becoming a markets story.",
         sourcePacketId: packet.id,
         sourceTitle: "Science economy source",
         sourceType: "news",

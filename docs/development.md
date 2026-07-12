@@ -191,3 +191,20 @@ ZYQUOR_LLM_PROVIDER=gemini ZYQUOR_GEMINI_API_KEY=... ZYQUOR_GEMINI_MODEL=gemini-
 ```
 
 `mock` is deterministic and offline. `openrouter` uses chat completions. `ollama` calls `/api/generate` with `stream: false` and JSON output. `gemini` calls Gemini `models/{model}:generateContent` with JSON response config.
+
+## Desktop app (Windows)
+
+Zyquor ships as a system-tray Electron desktop app (`apps/desktop`). The API, worker, and web UI run in-process.
+
+```bash
+pnpm dev:desktop        # build and launch
+pnpm smoke:desktop      # headless logic smoke (no GUI required)
+pnpm dist:desktop       # produce NSIS installer (CI: dist-desktop-win job)
+```
+
+- **Data root**: `%APPDATA%/Zyquor` on Windows (overridable via `ZYQUOR_DATA_ROOT`).
+- **Settings**: `settings.json` in the data root instead of `.env`. UI panel gated on `window.zyquor`.
+- **Posting Chrome**: tray menu action spawns a dedicated Chrome profile with CDP on port 9222.
+- **Main-process logging**: `logs/main.log` under the data root (rotates at 5 MB).
+- **App icon and code signing** are not yet configured. Windows verification is manual for now.
+- **Entry points**: `src/main.ts` (main process), `src/preload.ts` (context bridge), `src/chrome.ts` (CDP launch), `src/settings.ts` (JSON config), `src/log.ts` (file logging).

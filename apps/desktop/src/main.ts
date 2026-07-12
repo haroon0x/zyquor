@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { profilesPath } from "@zyquor/core";
 import { launchPostingChrome } from "./chrome.js";
+import { initFileLog, logLine } from "./log.js";
 import { applySettingsToEnv, loadSettings, saveSettings, type DesktopSettings } from "./settings.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -59,6 +60,9 @@ async function main() {
   if (!process.env.ZYQUOR_DATA_ROOT) {
     process.env.ZYQUOR_DATA_ROOT = app.getPath("userData");
   }
+
+  initFileLog(process.env.ZYQUOR_DATA_ROOT);
+  logLine("info", "app boot");
 
   // Load desktop settings and apply to env before packages read process.env.
   // Keys are stored plain in userData; OS keychain integration is future work.
@@ -141,6 +145,7 @@ async function main() {
     throw new Error("Failed to get API server port");
   }
   const port = address.port;
+  logLine("info", `api listening on port ${port}`);
 
   const workerApiUrl = `http://127.0.0.1:${port}`;
   const workerHandle = startWorker({
@@ -149,6 +154,7 @@ async function main() {
     ingestIntervalMs: Number(process.env.ZYQUOR_WORKER_INGEST_INTERVAL_MS ?? 60_000),
     pollMs: Number(process.env.ZYQUOR_WORKER_POLL_MS ?? 5000),
   });
+  logLine("info", "worker started");
 
   if (headlessSmoke) {
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -209,7 +215,7 @@ async function main() {
         nodeIntegration: false,
         sandbox: true,
         preload: preloadPath,
-        additionalArguments: [`--zyquor-api=${workerApiUrl}`],
+        additionalArguments: [`--zyquor-api=${workerApiUrl}`, `--zyquor-version=${app.getVersion()}`],
       },
     });
 
@@ -257,6 +263,7 @@ async function main() {
           const message = result.launched
             ? "Chrome launched"
             : `Chrome not launched: ${result.reason ?? "unknown"}`;
+          logLine(result.launched ? "info" : "warn", `chrome launch: ${message}`);
           tray.setToolTip(`Zyquor — ${message}`);
           if (result.launched) {
             dialog.showMessageBox(win!, {
@@ -273,6 +280,7 @@ async function main() {
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Unknown error";
+          logLine("error", `chrome launch error: ${msg}`);
           tray.setToolTip(`Zyquor — Chrome error: ${msg}`);
           dialog.showMessageBox(win!, {
             type: "error",
@@ -287,6 +295,7 @@ async function main() {
       label: "Quit",
       click: async () => {
         isQuitting = true;
+        clearInterval(failurePoll);
         await workerHandle.stop();
         await api.close();
         app.quit();
@@ -296,12 +305,31 @@ async function main() {
   tray.setToolTip("Zyquor");
   tray.setContextMenu(contextMenu);
 
+  // Poll job failures for tray tooltip
+  let failurePoll = setInterval(async () => {
+    try {
+      const res = await fetch(`${workerApiUrl}/jobs`);
+      if (!res.ok) return;
+      const body = (await res.json()) as { jobs?: Array<{ status: string }> };
+      const failedCount = (body.jobs ?? []).filter((j) => j.status === "failed").length;
+      if (failedCount > 0) {
+        tray.setToolTip(`Zyquor — ${failedCount} failed job(s)`);
+      } else {
+        tray.setToolTip("Zyquor");
+      }
+    } catch {
+      // silently ignore poll errors
+    }
+  }, 60_000);
+
   tray.on("double-click", () => {
     showOrCreateWindow();
   });
 
   app.on("before-quit", async () => {
     isQuitting = true;
+    clearInterval(failurePoll);
+    logLine("info", "app quitting");
     await workerHandle.stop();
     await api.close();
   });

@@ -1,6 +1,6 @@
 declare global {
   interface Window {
-    zyquor?: { apiBaseUrl: string };
+    zyquor?: { apiBaseUrl: string; appVersion?: string };
   }
 }
 

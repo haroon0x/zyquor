@@ -137,12 +137,18 @@ Removed from UI: noisy account/profile/daily-limit editing. Account config remai
 ./zyquor
 ./zyquor check
 ./zyquor post <jobId>
+
+# Electron desktop app (Windows)
+pnpm dev:desktop
+pnpm smoke:desktop
+pnpm dist:desktop
 ```
 
 - Chrome CDP: `http://127.0.0.1:9222`, profile `profiles/personal-main`
 - API: `http://127.0.0.1:3000` (falls back to 3001 if 3000 is busy)
 - Web: `http://127.0.0.1:5173/`
 - Worker polls due jobs every 5s
+- Electron desktop app: `apps/desktop/` — Electron 37, tray-resident, runs API/worker in-process. Data root via `ZYQUOR_DATA_ROOT` (defaults to Electron `userData`). Settings kept as `settings.json` in data root instead of `.env`. Logs to `<dataRoot>/logs/main.log` (rotates at 5 MB). Entry points: `src/main.ts` (main process), `src/preload.ts` (context bridge), `src/chrome.ts` (CDP launch), `src/settings.ts` (JSON config), `src/log.ts` (file logging).
 
 Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (disabled by default for safety), `ZYQUOR_LLM_PROVIDER=openrouter|gemini|ollama|auto|mock`.
 Source smoke: `pnpm smoke:adapters`. Product Hunt is optional without `ZYQUOR_PRODUCTHUNT_API_TOKEN`.
@@ -190,7 +196,7 @@ ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
 - Reply draft generation
 - Reusable in normal single/batch/yolo flows
 
-**Deferred**: multi-account UI, voice input, Tauri desktop, E2E test suite.
+**Deferred**: multi-account UI, voice input, E2E test suite.
 
 ## Common Commands
 

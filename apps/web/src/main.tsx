@@ -221,6 +221,7 @@ function App() {
   const refreshRequestIdRef = useRef(0);
 
   const isElectron = Boolean(window.zyquor);
+  const appVersion = window.zyquor?.appVersion ?? "";
   const [desktopSettings, setDesktopSettings] = useState<DesktopSettingsData>({});
   const [desktopRestartRequired, setDesktopRestartRequired] = useState(false);
 
@@ -1454,6 +1455,7 @@ function App() {
           <p className="empty">No jobs for selected account.</p>
         )}
       </section>
+      {appVersion ? <footer className="version-footer">v{appVersion}</footer> : null}
     </main>
   );
 }
