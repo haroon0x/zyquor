@@ -225,6 +225,7 @@ export function registerJobsRoutes(app: FastifyInstance, deps: AppDeps): void {
 
     try {
       const preparePost = deps.browser.preparePost ?? (await import("@zyquor/browser")).preparePost;
+      deps.browserLoaded = true;
       const mediaPaths = await mediaPathsForDraft(draftForPrepare);
       await preparePost({
         profileDir: resolveProfileDir(account.profileDir),

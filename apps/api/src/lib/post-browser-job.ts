@@ -127,6 +127,7 @@ export async function postBrowserJob(deps: AppDeps, jobId: string) {
   await repository.createAttempt({ jobId: job.id, status: "started" });
 
   const browserModule = await import("@zyquor/browser");
+  deps.browserLoaded = true;
 
   try {
     const preparePost = deps.browser.preparePost ?? browserModule.preparePost;

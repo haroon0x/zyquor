@@ -617,6 +617,46 @@ describe("worker startup checks", () => {
     expect(result.warnings).toEqual([]);
     expect(calls).toContain("POST http://api.test/ingest-configs/default-news");
   });
+
+  it("skips X session check when both browser prepare and browser post are disabled", async () => {
+    const originalPrepare = process.env.ZYQUOR_ENABLE_BROWSER_PREPARE;
+    const originalPost = process.env.ZYQUOR_ENABLE_BROWSER_POST;
+    process.env.ZYQUOR_ENABLE_BROWSER_PREPARE = "0";
+    process.env.ZYQUOR_ENABLE_BROWSER_POST = "0";
+
+    try {
+      const calls: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string, init?: RequestInit) => {
+          calls.push(`${init?.method ?? "GET"} ${url}`);
+          if (url.endsWith("/health")) return Response.json({ ok: true });
+          if (url.endsWith("/accounts")) return Response.json({ accounts: [baseAccount] });
+          if (url.endsWith("/ingest-configs")) return Response.json({ configs: [{ id: "cfg1", enabled: true }] });
+          if (url.includes("/browser/x-session")) return Response.json({ loggedIn: true, error: null });
+          return Response.json({ ok: true });
+        })
+      );
+
+      const result = await checkWorkerStartup({ apiUrl: "http://api.test", pollMs: 1000 });
+
+      expect(result.warnings).toEqual([
+        "ZYQUOR_ENABLE_BROWSER_POST=0, so autopost jobs cannot submit to X."
+      ]);
+      expect(calls).not.toContain(expect.stringContaining("/browser/x-session"));
+    } finally {
+      if (originalPrepare !== undefined) {
+        process.env.ZYQUOR_ENABLE_BROWSER_PREPARE = originalPrepare;
+      } else {
+        delete process.env.ZYQUOR_ENABLE_BROWSER_PREPARE;
+      }
+      if (originalPost !== undefined) {
+        process.env.ZYQUOR_ENABLE_BROWSER_POST = originalPost;
+      } else {
+        delete process.env.ZYQUOR_ENABLE_BROWSER_POST;
+      }
+    }
+  });
 });
 
 describe("startWorker", () => {

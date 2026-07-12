@@ -23,6 +23,7 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: AppDeps): void
         deps.browser.checkXLogin ??
         (async (input: { browserChannel?: string | null; cdpUrl?: string; profileDir: string }) => {
           const browser = await import("@zyquor/browser");
+          deps.browserLoaded = true;
           return browser.checkXLogin(input);
         });
       const result = await checkXLogin({

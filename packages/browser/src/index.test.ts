@@ -2,8 +2,8 @@ import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
-import { describe, expect, it } from "vitest";
-import { checkXLogin, preparePost } from "./index.js";
+import { afterEach, describe, expect, it } from "vitest";
+import { checkXLogin, preparePost, resolveProfileDir } from "./index.js";
 
 function htmlUrl(html: string) {
   return `data:text/html,${encodeURIComponent(html)}`;
@@ -11,6 +11,43 @@ function htmlUrl(html: string) {
 
 const chromiumExecutableExists = existsSync(chromium.executablePath());
 const describeBrowser = chromiumExecutableExists ? describe : describe.skip;
+
+describe("resolveProfileDir", () => {
+  const originalDataRoot = process.env.ZYQUOR_DATA_ROOT;
+  const originalWorkspaceRoot = process.env.ZYQUOR_WORKSPACE_ROOT;
+
+  afterEach(() => {
+    if (originalDataRoot !== undefined) {
+      process.env.ZYQUOR_DATA_ROOT = originalDataRoot;
+    } else {
+      delete process.env.ZYQUOR_DATA_ROOT;
+    }
+    if (originalWorkspaceRoot !== undefined) {
+      process.env.ZYQUOR_WORKSPACE_ROOT = originalWorkspaceRoot;
+    } else {
+      delete process.env.ZYQUOR_WORKSPACE_ROOT;
+    }
+  });
+
+  it("resolves relative path against ZYQUOR_DATA_ROOT when set", () => {
+    process.env.ZYQUOR_DATA_ROOT = "/tmp/test-root";
+    const result = resolveProfileDir("profiles/personal-main");
+    expect(result).toBe("/tmp/test-root/profiles/personal-main");
+  });
+
+  it("passes through absolute paths unchanged", () => {
+    process.env.ZYQUOR_DATA_ROOT = "/tmp/test-root";
+    const result = resolveProfileDir("/absolute/path/profile");
+    expect(result).toBe("/absolute/path/profile");
+  });
+
+  it("resolves relative path against cwd when ZYQUOR_DATA_ROOT is unset", () => {
+    delete process.env.ZYQUOR_DATA_ROOT;
+    delete process.env.ZYQUOR_WORKSPACE_ROOT;
+    const result = resolveProfileDir("profiles/personal-main");
+    expect(result).toBe(join(process.cwd(), "profiles/personal-main"));
+  });
+});
 
 describe("CDP session guard", () => {
   it("does not fall back to launching a browser when a configured CDP endpoint is unavailable", async () => {

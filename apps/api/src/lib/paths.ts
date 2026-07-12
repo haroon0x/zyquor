@@ -1,7 +1,8 @@
 import { isAbsolute, resolve } from "node:path";
+import { resolveDataRoot } from "@zyquor/core";
 
 export function workspaceRoot() {
-  return process.env.ZYQUOR_WORKSPACE_ROOT ?? resolve(process.cwd(), "../..");
+  return resolveDataRoot();
 }
 
 export function defaultGenerationConfigPath() {

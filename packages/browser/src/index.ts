@@ -1,8 +1,12 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { chromium, type BrowserContext, type Locator, type Page } from "playwright-core";
-import { dataPath, profilesPath } from "@zyquor/core";
+import { dataPath, profilesPath, resolveDataRoot } from "@zyquor/core";
+
+export function resolveProfileDir(profileDir: string): string {
+  return isAbsolute(profileDir) ? profileDir : resolve(resolveDataRoot(), profileDir);
+}
 
 const isWsl = existsSync("/proc/sys/fs/binfmt_misc/WSLInterop") || Boolean(process.env.WSL_DISTRO_NAME);
 
@@ -56,7 +60,7 @@ export async function ensureBrowserCdp(cdpUrl: string, profileDir: string): Prom
     const chromeConfigDir = process.env.ZYQUOR_CHROME_CONFIG_DIR ? resolve(process.env.ZYQUOR_CHROME_CONFIG_DIR) : profilesPath("chrome-config");
     mkdirSync(chromeConfigDir, { recursive: true });
     const child = spawn(chromeBin, [
-      `--user-data-dir=${resolve(profileDir)}`,
+      `--user-data-dir=${resolveProfileDir(profileDir)}`,
       "--profile-directory=Default",
       `--remote-debugging-port=${port}`,
       "--remote-debugging-address=127.0.0.1",

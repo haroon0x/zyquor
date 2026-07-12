@@ -66,6 +66,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       processed: 0,
       running: false
     },
+    browserLoaded: false,
     browser: {
       enablePrepare: options.enableBrowserPrepare ?? false,
       enablePost: options.enableBrowserPost ?? false,

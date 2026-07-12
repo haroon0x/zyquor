@@ -4,6 +4,7 @@ import { join } from "node:path";
 export interface DesktopSettings {
   enableBrowserPrepare?: boolean;
   enableBrowserPost?: boolean;
+  closeChromeAfterPost?: boolean;
   llmProvider?: string;
   openrouterApiKey?: string;
   geminiApiKey?: string;
@@ -47,6 +48,7 @@ export function applySettingsToEnv(settings: DesktopSettings): void {
   const map: Record<string, string | undefined> = {
     ZYQUOR_ENABLE_BROWSER_PREPARE: settings.enableBrowserPrepare !== undefined ? String(Number(settings.enableBrowserPrepare)) : undefined,
     ZYQUOR_ENABLE_BROWSER_POST: settings.enableBrowserPost !== undefined ? String(Number(settings.enableBrowserPost)) : undefined,
+    ZYQUOR_BROWSER_CLOSE_AFTER_POST: settings.closeChromeAfterPost !== undefined ? String(Number(settings.closeChromeAfterPost)) : undefined,
     ZYQUOR_LLM_PROVIDER: settings.llmProvider,
     ZYQUOR_OPENROUTER_API_KEY: settings.openrouterApiKey,
     ZYQUOR_GEMINI_API_KEY: settings.geminiApiKey,

@@ -4,6 +4,7 @@ import type { AppDeps } from "../deps.js";
 export function registerWorkerRoutes(app: FastifyInstance, deps: AppDeps): void {
   app.get("/health", async () => ({
     ok: true,
+    browserLoaded: deps.browserLoaded,
     generation: {
       provider: deps.generationProvider.name,
       model: deps.generationProvider.model

@@ -115,6 +115,7 @@ interface StyleProfile {
 interface DesktopSettingsData {
   enableBrowserPrepare?: boolean;
   enableBrowserPost?: boolean;
+  closeChromeAfterPost?: boolean;
   llmProvider?: string;
   openrouterApiKey?: string;
   geminiApiKey?: string;
@@ -1272,6 +1273,14 @@ function App() {
                 onChange={(event) => patchSetting("enableBrowserPost", event.target.checked)}
               />
               Browser post
+            </label>
+            <label className="checkbox-row">
+              <input
+                checked={desktopSettings.closeChromeAfterPost ?? false}
+                type="checkbox"
+                onChange={(event) => patchSetting("closeChromeAfterPost", event.target.checked)}
+              />
+              Close Chrome after post
             </label>
             <label>
               Provider

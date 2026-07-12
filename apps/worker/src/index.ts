@@ -203,16 +203,23 @@ export async function checkWorkerStartup(options: WorkerOptions) {
   }
 
   if (runnableAccount) {
-    try {
-      const session = await api<{ error: string | null; loggedIn: boolean }>(
-        options.apiUrl,
-        `/browser/x-session?accountId=${encodeURIComponent(runnableAccount.id)}`
-      );
-      if (!session.loggedIn) {
-        warnings.push(`X login missing for ${runnableAccount.id}${session.error ? `: ${session.error}` : ""}`);
+    const browserPrepareEnabled = process.env.ZYQUOR_ENABLE_BROWSER_PREPARE === "1";
+    const browserPostEnabled = process.env.ZYQUOR_ENABLE_BROWSER_POST === "1";
+
+    if (!browserPrepareEnabled && !browserPostEnabled) {
+      console.log("skipping X session check (browser actions disabled)");
+    } else {
+      try {
+        const session = await api<{ error: string | null; loggedIn: boolean }>(
+          options.apiUrl,
+          `/browser/x-session?accountId=${encodeURIComponent(runnableAccount.id)}`
+        );
+        if (!session.loggedIn) {
+          warnings.push(`X login missing for ${runnableAccount.id}${session.error ? `: ${session.error}` : ""}`);
+        }
+      } catch (error) {
+        warnings.push(`X login check failed: ${error instanceof Error ? error.message : error}`);
       }
-    } catch (error) {
-      warnings.push(`X login check failed: ${error instanceof Error ? error.message : error}`);
     }
   } else {
     warnings.push("No enabled account exists for automatic posting.");

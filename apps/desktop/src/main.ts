@@ -56,13 +56,6 @@ async function main() {
     return;
   }
 
-  app.on("second-instance", () => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (win.isMinimized()) win.restore();
-      win.focus();
-    }
-  });
-
   if (!process.env.ZYQUOR_DATA_ROOT) {
     process.env.ZYQUOR_DATA_ROOT = app.getPath("userData");
   }
@@ -116,6 +109,15 @@ async function main() {
       }
       saveSettings(dataRoot, currentSettings);
       applySettingsToEnv(currentSettings);
+
+      // Wire startWithWindows
+      if (!headlessSmoke && process.platform === "win32") {
+        app.setLoginItemSettings({
+          openAtLogin: !!currentSettings.startWithWindows,
+          args: ["--hidden"],
+        });
+      }
+
       return currentSettings;
     },
   };
@@ -179,39 +181,62 @@ async function main() {
     }
   }
 
+  // Wire startWithWindows at startup
+  if (!headlessSmoke && process.platform === "win32") {
+    app.setLoginItemSettings({
+      openAtLogin: !!desktopSettings.startWithWindows,
+      args: ["--hidden"],
+    });
+  }
+
   const preloadPath = resolve(__dirname, "preload.js");
-
-  const win = new BrowserWindow({
-    width: 1024,
-    height: 768,
-    show: false,
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      preload: preloadPath,
-      additionalArguments: [`--zyquor-api=${workerApiUrl}`],
-    },
-  });
-
-  win.once("ready-to-show", () => {
-    win.show();
-  });
-
-  win.on("close", (event) => {
-    if (!isQuitting) {
-      event.preventDefault();
-      win.hide();
-    }
-  });
-
   const webIndexPath = resolve(__dirname, "../../web/dist/index.html");
-  if (existsSync(webIndexPath)) {
-    await win.loadFile(webIndexPath);
-  } else {
-    await win.loadURL(
-      "data:text/html,<h1>Zyquor</h1><p>Web UI not built</p>"
-    );
+
+  let win: BrowserWindow | null = null;
+
+  function showOrCreateWindow() {
+    if (win && !win.isDestroyed()) {
+      win.show();
+      win.focus();
+      return;
+    }
+    win = new BrowserWindow({
+      width: 1024,
+      height: 768,
+      show: false,
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        preload: preloadPath,
+        additionalArguments: [`--zyquor-api=${workerApiUrl}`],
+      },
+    });
+
+    win.once("ready-to-show", () => {
+      win!.show();
+    });
+
+    win.on("closed", () => {
+      win = null;
+    });
+
+    if (existsSync(webIndexPath)) {
+      void win.loadFile(webIndexPath);
+    } else {
+      void win.loadURL(
+        "data:text/html,<h1>Zyquor</h1><p>Web UI not built</p>"
+      );
+    }
+  }
+
+  app.on("second-instance", () => {
+    showOrCreateWindow();
+  });
+
+  // --hidden: don't show window at startup (tray only)
+  if (!process.argv.includes("--hidden")) {
+    showOrCreateWindow();
   }
 
   const tray = new Tray(makeTrayIcon());
@@ -219,8 +244,7 @@ async function main() {
     {
       label: "Open",
       click: () => {
-        win.show();
-        win.focus();
+        showOrCreateWindow();
       },
     },
     { type: "separator" },
@@ -235,13 +259,13 @@ async function main() {
             : `Chrome not launched: ${result.reason ?? "unknown"}`;
           tray.setToolTip(`Zyquor — ${message}`);
           if (result.launched) {
-            dialog.showMessageBox(win, {
+            dialog.showMessageBox(win!, {
               type: "info",
               title: "Chrome",
               message: "Posting Chrome launched with CDP",
             });
           } else {
-            dialog.showMessageBox(win, {
+            dialog.showMessageBox(win!, {
               type: "warning",
               title: "Chrome",
               message: `Could not launch Chrome: ${result.reason ?? "unknown"}`,
@@ -250,7 +274,7 @@ async function main() {
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Unknown error";
           tray.setToolTip(`Zyquor — Chrome error: ${msg}`);
-          dialog.showMessageBox(win, {
+          dialog.showMessageBox(win!, {
             type: "error",
             title: "Chrome",
             message: `Chrome launch error: ${msg}`,
@@ -273,8 +297,7 @@ async function main() {
   tray.setContextMenu(contextMenu);
 
   tray.on("double-click", () => {
-    win.show();
-    win.focus();
+    showOrCreateWindow();
   });
 
   app.on("before-quit", async () => {

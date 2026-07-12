@@ -60,6 +60,23 @@ async function main() {
     }
   }
 
+  // Idle RSS and lazy-browser evidence
+  const idleRssMB = Math.round((process.memoryUsage().rss / (1024 * 1024)) * 100) / 100;
+  console.log(`idle RSS: ${idleRssMB} MB`);
+
+  // Check browser was never loaded (lazy import evidence)
+  try {
+    const healthRes2 = await fetch(`${url}/health`);
+    const healthJson2 = await healthRes2.json();
+    if (healthJson2.browserLoaded === false) {
+      console.log("lazy-browser OK: @zyquor/browser not loaded at idle");
+    } else {
+      console.warn("lazy-browser WARN: @zyquor/browser was loaded at idle");
+    }
+  } catch {
+    console.warn("lazy-browser WARN: could not check browserLoaded");
+  }
+
   await workerHandle.stop();
   await api.close();
 

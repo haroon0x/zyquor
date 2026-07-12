@@ -5,6 +5,7 @@ import type { ZyquorRepository } from "@zyquor/storage";
 export interface DesktopSettingsData {
   enableBrowserPrepare?: boolean;
   enableBrowserPost?: boolean;
+  closeChromeAfterPost?: boolean;
   llmProvider?: string;
   openrouterApiKey?: string;
   geminiApiKey?: string;
@@ -82,6 +83,7 @@ export interface AppDeps {
       topicOverlap: number;
     };
   };
+  browserLoaded: boolean;
   browser: {
     enablePrepare: boolean;
     enablePost: boolean;
