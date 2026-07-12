@@ -5,7 +5,7 @@ import { dirname, resolve } from "node:path";
 import { profilesPath } from "@zyquor/core";
 import { launchPostingChrome } from "./chrome.js";
 import { initFileLog, logLine } from "./log.js";
-import { applySettingsToEnv, loadSettings, saveSettings, type DesktopSettings } from "./settings.js";
+import { applyDesktopEnvDefaults, applySettingsToEnv, loadSettings, saveSettings, type DesktopSettings } from "./settings.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -20,6 +20,8 @@ function makeTrayIcon(): Electron.NativeImage {
   }
   return nativeImage.createFromBuffer(pixels, { width: size, height: size });
 }
+
+app.setName("Zyquor");
 
 let isQuitting = false;
 
@@ -68,6 +70,7 @@ async function main() {
   // Keys are stored plain in userData; OS keychain integration is future work.
   const desktopSettings = loadSettings(process.env.ZYQUOR_DATA_ROOT);
   applySettingsToEnv(desktopSettings);
+  applyDesktopEnvDefaults(desktopSettings);
 
   const { ensureFirstRun, detectSqliteSupport } = await import("@zyquor/storage");
   ensureFirstRun(process.env.ZYQUOR_DATA_ROOT);
@@ -209,6 +212,7 @@ async function main() {
     win = new BrowserWindow({
       width: 1024,
       height: 768,
+      title: "Zyquor",
       show: false,
       webPreferences: {
         contextIsolation: true,
@@ -325,6 +329,9 @@ async function main() {
   tray.on("double-click", () => {
     showOrCreateWindow();
   });
+
+  // App stays in tray when window is closed — do not quit.
+  app.on("window-all-closed", () => {});
 
   app.on("before-quit", async () => {
     isQuitting = true;

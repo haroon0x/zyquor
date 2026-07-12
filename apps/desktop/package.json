@@ -1,6 +1,7 @@
 {
   "name": "@zyquor/desktop",
   "version": "0.0.0",
+  "productName": "Zyquor",
   "private": true,
   "type": "module",
   "main": "dist/main.js",

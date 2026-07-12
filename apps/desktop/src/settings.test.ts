@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { applySettingsToEnv, loadSettings, saveSettings, type DesktopSettings } from "./settings.js";
+import { applyDesktopEnvDefaults, applySettingsToEnv, loadSettings, saveSettings, type DesktopSettings } from "./settings.js";
 
 const tmpRoot = "/tmp/zyquor-desktop-settings-test";
 const dataRoot = join(tmpRoot, "userData");
@@ -136,6 +136,64 @@ describe("applySettingsToEnv", () => {
     withCleanEnv(() => {
       applySettingsToEnv({ enableBrowserPrepare: false });
       expect(process.env.ZYQUOR_ENABLE_BROWSER_PREPARE).toBe("0");
+    });
+  });
+});
+
+describe("applyDesktopEnvDefaults", () => {
+  function withCleanBrowserEnv(fn: () => void) {
+    const savedChannel = process.env.ZYQUOR_BROWSER_CHANNEL;
+    const savedCdpUrl = process.env.ZYQUOR_BROWSER_CDP_URL;
+    delete process.env.ZYQUOR_BROWSER_CHANNEL;
+    delete process.env.ZYQUOR_BROWSER_CDP_URL;
+    try {
+      fn();
+    } finally {
+      if (savedChannel === undefined) delete process.env.ZYQUOR_BROWSER_CHANNEL;
+      else process.env.ZYQUOR_BROWSER_CHANNEL = savedChannel;
+      if (savedCdpUrl === undefined) delete process.env.ZYQUOR_BROWSER_CDP_URL;
+      else process.env.ZYQUOR_BROWSER_CDP_URL = savedCdpUrl;
+    }
+  }
+
+  it("sets default channel and CDP URL when both unset", () => {
+    withCleanBrowserEnv(() => {
+      applyDesktopEnvDefaults({});
+      expect(process.env.ZYQUOR_BROWSER_CHANNEL).toBe("chrome");
+      expect(process.env.ZYQUOR_BROWSER_CDP_URL).toBe("http://127.0.0.1:9222");
+    });
+  });
+
+  it("uses settings.cdpPort when set", () => {
+    withCleanBrowserEnv(() => {
+      applyDesktopEnvDefaults({ cdpPort: 9333 });
+      expect(process.env.ZYQUOR_BROWSER_CDP_URL).toBe("http://127.0.0.1:9333");
+    });
+  });
+
+  it("does not override pre-set ZYQUOR_BROWSER_CHANNEL", () => {
+    withCleanBrowserEnv(() => {
+      process.env.ZYQUOR_BROWSER_CHANNEL = "chromium";
+      applyDesktopEnvDefaults({});
+      expect(process.env.ZYQUOR_BROWSER_CHANNEL).toBe("chromium");
+    });
+  });
+
+  it("does not override pre-set ZYQUOR_BROWSER_CDP_URL", () => {
+    withCleanBrowserEnv(() => {
+      process.env.ZYQUOR_BROWSER_CDP_URL = "http://10.0.0.1:9222";
+      applyDesktopEnvDefaults({});
+      expect(process.env.ZYQUOR_BROWSER_CDP_URL).toBe("http://10.0.0.1:9222");
+    });
+  });
+
+  it("does not override both when both are pre-set", () => {
+    withCleanBrowserEnv(() => {
+      process.env.ZYQUOR_BROWSER_CHANNEL = "chromium";
+      process.env.ZYQUOR_BROWSER_CDP_URL = "http://10.0.0.1:9222";
+      applyDesktopEnvDefaults({});
+      expect(process.env.ZYQUOR_BROWSER_CHANNEL).toBe("chromium");
+      expect(process.env.ZYQUOR_BROWSER_CDP_URL).toBe("http://10.0.0.1:9222");
     });
   });
 });
