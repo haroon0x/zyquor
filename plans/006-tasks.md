@@ -16,8 +16,8 @@ Executor: command-code CLI with deepseek/deepseek-v4-pro, orchestrated by Claude
 | 2.2 | node:sqlite runtime probe | DONE | `1ec667c` | Light variant (Electron 37 has node:sqlite); createRequire dodges vitest resolver |
 | 2.3 | settings.json replaces .env | DONE | `207fb14` | Masked GET/PATCH /settings; UI panel gated on window.zyquor |
 | 3.1 | electron-builder packaging | DONE | `6348cf0` | playwright→playwright-core; 13MB asar verified; Windows NSIS via CI job |
-| 3.2 | Background-first optimization | DONE | `8452f80` | 1 correction: profile dirs resolved vs cwd (packaged-app breaker), startup Chromium launch skipped when posting disabled |
-| 3.3 | Ship polish (logging, version, docs) | DONE | see final commit | main.log rotation, tray tooltip failures, version footer, docs update |
+| 3.2 | Background-first optimization | DONE | `e468a15` | 1 correction: profile dirs resolved vs cwd (packaged-app breaker), startup Chromium launch skipped when posting disabled |
+| 3.3 | Ship polish (logging, version, docs) | DONE | `60bd1f3` | main.log rotation, tray tooltip failures, version footer, docs update |
 
 ## Standing verification gates (run per task)
 
