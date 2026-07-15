@@ -98,12 +98,12 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
         <span>ready now {readyNowJobs.length}</span><span>scheduled later {scheduledLaterJobs.length}</span>
         <span>failed {failedJobs.length}</span><span>posted {postedJobs.length}</span>
       </div>
-      {readyNowJobs.length || failedJobs.length ? <button className="secondary queue-action" disabled={busy} onClick={postAllReadyJobs}><Busy active={busy} />Post all ready</button> : null}
+      {readyNowJobs.length || failedJobs.length ? <button className="queue-action" disabled={busy} onClick={postAllReadyJobs}><Busy active={busy} />Post all ready</button> : null}
       {readyForBulkPrepare.length ? <button className="secondary queue-action" disabled={busy} onClick={prepareAllReadyJobs}><Busy active={busy} />Prepare all ready</button> : null}
       {postedJobs.length || failedJobs.length ? <button className="secondary queue-action" disabled={busy} onClick={deleteCleanupJobs}><Busy active={busy} />Cleanup</button> : null}
       {accountJobs.length ? <button className="secondary danger queue-action" disabled={busy} onClick={deleteAllJobs}><Busy active={busy} />Delete all</button> : null}
       {selectedDeletableJobs.length ? <button className="secondary danger queue-action" disabled={busy} onClick={deleteSelectedJobs}><Busy active={busy} />Delete selected failed/prepared ({selectedDeletableJobs.length})</button> : null}
-      {selectedJobIds.length ? <button className="secondary queue-action" disabled={busy} onClick={() => setSelectedJobIds([])}>Clear selection ({selectedJobIds.length})</button> : null}
+      {selectedJobIds.length ? <button className="ghost queue-action" disabled={busy} onClick={() => setSelectedJobIds([])}>Clear selection ({selectedJobIds.length})</button> : null}
       {accountJobs.length ? (
         <div className="job-buckets">
           {[

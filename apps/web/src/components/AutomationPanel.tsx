@@ -130,14 +130,16 @@ export function AutomationPanel({ panel }: { panel: PanelProps }) {
           Daily max
           <input min="1" max="1000" type="number" value={automationDraft.maxPacketsPerDay} onChange={(event) => setAutomationDraft({ ...automationDraft, maxPacketsPerDay: Number(event.target.value) })} />
         </label>
-        <label>
-          Start
-          <input type="time" value={automationDraft.scheduleWindowStart} onChange={(event) => setAutomationDraft({ ...automationDraft, scheduleWindowStart: event.target.value })} />
-        </label>
-        <label>
-          End
-          <input type="time" value={automationDraft.scheduleWindowEnd} onChange={(event) => setAutomationDraft({ ...automationDraft, scheduleWindowEnd: event.target.value })} />
-        </label>
+        <div className="time-grid wide-field">
+          <label>
+            Start
+            <input type="time" value={automationDraft.scheduleWindowStart} onChange={(event) => setAutomationDraft({ ...automationDraft, scheduleWindowStart: event.target.value })} />
+          </label>
+          <label>
+            End
+            <input type="time" value={automationDraft.scheduleWindowEnd} onChange={(event) => setAutomationDraft({ ...automationDraft, scheduleWindowEnd: event.target.value })} />
+          </label>
+        </div>
       </div>
       <div className="automation-actions">
         <button disabled={busy || (automationDraft.sourceType === "feed" && !automationDraft.feedUrl.trim())} onClick={saveAutomationConfig}><Busy active={busy} />Save automation</button>

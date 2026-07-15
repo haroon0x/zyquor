@@ -26,12 +26,7 @@ export function WorkerPanel({ panel }: { panel: PanelProps }) {
   return (
     <section className="panel worker-panel">
       <div className="panel-head">
-        <div>
-          <h2>Worker</h2>
-          <p className="empty">
-            Last heartbeat {workerStatus?.lastHeartbeatAt ? new Date(workerStatus.lastHeartbeatAt).toLocaleString() : "never"}
-          </p>
-        </div>
+        <h2>Worker</h2>
         <div className="panel-head-actions">
           <span className={workerStatus?.workerRunning ? "provider-pill" : "session-pill failed"}>
             {workerStatus?.workerRunning ? "running" : "offline"}
@@ -42,9 +37,16 @@ export function WorkerPanel({ panel }: { panel: PanelProps }) {
         </div>
       </div>
       <InlineError message={loadError} />
-      <p className={workerStatus?.lastError ? "worker-error" : "empty"}>
-        Last error: {workerStatus?.lastError ?? "none"}
-      </p>
+      <dl className="worker-details data-content">
+        <div>
+          <dt>Last heartbeat</dt>
+          <dd>{workerStatus?.lastHeartbeatAt ? new Date(workerStatus.lastHeartbeatAt).toLocaleString() : "never"}</dd>
+        </div>
+        <div>
+          <dt>Last error</dt>
+          <dd className={workerStatus?.lastError ? "worker-error" : undefined}>{workerStatus?.lastError ?? "none"}</dd>
+        </div>
+      </dl>
       <div className="ingest-run-list">
         {ingestRuns.length ? (
           ingestRuns.slice(0, 5).map((ingestRun) => (

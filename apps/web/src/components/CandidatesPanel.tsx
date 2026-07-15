@@ -32,6 +32,7 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
     setScheduleSpacingMinutes,
     setScheduledFor
   } = state;
+  const selectedCandidate = draft?.candidates.find((candidate) => candidate.selected) ?? null;
 
   function selectCandidate(candidate: Candidate) {
     if (!draft) return;
@@ -57,6 +58,7 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
         })
       });
       setDraft({ ...draft, draft: response.draft });
+      setAutoPost(false);
       setScheduledFor("");
       await refresh();
     });
@@ -67,13 +69,13 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
       <section className="panel candidates">
         <div className="panel-head">
           <h2>Candidates</h2>
-          <StatusBadge status={draft?.draft.status ?? "empty"} />
+          {draft ? <StatusBadge status={draft.draft.status} /> : null}
         </div>
-        <div className="candidate-list">
+        <div className={draft?.candidates.length ? "candidate-list data-content" : "candidate-list empty-state"}>
           {draft?.candidates.length ? draft.candidates.map((candidate) => (
             <button
               aria-pressed={candidate.selected}
-              className={candidate.selected ? "candidate selected" : "candidate"}
+              className={candidate.selected ? "candidate secondary selected" : "candidate secondary"}
               disabled={busy}
               key={candidate.id}
               onClick={() => selectCandidate(candidate)}
@@ -84,7 +86,7 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
         </div>
       </section>
 
-      <section className="panel editor">
+      {selectedCandidate ? <section className="panel editor">
         <div className="panel-head">
           <h2>Editor</h2>
           <span>{editedText.length}/{X_FREE_POST_CHARACTER_LIMIT}</span>
@@ -125,7 +127,7 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
         >
           <Busy active={busy} />Approve job
         </button>
-      </section>
+      </section> : null}
     </>
   );
 }

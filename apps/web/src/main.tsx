@@ -30,14 +30,14 @@ function App() {
   const [tweetType, setTweetType] = useState("useful_info");
   const [idea, setIdea] = useState("");
   const [replyToUrl, setReplyToUrl] = useState("");
-  const [autoPost, setAutoPost] = useState(true);
+  const [autoPost, setAutoPost] = useState(false);
   const [scheduledFor, setScheduledFor] = useState("");
   const [scheduleSpacingMinutes, setScheduleSpacingMinutes] = useState(90);
   const [browserSession, setBrowserSession] = useState<BrowserSession | null>(null);
   const [generation, setGeneration] = useState<GenerationConfig | null>(null);
   const [generationModelOptions, setGenerationModelOptions] = useState<GenerationModelOptions>({});
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busyScopes, setBusyScopes] = useState<string[]>([]);
   const [refreshToken, setRefreshToken] = useState(0);
   const refreshRequestIdRef = useRef(0);
   const isElectron = Boolean(window.zyquor);
@@ -63,28 +63,39 @@ function App() {
     void loadRootData().catch((caught) => reportError(caught, "API unavailable"));
   }, []);
 
+  useEffect(() => {
+    setAutoPost(false);
+  }, [draft?.draft.id]);
+
   async function refresh() {
     setRefreshToken((current) => current + 1);
     await loadRootData();
   }
 
-  function run(action: () => Promise<void>) {
+  function run(action: () => Promise<void>, scope: string) {
     setError(null);
-    setBusy(true);
+    setBusyScopes((current) => current.includes(scope) ? current : [...current, scope]);
     void action()
       .catch((caught) => reportError(caught, "Unknown error"))
-      .finally(() => setBusy(false));
+      .finally(() => setBusyScopes((current) => current.filter((item) => item !== scope)));
   }
 
   function checkBrowserSession() {
     run(async () => {
       const session = await api<BrowserSession>(`/browser/x-session?accountId=${encodeURIComponent(activeAccountId)}`);
       setBrowserSession(session);
-    });
+    }, "header");
   }
 
   const activeAccount = accounts.find((account) => account.id === activeAccountId);
-  const panel: PanelProps = { accountId: activeAccountId, busy, refresh, refreshToken, reportError, run };
+  const panelFor = (scope: string): PanelProps => ({
+    accountId: activeAccountId,
+    busy: busyScopes.includes(scope),
+    refresh,
+    refreshToken,
+    reportError,
+    run: (action) => run(action, scope)
+  });
   const composerState = {
     autoPost, idea, postPlan, replyToUrl, scheduleSpacingMinutes, scheduledFor, tweetType,
     setDraft, setEditedText, setIdea, setPostPlan, setReplyToUrl, setTweetType
@@ -96,26 +107,16 @@ function App() {
 
   return (
     <main className="shell">
-      <section className="topbar">
-        <div><p className="eyebrow">Zyquor</p><h1>Draft, review, prepare.</h1></div>
-        <select
-          aria-label="Active account"
-          value={activeAccountId}
-          onChange={(event) => {
-            setActiveAccountId(event.target.value);
-            setBrowserSession(null);
-          }}
-        >
-          {accounts.map((account) => <option key={account.id} value={account.id}>{account.displayName}</option>)}
-        </select>
-      </section>
-
-      {activeAccount ? (
-        <section className="account-strip">
-          <span>@{activeAccount.handle}</span>
+      <header className="topbar">
+        <div className="product-lockup">
+          <p className="wordmark">Zyquor</p>
+          <p className="tagline">Draft, review, prepare.</p>
+        </div>
+        <div className="product-controls">
+          {activeAccount ? <span>@{activeAccount.handle}</span> : null}
           {generation ? (
             <span className={generation.configured ? "provider-pill" : "provider-pill failed"}>
-              Live model: {liveModelLabel(generation)}
+              {liveModelLabel(generation)}
             </span>
           ) : null}
           {browserSession ? (
@@ -123,27 +124,39 @@ function App() {
               X {browserSession.loggedIn ? "logged in" : "logged out"}
             </span>
           ) : <span className="session-pill unknown">X unchecked</span>}
-          <button className="strip-button" disabled={busy} onClick={checkBrowserSession}><Busy active={busy} />Check X</button>
-        </section>
-      ) : null}
+          <select
+            aria-label="Active account"
+            value={activeAccountId}
+            onChange={(event) => {
+              setActiveAccountId(event.target.value);
+              setBrowserSession(null);
+            }}
+          >
+            {accounts.map((account) => <option key={account.id} value={account.id}>{account.displayName}</option>)}
+          </select>
+          <button className="secondary compact-button" disabled={busyScopes.includes("header")} onClick={checkBrowserSession}>
+            <Busy active={busyScopes.includes("header")} />Check X
+          </button>
+        </div>
+      </header>
 
       {error ? <p className="notice error" role="alert">{error}</p> : null}
       <section className="app-layout">
         <div className="primary-flow">
-          <Composer panel={panel} state={composerState} />
-          <CandidatesPanel panel={panel} state={candidatesState} />
-          <JobsPanel panel={panel} />
+          <Composer panel={panelFor("composer")} state={composerState} />
+          <CandidatesPanel panel={panelFor("candidates")} state={candidatesState} />
+          <JobsPanel panel={panelFor("jobs")} />
         </div>
         <aside className="utility-flow">
-          <AutomationPanel panel={panel} />
-          <WorkerPanel panel={panel} />
-          <SourcePacketsPanel panel={panel} state={{ setDraft, setEditedText }} />
-          {activeAccount ? <StylePanel panel={panel} styleProfileId={activeAccount.styleProfileId} /> : null}
+          <AutomationPanel panel={panelFor("automation")} />
+          <WorkerPanel panel={panelFor("worker")} />
+          <SourcePacketsPanel panel={panelFor("sources")} state={{ setDraft, setEditedText }} />
+          {activeAccount ? <StylePanel panel={panelFor("style")} styleProfileId={activeAccount.styleProfileId} /> : null}
           <GenerationPanel
-            panel={panel}
+            panel={panelFor("generation")}
             state={{ generation, generationModelOptions, setGeneration, setGenerationModelOptions }}
           />
-          {isElectron ? <DesktopSettingsPanel panel={panel} /> : null}
+          {isElectron ? <DesktopSettingsPanel panel={panelFor("desktop-settings")} /> : null}
         </aside>
       </section>
       {appVersion ? <footer className="version-footer">v{appVersion}</footer> : null}

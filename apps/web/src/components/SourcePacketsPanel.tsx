@@ -122,7 +122,7 @@ export function SourcePacketsPanel({ panel, state }: { panel: PanelProps; state:
             </label>
             <label>Title<input value={packetDraft.title} onChange={(event) => setPacketDraft({ ...packetDraft, title: event.target.value })} /></label>
             <label>URL<input value={packetDraft.url} onChange={(event) => setPacketDraft({ ...packetDraft, url: event.target.value })} /></label>
-            <label>Summary<textarea value={packetDraft.summary} onChange={(event) => setPacketDraft({ ...packetDraft, summary: event.target.value })} rows={4} /></label>
+            <label>Summary<textarea value={packetDraft.summary} onChange={(event) => setPacketDraft({ ...packetDraft, summary: event.target.value })} rows={3} /></label>
             <label>Facts<textarea value={packetDraft.facts} onChange={(event) => setPacketDraft({ ...packetDraft, facts: event.target.value })} placeholder="One fact per line" rows={5} /></label>
           </div>
           <button disabled={!packetDraft.title.trim() || !packetDraft.summary.trim() || busy}><Busy active={busy} />Create source</button>
