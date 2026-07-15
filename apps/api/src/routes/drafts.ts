@@ -4,7 +4,8 @@ import {
   approveDraftRequestSchema,
   createDraftRequestSchema,
   selectDraftCandidateRequestSchema,
-  AI_SLOP_PHRASES
+  AI_SLOP_PHRASES,
+  parseReplyTargetUrl
 } from "@zyquor/core";
 import { accountGenerationContext } from "@zyquor/automation";
 import { tracePostProcessTweetText } from "../lib/post-process.js";
@@ -33,7 +34,14 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
       idea: draft.sourceInput,
       count,
       ...context,
-      ...(metadata.tweetType ? { tweetType: metadata.tweetType as string } : {})
+      ...(draft.replyTo
+        ? { tweetType: "reply" }
+        : metadata.tweetType
+          ? { tweetType: metadata.tweetType as string }
+          : {}),
+      ...(draft.replyTo
+        ? { replyContext: { authorHandle: draft.replyTo.authorHandle, url: draft.replyTo.url } }
+        : {})
     });
 
     const updated = await repository.saveDraftCandidates(
@@ -82,7 +90,7 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
           draftId: draft.id,
           editedText: tracePostProcessTweetText("manual-select", selectedText),
           mode,
-          replyToUrl: draft.replyToUrl ?? null,
+          ...(draft.replyTo ? { replyTo: draft.replyTo } : {}),
           scheduledFor: (metadata.scheduleStart as string | null | undefined) ?? null
         });
         return reply.code(201).send({ ...approved, candidates: updated.candidates });
@@ -93,18 +101,23 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
   });
 
   app.post("/drafts", async (request, reply) => {
+    const rawReplyToUrl = (request.body as { replyToUrl?: unknown } | null)?.replyToUrl;
+    const replyTo = typeof rawReplyToUrl === "string" ? parseReplyTargetUrl(rawReplyToUrl) : null;
+    if (rawReplyToUrl !== undefined && !replyTo) {
+      return reply.code(400).send({ error: "replyToUrl must be a valid x.com or twitter.com post URL" });
+    }
     const input = createDraftRequestSchema.parse(request.body);
     const repository = await deps.repository;
 
     const result = await repository.createDraft({
       accountId: input.accountId,
       sourceInput: input.idea,
-      replyToUrl: input.replyToUrl ?? null,
+      ...(replyTo ? { replyTo } : {}),
       metadata: {
         yolo: input.yolo,
         autopost: input.autopost,
         count: input.count ?? 3,
-        tweetType: input.tweetType
+        tweetType: replyTo ? "reply" : input.tweetType
       }
     });
 
@@ -152,7 +165,7 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
       editedText: tracePostProcessTweetText("update-draft", input.editedText),
       ...(input.mode ? { mode: input.mode } : {}),
       scheduledFor: input.scheduledFor ?? null,
-      replyToUrl: existing.draft.replyToUrl ?? null
+      ...(existing.draft.replyTo ? { replyTo: existing.draft.replyTo } : {})
     });
 
     return reply.code(201).send(result);

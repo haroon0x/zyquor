@@ -10,6 +10,7 @@ export interface GenerateDraftCandidatesInput {
   count?: number;
   objective?: string;
   recentPostHistory?: string[];
+  replyContext?: { authorHandle: string; url: string };
   systemPromptExtra?: string;
   tone?: string | null;
   tweetType?: string;
@@ -380,7 +381,10 @@ function systemPrompt(input: GenerateDraftCandidatesInput) {
 }
 
 function userPrompt(input: GenerateDraftCandidatesInput) {
-  return `${tweetTypeInstruction(input.tweetType)}\n\nContext to turn into public X posts:\n${normalizeIdea(input.idea)}${renderSourceContext(input.context)}`;
+  const replyInstruction = input.replyContext
+    ? `You are drafting a reply to @${input.replyContext.authorHandle}'s post at ${input.replyContext.url}. Write a useful reply using the user's description of the target post below. Do not claim to have opened or read the linked post.`
+    : "";
+  return `${tweetTypeInstruction(input.tweetType)}${replyInstruction ? `\n${replyInstruction}` : ""}\n\nContext to turn into public X posts:\n${normalizeIdea(input.idea)}${renderSourceContext(input.context)}`;
 }
 
 function linePrompt(input: GenerateDraftCandidatesInput) {
@@ -389,6 +393,9 @@ function linePrompt(input: GenerateDraftCandidatesInput) {
   return [
     `Write exactly ${count} concise X post drafts about this idea: ${normalizeIdea(input.idea)}`,
     tweetTypeInstruction(input.tweetType),
+    input.replyContext
+      ? `You are drafting a reply to @${input.replyContext.authorHandle}'s post at ${input.replyContext.url}. Write a useful reply using the user's description of the target post. Do not claim to have opened or read the linked post.`
+      : "",
     `Each draft must be ${limit} characters or fewer.`,
     "One draft per line.",
     "No numbering, no labels, no JSON.",
@@ -397,7 +404,7 @@ function linePrompt(input: GenerateDraftCandidatesInput) {
     "Never mention SourcePacket, source packet, compact input, candidate, draft, metadata, prompt, or distillation.",
     "Avoid cheap bait, fake claims, hashtags, and emojis.",
     ...PUNCTUATION_RULES
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 }
 
 function asText(value: unknown) {

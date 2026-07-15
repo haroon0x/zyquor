@@ -2,8 +2,9 @@ import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
-import { afterEach, describe, expect, it } from "vitest";
-import { checkXLogin, preparePost, resolveProfileDir } from "./index.js";
+import type { Page } from "playwright-core";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { checkXLogin, openPostComposer, preparePost, resolveProfileDir } from "./index.js";
 
 function htmlUrl(html: string) {
   return `data:text/html,${encodeURIComponent(html)}`;
@@ -59,6 +60,35 @@ describe("CDP session guard", () => {
         cdpUrl: "http://127.0.0.1:9"
       })
     ).rejects.toThrow("Refusing to launch a fallback browser against the persistent X profile");
+  });
+});
+
+describe("reply composer", () => {
+  it("navigates to the target post and opens its reply composer", async () => {
+    const replyTo = {
+      tweetId: "1898765432109876543",
+      authorHandle: "target_user",
+      url: "https://x.com/target_user/status/1898765432109876543"
+    };
+    let currentUrl = "https://x.com/home";
+    const click = vi.fn(async () => undefined);
+    const first = vi.fn(() => ({ click }));
+    const locator = vi.fn(() => ({ first }));
+    const goto = vi.fn(async (url: string) => {
+      currentUrl = url;
+      return null;
+    });
+    const page = {
+      goto,
+      locator,
+      url: () => currentUrl
+    } as unknown as Page;
+
+    await openPostComposer(page, "https://x.com/compose/post", replyTo);
+
+    expect(goto).toHaveBeenCalledWith(replyTo.url, { waitUntil: "commit", timeout: 45_000 });
+    expect(locator).toHaveBeenCalledWith('article[data-testid="tweet"] [data-testid="reply"], [data-testid="reply"]');
+    expect(click).toHaveBeenCalledWith({ timeout: 15_000 });
   });
 });
 

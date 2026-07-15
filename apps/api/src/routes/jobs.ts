@@ -230,7 +230,7 @@ export function registerJobsRoutes(app: FastifyInstance, deps: AppDeps): void {
       await preparePost({
         profileDir: resolveProfileDir(account.profileDir),
         text: preparedText,
-        replyToUrl: draftForPrepare.replyToUrl ?? null,
+        ...(job.replyTo ? { replyTo: job.replyTo } : {}),
         ...(mediaPaths.length ? { mediaPaths } : {}),
         ...browserOptions(deps),
         closeAfterPrepare: deps.browser.closeAfterPrepare ?? true

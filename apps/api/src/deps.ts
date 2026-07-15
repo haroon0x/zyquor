@@ -1,6 +1,7 @@
 import type { SourceAdapter } from "@zyquor/adapters";
 import type { DraftGenerationProvider, GenerationEnvironment } from "@zyquor/generation";
 import type { ZyquorRepository } from "@zyquor/storage";
+import type { ReplyTarget } from "@zyquor/core";
 
 export interface DesktopSettingsData {
   enableBrowserPrepare?: boolean;
@@ -42,6 +43,7 @@ export interface BuildAppOptions {
     closeAfterPrepare?: boolean;
     mediaPaths?: string[];
     profileDir: string;
+    replyTo?: ReplyTarget;
     submit?: boolean;
     text: string;
     typingDelayMs?: number;

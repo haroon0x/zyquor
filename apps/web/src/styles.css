@@ -514,6 +514,11 @@ label {
   color: var(--muted);
 }
 
+.job .reply-tag {
+  color: var(--accent);
+  font-size: 0.75rem;
+}
+
 .attempts {
   display: grid;
   gap: 0.375rem;

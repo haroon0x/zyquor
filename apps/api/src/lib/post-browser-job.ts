@@ -135,7 +135,7 @@ export async function postBrowserJob(deps: AppDeps, jobId: string) {
     const result = await preparePost({
       profileDir: resolveProfileDir(account.profileDir),
       text: qualityText.value,
-      replyToUrl: draftForPost.replyToUrl ?? null,
+      ...(job.replyTo ? { replyTo: job.replyTo } : {}),
       ...(mediaPaths.length ? { mediaPaths } : {}),
       ...browserOptions(deps),
       submit: true

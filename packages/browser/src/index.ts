@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { chromium, type BrowserContext, type Locator, type Page } from "playwright-core";
-import { dataPath, profilesPath, resolveDataRoot } from "@zyquor/core";
+import { dataPath, profilesPath, resolveDataRoot, type ReplyTarget } from "@zyquor/core";
 
 export function resolveProfileDir(profileDir: string): string {
   return isAbsolute(profileDir) ? profileDir : resolve(resolveDataRoot(), profileDir);
@@ -123,6 +123,7 @@ export interface PreparePostInput {
   closeAfterPrepare?: boolean;
   headless?: boolean;
   mediaPaths?: string[];
+  replyTo?: ReplyTarget;
   replyToUrl?: string | null;
   submit?: boolean;
   typingDelayMs?: number;
@@ -197,26 +198,23 @@ async function assertNotLoginPage(page: Page) {
   }
 }
 
-async function gotoXCompose(page: Page, xUrl: string, replyToUrl?: string | null) {
-  const targetUrl = replyToUrl || xUrl;
-  if (page.url().startsWith(targetUrl)) {
-    return;
-  }
-
-  try {
-    await page.goto(targetUrl, { waitUntil: "commit", timeout: 45_000 });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown navigation error";
-    const currentUrl = page.url();
-    if (!message.includes("Timeout") || !currentUrl.startsWith(targetUrl)) {
-      throw error;
+export async function openPostComposer(page: Page, xUrl: string, replyTo?: ReplyTarget, replyToUrl?: string | null) {
+  const targetUrl = replyTo?.url ?? replyToUrl ?? xUrl;
+  if (!page.url().startsWith(targetUrl)) {
+    try {
+      await page.goto(targetUrl, { waitUntil: "commit", timeout: 45_000 });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown navigation error";
+      const currentUrl = page.url();
+      if (!message.includes("Timeout") || !currentUrl.startsWith(targetUrl)) {
+        throw error;
+      }
     }
   }
 
-  if (replyToUrl) {
-    // If it's a reply, we need to click the reply button to open the editor
-    const replyButton = page.locator('[data-testid="reply"]').first();
-    await replyButton.click({ timeout: 15_000 }).catch(() => undefined);
+  if (replyTo || replyToUrl) {
+    const replyButton = page.locator('article[data-testid="tweet"] [data-testid="reply"], [data-testid="reply"]').first();
+    await replyButton.click({ timeout: 15_000 });
   }
 }
 
@@ -463,7 +461,7 @@ export async function preparePost(input: PreparePostInput): Promise<PreparePostR
     page.on("dialog", (dialog) => {
       void dialog.dismiss().catch(() => undefined);
     });
-    await gotoXCompose(page, input.xUrl ?? "https://x.com/compose/post", input.replyToUrl);
+    await openPostComposer(page, input.xUrl ?? "https://x.com/compose/post", input.replyTo, input.replyToUrl);
     await page.waitForTimeout(actionDelayMs);
     await assertNotLoginPage(page);
 

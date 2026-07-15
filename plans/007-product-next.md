@@ -56,5 +56,5 @@ mocked page.
 |------|--------|--------|
 | A | DONE | see commit below |
 | B | DONE | see commit below |
-| C | TODO (needs B) | — |
+| C | DONE | see commit |
 | D | TODO | — |

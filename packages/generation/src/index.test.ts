@@ -21,6 +21,31 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 describe("ollama generation", () => {
+  it("renders reply context without treating the URL as browsed content", async () => {
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const fetchImpl: FetchLike = async (url, init) => {
+      calls.push({ url: String(url), init });
+      return jsonResponse({ response: '{"candidates":[{"text":"Useful reply."}]}' });
+    };
+    const provider = createOllamaGenerationProvider({ fetch: fetchImpl });
+
+    await provider.generateDraftCandidates({
+      idea: "The post says audit logs should be readable by users.",
+      tweetType: "reply",
+      replyContext: {
+        authorHandle: "target_user",
+        url: "https://x.com/target_user/status/1898765432109876543"
+      }
+    });
+
+    const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
+    expect(String(body.prompt)).toContain(
+      "You are drafting a reply to @target_user's post at https://x.com/target_user/status/1898765432109876543."
+    );
+    expect(String(body.prompt)).toContain("using the user's description of the target post");
+    expect(String(body.prompt)).toContain("Do not claim to have opened or read the linked post.");
+  });
+
   it("posts non-streaming JSON generation request", async () => {
     const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
     const fetchImpl: FetchLike = async (url, init) => {

@@ -23,6 +23,12 @@ interface Draft {
   status: string;
 }
 
+interface ReplyTarget {
+  tweetId: string;
+  authorHandle: string;
+  url: string;
+}
+
 interface Candidate {
   id: string;
   text: string;
@@ -42,6 +48,7 @@ interface Job {
   mode: string;
   scheduledFor: string | null;
   approvedAt: string | null;
+  replyTo?: ReplyTarget;
 }
 
 interface Attempt {
@@ -181,6 +188,7 @@ function App() {
   const [postPlan, setPostPlan] = useState("single");
   const [tweetType, setTweetType] = useState("useful_info");
   const [idea, setIdea] = useState("");
+  const [replyToUrl, setReplyToUrl] = useState("");
   const [draft, setDraft] = useState<DraftResponse | null>(null);
   const [editedText, setEditedText] = useState("");
   const [autoPost, setAutoPost] = useState(true);
@@ -354,6 +362,7 @@ function App() {
             idea,
             count: 1,
             tweetType,
+            ...(replyToUrl.trim() ? { replyToUrl: replyToUrl.trim() } : {}),
             yolo: true,
             autopost: true
           })
@@ -390,7 +399,13 @@ function App() {
 
       const response = await api<DraftResponse>("/drafts", {
         method: "POST",
-        body: JSON.stringify({ accountId: activeAccountId, idea, count: 3, tweetType })
+        body: JSON.stringify({
+          accountId: activeAccountId,
+          idea,
+          count: 3,
+          tweetType,
+          ...(replyToUrl.trim() ? { replyToUrl: replyToUrl.trim() } : {})
+        })
       });
       setDraft(response);
       setEditedText(response.candidates[0]?.text ?? "");
@@ -944,6 +959,17 @@ function App() {
             placeholder={postPlan === "batch" ? "One tweet idea per line..." : "Write rough idea..."}
             rows={8}
           />
+          {postPlan === "single" ? (
+            <label>
+              Reply to URL
+              <input
+                type="url"
+                value={replyToUrl}
+                onChange={(event) => setReplyToUrl(event.target.value)}
+                placeholder="https://x.com/handle/status/123..."
+              />
+            </label>
+          ) : null}
           <div className="schedule-grid">
             <label>
               Plan
@@ -954,7 +980,11 @@ function App() {
             </label>
             <label>
               Type
-              <select value={tweetType} onChange={(event) => setTweetType(event.target.value)}>
+              <select
+                value={replyToUrl.trim() && postPlan === "single" ? "reply" : tweetType}
+                onChange={(event) => setTweetType(event.target.value)}
+                disabled={Boolean(replyToUrl.trim()) && postPlan === "single"}
+              >
                 {tweetTypeOptions.map((option) => (
                   <option key={option} value={option}>
                     {option}
@@ -1401,6 +1431,7 @@ function App() {
                         <div>
                           <strong>{job.id}</strong>
                           <span>{job.scheduledFor ? `${job.mode} · ${new Date(job.scheduledFor).toLocaleString()}` : job.mode}</span>
+                          {job.replyTo ? <span className="reply-tag">reply → @{job.replyTo.authorHandle}</span> : null}
                         </div>
                         <span className={`status ${job.status}`}>{job.status}</span>
                         <label className="checkbox-row job-select">
