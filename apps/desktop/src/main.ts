@@ -200,7 +200,11 @@ async function main() {
   }
 
   const preloadPath = resolve(__dirname, "preload.js");
-  const webIndexPath = resolve(__dirname, "../../web/dist/index.html");
+  const bundledWebIndexPath = resolve(__dirname, "web/index.html");
+  const devWebIndexPath = resolve(__dirname, "../../web/dist/index.html");
+  const webIndexPath = existsSync(bundledWebIndexPath)
+    ? bundledWebIndexPath
+    : devWebIndexPath;
 
   let win: BrowserWindow | null = null;
 
