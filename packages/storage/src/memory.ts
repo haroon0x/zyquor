@@ -12,7 +12,7 @@ import type {
 import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor, dataPath, parseReplyTargetUrl } from "@zyquor/core";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { ZyquorRepository, RepositorySnapshot, ContentFingerprint } from "./types.js";
+import type { ZyquorRepository, RepositorySnapshot, ContentFingerprint, IngestRun } from "./types.js";
 import { id as idGen, normalizePostText, hashPostText } from "./utils.js";
 
 export function defaultJsonDatabasePath(): string {
@@ -72,6 +72,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
   );
   const jobs = new Map<string, PostJob>((options.snapshot?.jobs ?? []).map((job) => [job.id, job]));
   const attempts = new Map<string, PostAttempt>((options.snapshot?.attempts ?? []).map((attempt) => [attempt.id, attempt]));
+  const ingestRuns = new Map<string, IngestRun>((options.snapshot?.ingestRuns ?? []).map((run) => [run.id, run]));
   const history = new Map<string, PostHistory>((options.snapshot?.history ?? []).map((item) => [item.id, item]));
   const fingerprints = new Map<string, ContentFingerprint>(
     (options.snapshot?.fingerprints ?? []).map((item) => [item.id, item])
@@ -91,6 +92,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       candidates: [...candidates.values()],
       jobs: [...jobs.values()],
       attempts: [...attempts.values()],
+      ingestRuns: [...ingestRuns.values()],
       history: [...history.values()],
       fingerprints: [...fingerprints.values()],
       ingestConfigs: [...ingestConfigs.values()],
@@ -587,6 +589,55 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
 
     async listAttempts(jobId) {
       return [...attempts.values()].filter((attempt) => attempt.jobId === jobId);
+    },
+
+    async createIngestRun(input) {
+      const run: IngestRun = {
+        id: id("ingest_run"),
+        configId: input.configId,
+        accountId: input.accountId,
+        startedAt: now(),
+        finishedAt: null,
+        status: "running",
+        error: null,
+        packetsCreated: 0
+      };
+      ingestRuns.set(run.id, run);
+      persist();
+      return run;
+    },
+
+    async updateIngestRun(id, input) {
+      const run = ingestRuns.get(id);
+      if (!run) throw new Error(`Ingest run ${id} not found`);
+      const updated: IngestRun = {
+        ...run,
+        status: input.status,
+        error: input.error === undefined ? run.error : input.error,
+        packetsCreated: input.packetsCreated ?? run.packetsCreated,
+        finishedAt: input.status === "running" ? null : now()
+      };
+      ingestRuns.set(id, updated);
+      persist();
+      return updated;
+    },
+
+    async listIngestRuns(accountId, limit = 50) {
+      return [...ingestRuns.values()]
+        .filter((run) => !accountId || run.accountId === accountId)
+        .sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id))
+        .slice(0, Math.min(50, Math.max(0, limit)));
+    },
+
+    async recoverRunningIngestRuns() {
+      let recoveredCount = 0;
+      for (const [id, run] of ingestRuns.entries()) {
+        if (run.status !== "running") continue;
+        ingestRuns.set(id, { ...run, status: "failed", error: "interrupted", finishedAt: now() });
+        recoveredCount += 1;
+      }
+      if (recoveredCount > 0) persist();
+      return recoveredCount;
     },
 
     async createPostHistory(input) {

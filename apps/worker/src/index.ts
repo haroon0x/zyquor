@@ -173,18 +173,26 @@ export async function heartbeat(options: WorkerOptions, state: WorkerState) {
 
 export async function checkWorkerStartup(options: WorkerOptions) {
   const warnings: string[] = [];
+  let recoveredIngestRunCount = 0;
   let seededConfigId: string | null = null;
 
   try {
     await api<{ ok: boolean }>(options.apiUrl, "/health");
   } catch (error) {
     warnings.push(`API unreachable at ${options.apiUrl}: ${error instanceof Error ? error.message : error}`);
-    return { seededConfigId, warnings };
+    return { recoveredIngestRunCount, seededConfigId, warnings };
   }
 
   if (process.env.ZYQUOR_ENABLE_BROWSER_POST === "0") {
     warnings.push("ZYQUOR_ENABLE_BROWSER_POST=0, so autopost jobs cannot submit to X.");
   }
+
+  const recovery = await api<{ recoveredCount: number }>(
+    options.apiUrl,
+    "/ingest-runs/recover-stale",
+    { method: "POST" }
+  );
+  recoveredIngestRunCount = recovery.recoveredCount;
 
   const [{ accounts }, { configs }] = await Promise.all([
     api<{ accounts: Account[] }>(options.apiUrl, "/accounts"),
@@ -225,7 +233,7 @@ export async function checkWorkerStartup(options: WorkerOptions) {
     warnings.push("No enabled account exists for automatic posting.");
   }
 
-  return { seededConfigId, warnings };
+  return { recoveredIngestRunCount, seededConfigId, warnings };
 }
 
 function isNonRetryablePostError(message: string) {
@@ -488,6 +496,9 @@ export function startWorker(
       }
       if (startup.seededConfigId) {
         console.log(`Seeded default news ingest config ${startup.seededConfigId}`);
+      }
+      if (startup.recoveredIngestRunCount > 0) {
+        console.log(`Marked ${startup.recoveredIngestRunCount} interrupted ingest run(s) as failed`);
       }
     } catch (error) {
       state.lastError = error instanceof Error ? error.message : String(error);

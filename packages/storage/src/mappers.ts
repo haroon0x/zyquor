@@ -13,6 +13,7 @@ import type {
   TweetType
 } from "@zyquor/core";
 import { parseReplyTargetUrl, replyTargetSchema } from "@zyquor/core";
+import type { IngestRun } from "./types.js";
 
 export function serializeReplyTarget(replyTo: ReplyTarget | undefined): string | null {
   return replyTo ? JSON.stringify(replyTargetSchema.parse(replyTo)) : null;
@@ -97,6 +98,19 @@ export function toAttempt(row: Record<string, unknown>): PostAttempt {
     tracePath: row.trace_path === null ? null : String(row.trace_path),
     startedAt: String(row.started_at),
     finishedAt: row.finished_at === null ? null : String(row.finished_at)
+  };
+}
+
+export function toIngestRun(row: Record<string, unknown>): IngestRun {
+  return {
+    id: String(row.id),
+    configId: String(row.config_id),
+    accountId: String(row.account_id),
+    startedAt: String(row.started_at),
+    finishedAt: row.finished_at === null ? null : String(row.finished_at),
+    status: row.status as IngestRun["status"],
+    error: row.error === null ? null : String(row.error),
+    packetsCreated: Number(row.packets_created)
   };
 }
 

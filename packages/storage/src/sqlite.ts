@@ -20,6 +20,7 @@ import {
   toCandidate,
   toJob,
   toAttempt,
+  toIngestRun,
   toPostHistory,
   toStyleProfile,
   toSourcePacket,
@@ -123,6 +124,17 @@ CREATE TABLE IF NOT EXISTS post_attempts (
   finished_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS ingest_runs (
+  id TEXT PRIMARY KEY NOT NULL,
+  config_id TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  status TEXT NOT NULL,
+  error TEXT,
+  packets_created INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS post_history (
   id TEXT PRIMARY KEY NOT NULL,
   account_id TEXT NOT NULL REFERENCES accounts(id),
@@ -165,6 +177,7 @@ CREATE TABLE IF NOT EXISTS source_packets (
 CREATE INDEX IF NOT EXISTS idx_drafts_account_id ON drafts(account_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_account_status ON post_jobs(account_id, status);
 CREATE INDEX IF NOT EXISTS idx_attempts_job_id ON post_attempts(job_id);
+CREATE INDEX IF NOT EXISTS idx_ingest_runs_account_started ON ingest_runs(account_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_history_account_id ON post_history(account_id);
 CREATE INDEX IF NOT EXISTS idx_fingerprints_hash ON content_fingerprints(text_hash);
 CREATE INDEX IF NOT EXISTS idx_source_packets_account_status ON source_packets(account_id, status);
@@ -926,6 +939,58 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
       return rows(db.prepare("SELECT * FROM post_attempts WHERE job_id = ? ORDER BY started_at ASC").all(jobId)).map(
         toAttempt
       );
+    },
+
+    async createIngestRun(input) {
+      const run: import("./types.js").IngestRun = {
+        id: id("ingest_run"),
+        configId: input.configId,
+        accountId: input.accountId,
+        startedAt: now(),
+        finishedAt: null,
+        status: "running",
+        error: null,
+        packetsCreated: 0
+      };
+      db.prepare(
+        `INSERT INTO ingest_runs (id, config_id, account_id, started_at, finished_at, status, error, packets_created)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        run.id, run.configId, run.accountId, run.startedAt, run.finishedAt, run.status, run.error, run.packetsCreated
+      );
+      return run;
+    },
+
+    async updateIngestRun(runId, input) {
+      const existing = row(db.prepare("SELECT * FROM ingest_runs WHERE id = ?").get(runId));
+      if (!existing) throw new Error(`Ingest run ${runId} not found`);
+      const current = toIngestRun(existing);
+      const updated: import("./types.js").IngestRun = {
+        ...current,
+        status: input.status,
+        error: input.error === undefined ? current.error : input.error,
+        packetsCreated: input.packetsCreated ?? current.packetsCreated,
+        finishedAt: input.status === "running" ? null : now()
+      };
+      db.prepare(
+        "UPDATE ingest_runs SET status = ?, error = ?, packets_created = ?, finished_at = ? WHERE id = ?"
+      ).run(updated.status, updated.error, updated.packetsCreated, updated.finishedAt, runId);
+      return updated;
+    },
+
+    async listIngestRuns(accountId, limit = 50) {
+      const cappedLimit = Math.min(50, Math.max(0, limit));
+      const result = accountId
+        ? db.prepare("SELECT * FROM ingest_runs WHERE account_id = ? ORDER BY started_at DESC, id DESC LIMIT ?").all(accountId, cappedLimit)
+        : db.prepare("SELECT * FROM ingest_runs ORDER BY started_at DESC, id DESC LIMIT ?").all(cappedLimit);
+      return rows(result).map(toIngestRun);
+    },
+
+    async recoverRunningIngestRuns() {
+      const result = db.prepare(
+        "UPDATE ingest_runs SET status = 'failed', error = 'interrupted', finished_at = ? WHERE status = 'running'"
+      ).run(now());
+      return Number((result as { changes?: unknown }).changes ?? 0);
     },
 
     async createPostHistory(input) {

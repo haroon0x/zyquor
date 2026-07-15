@@ -109,6 +109,23 @@ interface IngestConfig {
   tweetTypeMix: Record<string, number>;
 }
 
+interface IngestRun {
+  id: string;
+  configId: string;
+  accountId: string;
+  startedAt: string;
+  finishedAt: string | null;
+  status: "running" | "succeeded" | "failed";
+  error: string | null;
+  packetsCreated: number;
+}
+
+interface WorkerStatus {
+  workerRunning: boolean;
+  lastHeartbeatAt: string | null;
+  lastError: string | null;
+}
+
 interface StyleProfile {
   id: string;
   name: string;
@@ -202,6 +219,8 @@ function App() {
   const [generationDraft, setGenerationDraft] = useState({ model: "", provider: "openrouter" });
   const [sourcePackets, setSourcePackets] = useState<SourcePacket[]>([]);
   const [ingestConfigs, setIngestConfigs] = useState<IngestConfig[]>([]);
+  const [ingestRuns, setIngestRuns] = useState<IngestRun[]>([]);
+  const [workerStatus, setWorkerStatus] = useState<WorkerStatus | null>(null);
   const [automationDraft, setAutomationDraft] = useState({
     enabled: false,
     feedUrl: "",
@@ -270,10 +289,18 @@ function App() {
     const loadedGeneration = generationResponse.generation;
     const nextActiveAccount = loadedAccounts.find((account) => account.id === activeAccountId) ?? loadedAccounts[0] ?? null;
     const nextActiveAccountId = nextActiveAccount?.id ?? activeAccountId;
-    const [{ jobs: loadedJobs }, { packets: loadedSourcePackets }, { configs: loadedIngestConfigs }] = await Promise.all([
+    const [
+      { jobs: loadedJobs },
+      { packets: loadedSourcePackets },
+      { configs: loadedIngestConfigs },
+      loadedWorkerStatus,
+      { runs: loadedIngestRuns }
+    ] = await Promise.all([
       api<{ jobs: Job[] }>(`/jobs?accountId=${encodeURIComponent(nextActiveAccountId)}`),
       api<{ packets: SourcePacket[] }>(`/source-packets?accountId=${encodeURIComponent(nextActiveAccountId)}`),
-      api<{ configs: IngestConfig[] }>(`/ingest-configs?accountId=${encodeURIComponent(nextActiveAccountId)}`)
+      api<{ configs: IngestConfig[] }>(`/ingest-configs?accountId=${encodeURIComponent(nextActiveAccountId)}`),
+      api<WorkerStatus>("/worker/status"),
+      api<{ runs: IngestRun[] }>(`/ingest-runs?accountId=${encodeURIComponent(nextActiveAccountId)}`)
     ]);
     const attemptsEntries = await Promise.all(
       loadedJobs.map(async (job) => {
@@ -293,6 +320,8 @@ function App() {
     setGenerationDraft({ model: loadedGeneration.model, provider: loadedGeneration.provider });
     setSourcePackets(loadedSourcePackets);
     setIngestConfigs(loadedIngestConfigs);
+    setIngestRuns(loadedIngestRuns);
+    setWorkerStatus(loadedWorkerStatus);
     setAutomationDraft(draftFromIngestConfig(loadedIngestConfigs[0] ?? null));
     setAttemptsByJob(Object.fromEntries(attemptsEntries));
     setSelectedJobIds((current) => current.filter((id) => availableJobIds.has(id)));
@@ -336,6 +365,15 @@ function App() {
       `/source-packets?accountId=${encodeURIComponent(accountId)}`
     );
     setSourcePackets(packets);
+  }
+
+  async function loadWorkerPanel(accountId: string) {
+    const [status, { runs }] = await Promise.all([
+      api<WorkerStatus>("/worker/status"),
+      api<{ runs: IngestRun[] }>(`/ingest-runs?accountId=${encodeURIComponent(accountId)}`)
+    ]);
+    setWorkerStatus(status);
+    setIngestRuns(runs);
   }
 
   function run(action: () => Promise<void>) {
@@ -811,6 +849,9 @@ function App() {
             setBrowserSession(null);
             setSelectedJobIds([]);
             if (account) {
+              void loadWorkerPanel(account.id).catch((caught) => {
+                setError(caught instanceof Error ? caught.message : "Worker status unavailable");
+              });
               void loadSourcePackets(account.id).catch((caught) => {
                 setError(caught instanceof Error ? caught.message : "Source packets unavailable");
               });
@@ -940,6 +981,44 @@ function App() {
           >
             Run now
           </button>
+        </div>
+      </section>
+
+      <section className="panel worker-panel">
+        <div className="panel-head">
+          <div>
+            <h2>Worker</h2>
+            <p className="empty">
+              Last heartbeat {workerStatus?.lastHeartbeatAt ? new Date(workerStatus.lastHeartbeatAt).toLocaleString() : "never"}
+            </p>
+          </div>
+          <div className="panel-head-actions">
+            <span className={workerStatus?.workerRunning ? "provider-pill" : "session-pill failed"}>
+              {workerStatus?.workerRunning ? "running" : "offline"}
+            </span>
+            <button className="secondary compact-button" disabled={busy} onClick={() => run(refresh)}>
+              Refresh
+            </button>
+          </div>
+        </div>
+        <p className={workerStatus?.lastError ? "worker-error" : "empty"}>
+          Last error: {workerStatus?.lastError ?? "none"}
+        </p>
+        <div className="ingest-run-list">
+          {ingestRuns.length ? (
+            ingestRuns.slice(0, 5).map((ingestRun) => (
+              <article className="ingest-run" key={ingestRun.id}>
+                <div>
+                  <strong>{new Date(ingestRun.startedAt).toLocaleString()}</strong>
+                  <span>{ingestRun.packetsCreated} packets created</span>
+                </div>
+                <span className={`status ${ingestRun.status}`}>{ingestRun.status}</span>
+                {ingestRun.error ? <p>{ingestRun.error}</p> : null}
+              </article>
+            ))
+          ) : (
+            <p className="empty">No ingest runs for this account.</p>
+          )}
         </div>
       </section>
 

@@ -9,6 +9,21 @@ import { getAggregatedSourceHealth } from "@zyquor/adapters";
 import { definedEntries } from "../lib/utils.js";
 
 export function registerIngestRoutes(app: FastifyInstance, deps: AppDeps): void {
+  app.get("/ingest-runs", async (request) => {
+    const { accountId } = request.query as { accountId?: string };
+    return {
+      runs: await (await deps.repository).listIngestRuns(accountId, 50)
+    };
+  });
+
+  app.post("/ingest-runs/recover-stale", async () => {
+    if (deps.ingestRunState.running) {
+      return { recoveredCount: 0 };
+    }
+    const recoveredCount = await (await deps.repository).recoverRunningIngestRuns();
+    return { recoveredCount };
+  });
+
   app.get("/ingest-configs", async (request) => {
     const { accountId } = request.query as { accountId?: string };
     return {
@@ -136,6 +151,12 @@ export function registerIngestRoutes(app: FastifyInstance, deps: AppDeps): void 
       return reply.code(202).send({ accepted: false, ingestRun: deps.ingestRunState, reason: "already_running" });
     }
 
+    const repository = await deps.repository;
+    const configs = (await repository.listIngestConfigs()).filter((config) => config.enabled);
+    const runs = await Promise.all(
+      configs.map((config) => repository.createIngestRun({ configId: config.id, accountId: config.accountId }))
+    );
+
     deps.ingestRunState = {
       errors: [],
       finishedAt: null,
@@ -146,7 +167,6 @@ export function registerIngestRoutes(app: FastifyInstance, deps: AppDeps): void 
 
     void (async () => {
       try {
-        const repository = await deps.repository;
         const result = await runAutomaticIngest({
           adapters: deps.sourceAdapters,
           generationProvider: deps.generationProvider,
@@ -155,6 +175,17 @@ export function registerIngestRoutes(app: FastifyInstance, deps: AppDeps): void 
         for (const error of result.errors) {
           app.log.error(`Async ingest run failed for config ${error.configId}: ${error.error}`);
         }
+        await Promise.all(
+          runs.map((run) => {
+            const errors = result.errors.filter((error) => error.configId === run.configId);
+            const packetsCreated = result.results.filter((item) => item.configId === run.configId).length;
+            return repository.updateIngestRun(run.id, {
+              status: errors.length > 0 ? "failed" : "succeeded",
+              error: errors.length > 0 ? errors.map((item) => item.error).join("; ") : null,
+              packetsCreated
+            });
+          })
+        );
         deps.ingestRunState = {
           errors: result.errors,
           finishedAt: new Date().toISOString(),
@@ -166,6 +197,11 @@ export function registerIngestRoutes(app: FastifyInstance, deps: AppDeps): void 
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown ingest error";
         app.log.error(`Async ingest run failed: ${message}`);
+        await Promise.all(
+          runs.map((run) => repository.updateIngestRun(run.id, { status: "failed", error: message, packetsCreated: 0 }))
+        ).catch((persistError) => {
+          app.log.error(`Failed to persist async ingest failure: ${persistError instanceof Error ? persistError.message : persistError}`);
+        });
         deps.ingestRunState = {
           errors: [{ configId: "unknown", error: message }],
           finishedAt: new Date().toISOString(),

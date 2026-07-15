@@ -16,6 +16,17 @@ export interface DraftWithCandidates {
   candidates: DraftCandidate[];
 }
 
+export interface IngestRun {
+  id: string;
+  configId: string;
+  accountId: string;
+  startedAt: string;
+  finishedAt: string | null;
+  status: "running" | "succeeded" | "failed";
+  error: string | null;
+  packetsCreated: number;
+}
+
 export interface ZyquorRepository {
   listAccounts(): Promise<Account[]>;
   getAccount(id: string): Promise<Account | null>;
@@ -75,6 +86,14 @@ export interface ZyquorRepository {
     tracePath?: string | null;
   }): Promise<PostAttempt>;
   listAttempts(jobId: string): Promise<PostAttempt[]>;
+  createIngestRun(input: { configId: string; accountId: string }): Promise<IngestRun>;
+  updateIngestRun(id: string, input: {
+    status: IngestRun["status"];
+    error?: string | null;
+    packetsCreated?: number;
+  }): Promise<IngestRun>;
+  listIngestRuns(accountId?: string, limit?: number): Promise<IngestRun[]>;
+  recoverRunningIngestRuns(): Promise<number>;
   createPostHistory(input: {
     accountId: string;
     draftId: string;
@@ -121,6 +140,7 @@ export interface RepositorySnapshot {
   candidates: DraftCandidate[];
   jobs: PostJob[];
   attempts: PostAttempt[];
+  ingestRuns: IngestRun[];
   history: PostHistory[];
   fingerprints: ContentFingerprint[];
   ingestConfigs: IngestConfig[];

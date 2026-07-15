@@ -266,6 +266,54 @@ describe("repository workflow", () => {
     }
   });
 
+  it("roundtrips ingest runs through memory snapshots", async () => {
+    let snapshot: RepositorySnapshot | undefined;
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z",
+      onChange: (next) => {
+        snapshot = next;
+      }
+    });
+    const run = await repository.createIngestRun({ configId: "ingest_config", accountId: "account_personal" });
+    await repository.updateIngestRun(run.id, { status: "failed", error: "fetch failed", packetsCreated: 2 });
+    if (!snapshot) throw new Error("Expected persisted memory snapshot");
+
+    const reopened = createMemoryRepository({ snapshot });
+    await expect(reopened.listIngestRuns("account_personal")).resolves.toEqual([
+      expect.objectContaining({
+        id: run.id,
+        configId: "ingest_config",
+        accountId: "account_personal",
+        status: "failed",
+        error: "fetch failed",
+        packetsCreated: 2,
+        finishedAt: "2026-04-24T17:00:00.000Z"
+      })
+    ]);
+  });
+
+  it("roundtrips ingest runs through sqlite", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "zyquor-ingest-runs-"));
+    try {
+      const repository = await createSqliteRepository(join(directory, "app.sqlite"));
+      const run = await repository.createIngestRun({ configId: "ingest_config", accountId: "account_personal" });
+      await repository.updateIngestRun(run.id, { status: "succeeded", packetsCreated: 3 });
+
+      await expect(repository.listIngestRuns("account_personal")).resolves.toEqual([
+        expect.objectContaining({
+          id: run.id,
+          configId: "ingest_config",
+          accountId: "account_personal",
+          status: "succeeded",
+          error: null,
+          packetsCreated: 3
+        })
+      ]);
+    } finally {
+      rmSync(directory, { force: true, recursive: true });
+    }
+  });
+
   it("adds reply target columns to an existing sqlite database idempotently", async () => {
     const directory = mkdtempSync(join(tmpdir(), "zyquor-storage-migration-"));
     const filePath = join(directory, "app.sqlite");
