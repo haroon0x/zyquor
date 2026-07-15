@@ -1307,7 +1307,7 @@ describe("api workflow", () => {
     expect((await app.inject({ method: "GET", url: "/source-packets?accountId=account_personal" })).json().packets).toHaveLength(0);
     await expect(repository.listPostHistory()).resolves.toMatchObject([
       {
-        postedText: "science funding is becoming a markets story.",
+        postedText: "science funding is becoming a markets story. https://example.com/science-economy",
         sourcePacketId: packet.id,
         sourceTitle: "Science economy source",
         sourceType: "news",

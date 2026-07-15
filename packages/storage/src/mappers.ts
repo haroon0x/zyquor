@@ -4,12 +4,26 @@ import type {
   DraftCandidate,
   PostAttempt,
   PostHistory,
+  PostJob,
+  ReplyTarget,
   SourcePacket,
   StyleProfile,
   IngestConfig,
   SourceType,
   TweetType
 } from "@zyquor/core";
+import { parseReplyTargetUrl, replyTargetSchema } from "@zyquor/core";
+
+export function serializeReplyTarget(replyTo: ReplyTarget | undefined): string | null {
+  return replyTo ? JSON.stringify(replyTargetSchema.parse(replyTo)) : null;
+}
+
+export function deserializeReplyTarget(value: unknown, legacyUrl?: unknown): ReplyTarget | undefined {
+  if (value != null) {
+    return replyTargetSchema.parse(JSON.parse(String(value)));
+  }
+  return typeof legacyUrl === "string" ? (parseReplyTargetUrl(legacyUrl) ?? undefined) : undefined;
+}
 
 export function toAccount(row: Record<string, unknown>): Account {
   return {
@@ -36,7 +50,8 @@ export function toDraft(row: Record<string, unknown>): Draft {
     sourceInput: String(row.source_input),
     generatedText: row.generated_text === null ? null : String(row.generated_text),
     editedText: row.edited_text === null ? null : String(row.edited_text),
-    replyToUrl: row.reply_to_url === null ? null : String(row.reply_to_url),
+    replyTo: deserializeReplyTarget(row.reply_to_json, row.reply_to_url),
+    replyToUrl: row.reply_to_url == null ? null : String(row.reply_to_url),
     metadata: JSON.parse(String(row.metadata_json || "{}")) as Record<string, unknown>,
     status: row.status as Draft["status"],
     createdAt: String(row.created_at),
@@ -55,15 +70,16 @@ export function toCandidate(row: Record<string, unknown>): DraftCandidate {
   };
 }
 
-export function toJob(row: Record<string, unknown>): import("@zyquor/core").PostJob {
+export function toJob(row: Record<string, unknown>): PostJob {
   return {
     id: String(row.id),
     accountId: String(row.account_id),
     draftId: String(row.draft_id),
-    status: row.status as import("@zyquor/core").PostJob["status"],
-    mode: row.mode as import("@zyquor/core").PostJob["mode"],
+    status: row.status as PostJob["status"],
+    mode: row.mode as PostJob["mode"],
     scheduledFor: row.scheduled_for === null ? null : String(row.scheduled_for),
-    replyToUrl: row.reply_to_url === null ? null : String(row.reply_to_url),
+    replyTo: deserializeReplyTarget(row.reply_to_json, row.reply_to_url),
+    replyToUrl: row.reply_to_url == null ? null : String(row.reply_to_url),
     approvedAt: row.approved_at === null ? null : String(row.approved_at),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)

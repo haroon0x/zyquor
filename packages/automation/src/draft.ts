@@ -2,7 +2,7 @@ import { postProcessTweetText, type DraftGenerationProvider, type GeneratedDraft
 import type { ZyquorRepository } from "@zyquor/storage";
 import type { Draft, DraftCandidate, PostJob, SourcePacket } from "@zyquor/core";
 import { accountGenerationContext, articleTweetIdea, sourceTweetInput } from "./context.js";
-import { validateSourcePostQuality } from "./quality.js";
+import { validateSourcePostQuality, withRequiredSourceUrl } from "./quality.js";
 
 export interface PacketDraftOptions {
   autoApprove?: boolean;
@@ -53,7 +53,7 @@ export async function draftFromSourcePacket(input: {
   }).then((items) =>
     items.map((candidate) => ({
       ...candidate,
-      text: postProcessTweetText(candidate.text)
+      text: withRequiredSourceUrl(postProcessTweetText(candidate.text), input.packet)
     }))
   );
   const history = input.options?.autoApprove ? await input.repository.listPostHistory() : [];

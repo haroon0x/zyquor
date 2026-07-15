@@ -32,6 +32,8 @@ CREATE TABLE drafts (
   source_input TEXT NOT NULL,
   generated_text TEXT,
   edited_text TEXT,
+  reply_to_json TEXT,
+  reply_to_url TEXT,
   status TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -53,6 +55,8 @@ CREATE TABLE post_jobs (
   status TEXT NOT NULL,
   mode TEXT NOT NULL,
   scheduled_for TEXT,
+  reply_to_json TEXT,
+  reply_to_url TEXT,
   approved_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL

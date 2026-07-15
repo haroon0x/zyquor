@@ -8,8 +8,9 @@ import type {
   SourcePacket,
   StyleProfile
 } from "@zyquor/core";
-import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor, dataPath } from "@zyquor/core";
+import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor, dataPath, parseReplyTargetUrl } from "@zyquor/core";
 import { mkdirSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import type { ZyquorRepository } from "./types.js";
 import { id, row, rows, normalizePostText, hashPostText } from "./utils.js";
@@ -22,7 +23,8 @@ import {
   toPostHistory,
   toStyleProfile,
   toSourcePacket,
-  toIngestConfig
+  toIngestConfig,
+  serializeReplyTarget
 } from "./mappers.js";
 
 export function defaultDatabasePath(): string {
@@ -78,6 +80,7 @@ CREATE TABLE IF NOT EXISTS drafts (
   source_input TEXT NOT NULL,
   generated_text TEXT,
   edited_text TEXT,
+  reply_to_json TEXT,
   reply_to_url TEXT,
   metadata_json TEXT NOT NULL DEFAULT '{}',
   status TEXT NOT NULL,
@@ -101,6 +104,7 @@ CREATE TABLE IF NOT EXISTS post_jobs (
   status TEXT NOT NULL,
   mode TEXT NOT NULL,
   scheduled_for TEXT,
+  reply_to_json TEXT,
   reply_to_url TEXT,
   approved_at TEXT,
   created_at TEXT NOT NULL,
@@ -200,18 +204,26 @@ function runTransaction<T>(db: DatabaseSync, fn: () => T): T {
   }
 }
 
+function ensureColumn(db: DatabaseSync, table: string, name: string, definition: string) {
+  const columns = rows(db.prepare(`PRAGMA table_info(${table})`).all());
+  if (!columns.some((column) => column.name === name)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+  }
+}
+
 export async function createSqliteRepository(filePath = defaultDatabasePath()): Promise<ZyquorRepository> {
   mkdirSync(dirname(filePath), { recursive: true });
-  const sqlite = (await import("node:sqlite")) as unknown as SqliteModule;
+  const sqlite = createRequire(import.meta.url)("node:sqlite") as SqliteModule;
   const db = new sqlite.DatabaseSync(filePath);
   const now = () => new Date().toISOString();
 
   db.exec("PRAGMA foreign_keys = ON");
   db.exec(sqliteSchema);
-  const ingestColumns = rows(db.prepare("PRAGMA table_info(ingest_configs)").all());
-  if (!ingestColumns.some((column) => column.name === "metadata_json")) {
-    db.exec("ALTER TABLE ingest_configs ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'");
-  }
+  ensureColumn(db, "drafts", "reply_to_json", "reply_to_json TEXT");
+  ensureColumn(db, "drafts", "reply_to_url", "reply_to_url TEXT");
+  ensureColumn(db, "post_jobs", "reply_to_json", "reply_to_json TEXT");
+  ensureColumn(db, "post_jobs", "reply_to_url", "reply_to_url TEXT");
+  ensureColumn(db, "ingest_configs", "metadata_json", "metadata_json TEXT NOT NULL DEFAULT '{}'");
   const historyColumns = rows(db.prepare("PRAGMA table_info(post_history)").all());
   const ensureHistoryColumn = (name: string, definition: string) => {
     if (!historyColumns.some((column) => column.name === name)) {
@@ -497,6 +509,7 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
           sourceInput: input.sourceInput,
           generatedText: firstCandidate,
           editedText: firstCandidate,
+          replyTo: input.replyTo ?? (input.replyToUrl ? (parseReplyTargetUrl(input.replyToUrl) ?? undefined) : undefined),
           replyToUrl: input.replyToUrl ?? null,
           metadata: input.metadata ?? {},
           status: firstCandidate ? "selected" : "created",
@@ -506,8 +519,8 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
 
         db.prepare(
           `INSERT INTO drafts (
-            id, account_id, source_type, source_input, generated_text, edited_text, reply_to_url, metadata_json, status, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            id, account_id, source_type, source_input, generated_text, edited_text, reply_to_json, reply_to_url, metadata_json, status, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
           draft.id,
           draft.accountId,
@@ -515,6 +528,7 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
           draft.sourceInput,
           draft.generatedText,
           draft.editedText,
+          serializeReplyTarget(draft.replyTo),
           draft.replyToUrl,
           JSON.stringify(draft.metadata),
           draft.status,
@@ -771,7 +785,8 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
           status: "approved",
           mode: jobMode,
           scheduledFor,
-          replyToUrl: input.replyToUrl ?? null,
+          replyTo: input.replyTo ?? draft.replyTo ?? (input.replyToUrl ? (parseReplyTargetUrl(input.replyToUrl) ?? undefined) : undefined),
+          replyToUrl: input.replyToUrl ?? draft.replyToUrl ?? null,
           approvedAt: timestamp,
           createdAt: timestamp,
           updatedAt: timestamp
@@ -779,8 +794,8 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
 
         db.prepare(
           `INSERT INTO post_jobs (
-            id, account_id, draft_id, status, mode, scheduled_for, reply_to_url, approved_at, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            id, account_id, draft_id, status, mode, scheduled_for, reply_to_json, reply_to_url, approved_at, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
           job.id,
           job.accountId,
@@ -788,6 +803,7 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
           job.status,
           job.mode,
           job.scheduledFor,
+          serializeReplyTarget(job.replyTo),
           job.replyToUrl,
           job.approvedAt,
           job.createdAt,

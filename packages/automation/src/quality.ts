@@ -16,7 +16,6 @@ export interface PostQualityResult {
 }
 
 const SAME_PACKET_COOLDOWN_MS = 2 * 60 * 60 * 1000;
-const SOURCE_LINK_REQUIRED_TYPES = new Set(["article_summary", "hiring"]);
 const LOW_SIGNAL_TITLE_PATTERNS = [
   /\b50%\s+off\b/i,
   /\blast\s+24\s+hours?\b/i,
@@ -37,7 +36,7 @@ function containsUrl(text: string) {
 }
 
 function sourceNeedsLink(packet: SourcePacket) {
-  return Boolean(packet.url) && (SOURCE_LINK_REQUIRED_TYPES.has(packet.tweetType) || packet.sourceType === "job");
+  return Boolean(packet.url);
 }
 
 function sourceEvidence(packet: SourcePacket) {
@@ -57,9 +56,9 @@ function repairQuoteTimeline(text: string) {
   );
 }
 
-function withRequiredSourceUrl(text: string, packet: SourcePacket) {
+export function withRequiredSourceUrl(text: string, packet: SourcePacket) {
   const repaired = repairQuoteTimeline(text);
-  if (!sourceNeedsLink(packet) || containsUrl(repaired) || !packet.url) return repaired;
+  if (!sourceNeedsLink(packet) || !packet.url || repaired.includes(packet.url)) return repaired;
   const separator = repaired.includes("\n") ? "\n" : " ";
   return postProcessTweetText(`${repaired}${separator}${packet.url}`);
 }

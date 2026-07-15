@@ -9,7 +9,7 @@ import type {
   StyleProfile,
   IngestConfig
 } from "@zyquor/core";
-import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor, dataPath } from "@zyquor/core";
+import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor, dataPath, parseReplyTargetUrl } from "@zyquor/core";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ZyquorRepository, RepositorySnapshot, ContentFingerprint } from "./types.js";
@@ -264,6 +264,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
         sourceInput: input.sourceInput,
         generatedText: firstCandidate,
         editedText: firstCandidate,
+        replyTo: input.replyTo ?? (input.replyToUrl ? (parseReplyTargetUrl(input.replyToUrl) ?? undefined) : undefined),
         replyToUrl: input.replyToUrl ?? null,
         metadata: input.metadata ?? {},
         status: firstCandidate ? "selected" : "created",
@@ -480,6 +481,8 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
         status: "approved",
         mode: jobMode,
         scheduledFor,
+        replyTo: input.replyTo ?? draft.replyTo ?? (input.replyToUrl ? (parseReplyTargetUrl(input.replyToUrl) ?? undefined) : undefined),
+        replyToUrl: input.replyToUrl ?? draft.replyToUrl ?? null,
         approvedAt: timestamp,
         createdAt: timestamp,
         updatedAt: timestamp

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createMemoryRepository, detectSqliteSupport } from "./index.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { ReplyTarget } from "@zyquor/core";
+import type { RepositorySnapshot } from "./types.js";
+import { createMemoryRepository, createSqliteRepository, detectSqliteSupport } from "./index.js";
 
 const times = [
   "2026-04-24T17:00:00.000Z",
@@ -7,6 +13,12 @@ const times = [
   "2026-04-24T17:02:00.000Z",
   "2026-04-24T17:03:00.000Z"
 ];
+
+const replyTo: ReplyTarget = {
+  tweetId: "1891234567890123456",
+  authorHandle: "example_user",
+  url: "https://x.com/example_user/status/1891234567890123456"
+};
 
 describe("repository workflow", () => {
   it("creates, approves, and advances a prepare-only job", async () => {
@@ -203,6 +215,95 @@ describe("repository workflow", () => {
       scheduledFor,
       status: "approved"
     });
+  });
+
+  it("roundtrips reply targets through memory snapshots", async () => {
+    let snapshot: RepositorySnapshot | undefined;
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z",
+      onChange: (next) => {
+        snapshot = next;
+      }
+    });
+    const created = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "Reply with context",
+      candidates: [{ text: "A concise reply", score: {} }],
+      replyTo
+    });
+    const approved = await repository.approveDraft({
+      draftId: created.draft.id,
+      editedText: "A concise reply"
+    });
+    if (!snapshot) {
+      throw new Error("Expected persisted memory snapshot");
+    }
+    const reopened = createMemoryRepository({ snapshot });
+
+    await expect(reopened.getDraft(created.draft.id)).resolves.toMatchObject({ draft: { replyTo } });
+    await expect(reopened.getJob(approved.job.id)).resolves.toMatchObject({ replyTo });
+  });
+
+  it("roundtrips reply targets through sqlite", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "zyquor-storage-"));
+    try {
+      const repository = await createSqliteRepository(join(directory, "app.sqlite"));
+      const created = await repository.createDraft({
+        accountId: "account_personal",
+        sourceInput: "Reply with context",
+        candidates: [{ text: "A sqlite reply", score: {} }],
+        replyTo
+      });
+      const approved = await repository.approveDraft({
+        draftId: created.draft.id,
+        editedText: "A sqlite reply"
+      });
+
+      await expect(repository.getDraft(created.draft.id)).resolves.toMatchObject({ draft: { replyTo } });
+      await expect(repository.getJob(approved.job.id)).resolves.toMatchObject({ replyTo });
+    } finally {
+      rmSync(directory, { force: true, recursive: true });
+    }
+  });
+
+  it("adds reply target columns to an existing sqlite database idempotently", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "zyquor-storage-migration-"));
+    const filePath = join(directory, "app.sqlite");
+    try {
+      const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
+      const database = new DatabaseSync(filePath);
+      database.exec(`
+        CREATE TABLE drafts (
+          id TEXT PRIMARY KEY NOT NULL,
+          account_id TEXT NOT NULL,
+          source_type TEXT NOT NULL,
+          source_input TEXT NOT NULL,
+          generated_text TEXT,
+          edited_text TEXT,
+          metadata_json TEXT NOT NULL DEFAULT '{}',
+          status TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE post_jobs (
+          id TEXT PRIMARY KEY NOT NULL,
+          account_id TEXT NOT NULL,
+          draft_id TEXT NOT NULL,
+          status TEXT NOT NULL,
+          mode TEXT NOT NULL,
+          scheduled_for TEXT,
+          approved_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+      database.close();
+
+      await expect(createSqliteRepository(filePath)).resolves.toBeDefined();
+      await expect(createSqliteRepository(filePath)).resolves.toBeDefined();
+    } finally {
+      rmSync(directory, { force: true, recursive: true });
+    }
   });
 
   it("stores source packets for deterministic source ingestion", async () => {

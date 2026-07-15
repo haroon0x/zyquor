@@ -143,7 +143,14 @@ function normalizeIdea(idea: string) {
 }
 
 export function postProcessTweetText(text: string) {
-  return text
+  const urls: string[] = [];
+  const protectedText = text.replace(/https?:\/\/[^\s]+/gi, (url) => {
+    const token = `\uE000${urls.length}\uE001`;
+    urls.push(url);
+    return token;
+  });
+
+  return protectedText
     .replace(/\r\n?/g, "\n")
     .replace(/\s*[\u2013\u2014]\s*/g, ", ")
     .split("\n")
@@ -157,7 +164,8 @@ export function postProcessTweetText(text: string) {
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/\uE000(\d+)\uE001/g, (_token, index: string) => urls[Number(index)] ?? "");
 }
 
 function characterLimit(input: GenerateDraftCandidatesInput) {
@@ -210,9 +218,9 @@ function tweetTypeInstruction(tweetType: string | undefined) {
     reply: "Tweet type: reply. Draft a useful reply to the given post. Add context or a practical point without sounding automated.",
     tool: "Tweet type: tool. Explain what a tool is useful for and when to use it.",
     hiring:
-      "Tweet type: hiring. Share a real hiring post with role/company/context and the source link. Make it clear you are not affiliated with the company, just sharing because it may help someone.",
+      "Tweet type: hiring. Share a real hiring post with role/company/context and the exact source link. Make it clear you are not affiliated with the company, just sharing because it may help someone.",
     article_summary:
-      "Tweet type: article summary. Say what the article's genuinely useful point is in plain language, like recommending it to a friend. Include the source link when it fits. Vary the framing; never open every post the same way.",
+      "Tweet type: article summary. Say what the article's genuinely useful point is in plain language, like recommending it to a friend. Include the exact source link. Vary the framing; never open every post the same way.",
     narrative_history:
       "Tweet type: narrative history. Turn verified facts into a compact historical or biographical arc with irony, delayed payoff, and a reflective closing. Greentext-style '>' timeline lines are allowed when they fit. Do not invent dates, causality, or attribution."
   };
@@ -356,7 +364,7 @@ function systemPrompt(input: GenerateDraftCandidatesInput) {
     "For news, give the second-order implication: who it affects, what changes, why builders or investors should care.",
     "Write only public-facing post text. Never mention internal labels like SourcePacket, source packet, compact input, candidate, draft, metadata, JSON, prompt, distillation, source context, or grounded facts.",
     "Every candidate is a complete standalone post. No teasers, no thread dependence.",
-    "Include the source URL only when it makes the post more useful or credible and it still fits the limit. For hiring posts, always include the job URL and say you are just sharing, not affiliated. For article posts, recommend the piece in your own words and vary the framing; never open every post the same way.",
+    "For source-backed posts, include the exact supplied source URL. Use only the supplied <source-title> value for attribution; never invent an author, publisher, or attribution. For hiring posts, say you are just sharing, not affiliated. For article posts, recommend the piece in your own words and vary the framing; never open every post the same way.",
     `Banned phrases: ${bannedPhrases}.`,
     `Hard limit: every candidate must be ${limit} characters or fewer.`,
     diversityInstruction,

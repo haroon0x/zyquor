@@ -81,6 +81,42 @@ export type AttemptStatus = (typeof ATTEMPT_STATUSES)[number];
 export const idSchema = z.string().min(1);
 export const isoTimestampSchema = z.string().datetime({ offset: true });
 
+export interface ReplyTarget {
+  tweetId: string;
+  authorHandle: string;
+  url: string;
+}
+
+export const replyTargetSchema: z.ZodType<ReplyTarget> = z.object({
+  tweetId: z.string().regex(/^\d+$/),
+  authorHandle: z.string().regex(/^[A-Za-z0-9_]{1,15}$/),
+  url: z.string().url()
+});
+
+export function parseReplyTargetUrl(url: string): ReplyTarget | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:" || !["x.com", "twitter.com"].includes(parsed.hostname)) {
+      return null;
+    }
+    if (parsed.username || parsed.password || parsed.port) {
+      return null;
+    }
+    const match = /^\/([A-Za-z0-9_]{1,15})\/status\/(\d+)\/?$/.exec(parsed.pathname);
+    if (!match) {
+      return null;
+    }
+    const authorHandle = match[1];
+    const tweetId = match[2];
+    if (!authorHandle || !tweetId) {
+      return null;
+    }
+    return { tweetId, authorHandle, url };
+  } catch {
+    return null;
+  }
+}
+
 export const accountSchema = z.object({
   id: idSchema,
   handle: z.string().min(1).max(64),
@@ -115,6 +151,7 @@ export const draftSchema = z.object({
   sourceInput: z.string().min(1).max(4000),
   generatedText: z.string().max(X_FREE_POST_CHARACTER_LIMIT).nullable(),
   editedText: z.string().max(X_FREE_POST_CHARACTER_LIMIT).nullable(),
+  replyTo: replyTargetSchema.optional(),
   replyToUrl: z.string().url().nullable().optional(),
   metadata: z.record(z.unknown()),
   status: z.enum(DRAFT_STATUSES),
@@ -135,6 +172,7 @@ export const postJobSchema = z.object({
   id: idSchema,
   accountId: idSchema,
   draftId: idSchema,
+  replyTo: replyTargetSchema.optional(),
   replyToUrl: z.string().url().nullable().optional(),
   status: z.enum(POST_JOB_STATUSES),
   mode: z.enum(POSTING_MODES),

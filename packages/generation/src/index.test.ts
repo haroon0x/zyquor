@@ -303,6 +303,9 @@ describe("tweet quality harness", () => {
     expect(postProcessTweetText("why this matters:\n\n-  models ship faster  \n- users still need trust")).toBe(
       "why this matters:\n\n- models ship faster\n- users still need trust"
     );
+    expect(postProcessTweetText("Read HTTPS://Example.COM/CaseSensitivePath?Token=AbC now")).toBe(
+      "read HTTPS://Example.COM/CaseSensitivePath?Token=AbC now"
+    );
 
     const fetchImpl: FetchLike = async () =>
       jsonResponse({
@@ -340,7 +343,11 @@ describe("tweet quality harness", () => {
     });
 
     expect(input.idea).toContain("Source title: Automatic posting worker ships");
-    expect(input.idea).toContain("Include the source URL only if it makes the post more useful or credible.");
+    expect(input.idea).toContain("Required attribution: <source-title>Automatic posting worker ships</source-title>");
+    expect(input.idea).toContain(
+      "Required source link: <source-url>https://news.ycombinator.com/item?id=1</source-url>"
+    );
+    expect(input.idea).toContain("reference at least one concrete fact above");
     expect(renderSourceContext(input.source)).toContain("Source type: news");
     expect(renderSourceContext(input.source)).toContain("Topic tags: ai, devtools");
     expect(renderSourceContext(input.source)).toContain("Grounded facts:");

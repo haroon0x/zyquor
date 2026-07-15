@@ -5,6 +5,7 @@ import type {
   PostAttempt,
   PostHistory,
   PostJob,
+  ReplyTarget,
   SourcePacket,
   StyleProfile,
   IngestConfig
@@ -25,6 +26,7 @@ export interface ZyquorRepository {
     accountId: string;
     sourceInput: string;
     candidates?: Array<{ text: string; score: Record<string, unknown> }>;
+    replyTo?: ReplyTarget;
     replyToUrl?: string | null;
     metadata?: Record<string, unknown>;
   }): Promise<DraftWithCandidates>;
@@ -55,6 +57,7 @@ export interface ZyquorRepository {
     editedText: string;
     mode?: PostJob["mode"];
     scheduledFor?: string | null;
+    replyTo?: ReplyTarget;
     replyToUrl?: string | null;
   }): Promise<{ draft: Draft; job: PostJob }>;
   listJobs(): Promise<PostJob[]>;

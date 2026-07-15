@@ -3,8 +3,8 @@ import type { DraftGenerationProvider } from "@zyquor/generation";
 import type { ZyquorRepository } from "@zyquor/storage";
 import { packetFieldsFromItem } from "./context.js";
 import { draftFromSourcePacket } from "./draft.js";
-import { inferTweetTypeFromText } from "./context.js";
-import { isSourceType, isWithinScheduleWindow, pickTweetType } from "./selection.js";
+import { routeTweetType } from "./routing.js";
+import { isSourceType, isWithinScheduleWindow } from "./selection.js";
 
 export interface IngestRunResult {
   configId: string;
@@ -350,7 +350,10 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
             skippedByReason.thinContext += 1;
             continue;
           }
-          const tweetType = pickTweetType(config.tweetTypeMix, inferTweetTypeFromText(item));
+          const tweetType = routeTweetType(
+            { item, sourceName: adapter.name, sourceType: adapter.sourceType },
+            config.tweetTypeMix
+          );
           const packet = await options.repository.createSourcePacket({
             accountId: config.accountId,
             facts,
