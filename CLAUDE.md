@@ -16,7 +16,7 @@ Automated lane: deterministic source ingestion → compact source packet → one
 
 X free-tier character limit enforced at 280. Tweet types: `feed_observation`, `news_context`, `useful_info`, `guide`, `lesson`, `tool`, `opinion`, `reply`, `hiring`, `article_summary`, `narrative_history`.
 
-Controlled posting only behind env flags. Multi-account UI, reply drafting, Tauri, and E2E tests are future work.
+Controlled posting only behind env flags. Multi-account UI, Tauri, and E2E tests are future work. Reply drafting shipped (plan 007-C).
 
 ## Architecture
 
@@ -26,7 +26,7 @@ Controlled posting only behind env flags. Multi-account UI, reply drafting, Taur
 - `packages/core`: domain types, Zod schemas.
 - `packages/adapters`: source adapters, aggregation, source health.
 - `packages/automation`: ingest and source-packet drafting.
-- `packages/generation`: OpenRouter/Ollama/Gemini/mock providers.
+- `packages/generation`: OpenRouter/Ollama/Gemini providers (no mock provider; tests inject providers via buildApp options).
 - `packages/storage`: SQLite + JSON fallback repositories.
 - `packages/browser`: Playwright prepare/post flow.
 - `packages/accounts`: account config helpers.
@@ -137,38 +137,67 @@ Removed from UI: noisy account/profile/daily-limit editing. Account config remai
 ./zyquor
 ./zyquor check
 ./zyquor post <jobId>
+
+# Electron desktop app (Windows)
+pnpm dev:desktop
+pnpm smoke:desktop
+pnpm dist:desktop
 ```
 
 - Chrome CDP: `http://127.0.0.1:9222`, profile `profiles/personal-main`
-- API: `http://127.0.0.1:3001`
+- API: `http://127.0.0.1:3000` (falls back to 3001 if 3000 is busy)
 - Web: `http://127.0.0.1:5173/`
 - Worker polls due jobs every 5s
+- Electron desktop app: `apps/desktop/` — Electron 37, tray-resident, runs API/worker in-process. Data root via `ZYQUOR_DATA_ROOT` (defaults to Electron `userData`). Settings kept as `settings.json` in data root instead of `.env`. Logs to `<dataRoot>/logs/main.log` (rotates at 5 MB). Entry points: `src/main.ts` (main process), `src/preload.ts` (context bridge), `src/chrome.ts` (CDP launch), `src/settings.ts` (JSON config), `src/log.ts` (file logging).
 
-Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=1`, `ZYQUOR_ENABLE_BROWSER_POST=1`, `ZYQUOR_LLM_PROVIDER=gemini|ollama|mock`.
+Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (disabled by default for safety), `ZYQUOR_LLM_PROVIDER=openrouter|gemini|ollama|auto`.
 Source smoke: `pnpm smoke:adapters`. Product Hunt is optional without `ZYQUOR_PRODUCTHUNT_API_TOKEN`.
+
+### pnpm Setup
+Do not use the Hermes-installed pnpm. Install globally via npm:
+```bash
+npm install -g pnpm
+ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
+```
+
+### Generation Provider Resolution
+- Provider is resolved in order: saved `data/generation.json` > `.env` > `process.env`.
+- Setting `ZYQUOR_LLM_PROVIDER=openrouter` without `ZYQUOR_OPENROUTER_API_KEY` crashes the API. Use `auto` if the key is not yet available — it falls back through available providers.
+- Shell env vars take precedence over `.env`; the dotenv loader skips already-set vars.
+- Preferred provider is OpenRouter. Default model is `openrouter/owl-alpha`. The full free-model allowlist lives in `OPENROUTER_MODELS` in `packages/generation/src/index.ts`. Setting a model not in the list silently coerces to the default.
+
+### Browser Automation Caveats
+- Playwright bundled Chromium (`playwright install chromium`) fails on Ubuntu 26.04+ — it's unsupported on newer distros.
+- On such systems, install system Chrome and set `ZYQUOR_BROWSER_CHANNEL=chrome`:
+  ```bash
+  wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+  sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list'
+  sudo apt update && sudo apt install google-chrome-stable
+  ```
 
 ## Latest Work (2026-05-08)
 
 - Live adapter smoke added and arXiv RSS fallback fixed.
 - Source health now cools down failing/empty aggregated upstreams.
 - Post-history analysis and source metadata tracing exist.
-- Source packet repost cap is 3 per account.
+- Source packet repost cap is 2 per account.
 - TODO pruned so Next tracks remaining work only.
 
 ## Next Steps
 
-**Maintainability** — split large API/web/generation/adapters files into route modules, services, components, and focused helpers.
+Shipped since the last update (plans/006, plans/007): Electron desktop app,
+api/web file splits, worker durability + status panel, source routing/quality,
+reply drafting end-to-end, web design pass, safety fixes (manual review never
+autoposts by default, masked keys can't clobber real ones, stealth flag
+removed, posting disabled by default everywhere).
 
-**Worker reliability** — durable async ingest/generation/posting stages, worker UI panel, startup checks for posting readiness.
+**Remaining**: split large generation/adapters files; account creation flow
+(only GET/PATCH exist); schedule-clearing via PATCH /jobs/:id; shuffled
+post-all (docs promised, code is chronological); surface quality-gate-failed
+drafts in UI; app icon + Windows code signing; OS keychain for API keys;
+auto-update.
 
-**Source routing/quality** — route job posts to hiring, blog/feed posts to article summary, preserve links/attribution, reduce generic framing.
-
-**Reply drafting** — explicit reviewable jobs for reply tweets. Needs:
-- Reply target tracking (tweet ID, author handle)
-- Reply draft generation
-- Reusable in normal single/batch/yolo flows
-
-**Deferred**: multi-account UI, voice input, Tauri desktop, E2E test suite.
+**Deferred**: multi-account UI, voice input, E2E test suite.
 
 ## Common Commands
 

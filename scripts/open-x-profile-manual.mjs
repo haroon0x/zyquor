@@ -36,7 +36,6 @@ for (const command of candidates) {
       "--profile-directory=Default",
       "--no-first-run",
       "--no-default-browser-check",
-      "--disable-blink-features=AutomationControlled",
       "--no-sandbox",
       "--disable-crash-reporter",
       "--disable-dev-shm-usage",

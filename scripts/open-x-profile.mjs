@@ -6,7 +6,7 @@ import { loadDotEnv } from "./load-env.mjs";
 loadDotEnv();
 
 const require = createRequire(import.meta.url);
-const { chromium } = require("../packages/browser/node_modules/playwright");
+const { chromium } = require("../packages/browser/node_modules/playwright-core");
 
 const profileDir = resolve(process.env.ZYQUOR_X_PROFILE_DIR ?? "profiles/personal-main");
 const chromeConfigDir = resolve(process.env.ZYQUOR_CHROME_CONFIG_DIR ?? "profiles/chrome-config");
@@ -19,7 +19,6 @@ const context = await chromium.launchPersistentContext(profileDir, {
   ...(browserChannel ? { channel: browserChannel } : {}),
   headless: false,
   args: [
-    "--disable-blink-features=AutomationControlled",
     "--no-sandbox",
     "--disable-crash-reporter",
     "--disable-dev-shm-usage",

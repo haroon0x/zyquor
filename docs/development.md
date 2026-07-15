@@ -145,17 +145,39 @@ The API defaults to `http://127.0.0.1:3000`. The web UI reads `ZYQUOR_API_URL` a
 
 Real X browser prepare prerequisites:
 
-- Install Playwright Chromium once with `pnpm --filter @zyquor/browser exec playwright install chromium`.
+- Install Playwright Chromium once with `pnpm --filter @zyquor/browser exec playwright install chromium`. **Note:** Playwright bundled Chromium is unsupported on Ubuntu 26.04+. On such systems, install system Google Chrome and use `ZYQUOR_BROWSER_CHANNEL=chrome`.
+- On Ubuntu 26.04+, install system Chrome:
+  ```bash
+  wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+  sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list'
+  sudo apt update && sudo apt install google-chrome-stable
+  ```
+  Then set in `.env`: `ZYQUOR_BROWSER_CHANNEL=chrome`
 - Use a dedicated account profile under `profiles/`; do not reuse an everyday browser profile.
 - Open the profile with `pnpm profile:x`, then log into X there.
 - If X blocks Playwright-controlled login, use `pnpm profile:x:manual`, log in, then close Chrome.
 - If `.env` sets `ZYQUOR_BROWSER_CDP_URL`, start `pnpm profile:x:cdp` and keep that Chrome window open while preparing or posting.
 - Verify the persisted login with `pnpm profile:x:check`.
 - In the web UI, use `Check X` in the account strip before preparing a real job.
-- Start with `ZYQUOR_ENABLE_BROWSER_PREPARE=1 pnpm dev:api`.
+- Start with `ZYQUOR_ENABLE_BROWSER_PREPARE=1 ZYQUOR_LLM_PROVIDER=openrouter ZYQUOR_OPENROUTER_API_KEY=... pnpm dev:api`.
 - Set `ZYQUOR_ENABLE_BROWSER_POST=1` only when final public Post click should be enabled.
 - Default `ZYQUOR_BROWSER_CHANNEL=chromium` uses bundled Playwright Chromium. Use `chrome` only if Chrome is installed.
 - Browser pacing defaults to slow actions and typed input. Configure `ZYQUOR_BROWSER_ACTION_DELAY_MS` and `ZYQUOR_BROWSER_TYPING_DELAY_MS`.
+
+## pnpm Setup
+
+Do not use the Hermes-bundled pnpm. Install globally via npm:
+```bash
+npm install -g pnpm
+ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
+```
+
+## Generation Provider Resolution
+
+- Resolution priority: saved `data/generation.json` > `.env` file > shell `process.env`.
+- Shell env vars take precedence over `.env` — the dotenv loader skips already-set vars.
+- Setting `ZYQUOR_LLM_PROVIDER=openrouter` without `ZYQUOR_OPENROUTER_API_KEY` crashes the API on startup. Use `auto` when the key is not ready.
+- Preferred: OpenRouter. Default model is `openrouter/owl-alpha`. The full free-model allowlist lives in `OPENROUTER_MODELS` in `packages/generation/src/index.ts`. Setting a model not in the list silently coerces to the default.
 
 ## LLM Providers
 
@@ -169,3 +191,20 @@ ZYQUOR_LLM_PROVIDER=gemini ZYQUOR_GEMINI_API_KEY=... ZYQUOR_GEMINI_MODEL=gemini-
 ```
 
 `mock` is deterministic and offline. `openrouter` uses chat completions. `ollama` calls `/api/generate` with `stream: false` and JSON output. `gemini` calls Gemini `models/{model}:generateContent` with JSON response config.
+
+## Desktop app (Windows)
+
+Zyquor ships as a system-tray Electron desktop app (`apps/desktop`). The API, worker, and web UI run in-process.
+
+```bash
+pnpm dev:desktop        # build and launch
+pnpm smoke:desktop      # headless logic smoke (no GUI required)
+pnpm dist:desktop       # produce NSIS installer (CI: dist-desktop-win job)
+```
+
+- **Data root**: `%APPDATA%/Zyquor` on Windows (overridable via `ZYQUOR_DATA_ROOT`).
+- **Settings**: `settings.json` in the data root instead of `.env`. UI panel gated on `window.zyquor`.
+- **Posting Chrome**: tray menu action spawns a dedicated Chrome profile with CDP on port 9222.
+- **Main-process logging**: `logs/main.log` under the data root (rotates at 5 MB).
+- **App icon and code signing** are not yet configured. Windows verification is manual for now.
+- **Entry points**: `src/main.ts` (main process), `src/preload.ts` (context bridge), `src/chrome.ts` (CDP launch), `src/settings.ts` (JSON config), `src/log.ts` (file logging).

@@ -5,7 +5,9 @@ import type { ZyquorRepository } from "@zyquor/storage";
 
 export interface AccountGenerationContext {
   bannedPhrases?: string[];
+  examplePosts?: string[];
   objective?: string;
+  recentPostHistory?: string[];
   systemPromptExtra?: string;
   tone: string | null;
 }
@@ -17,12 +19,19 @@ export async function accountGenerationContext(
   const account = await repository.getAccount(accountId);
   const styleProfile = account ? await repository.getStyleProfile(account.styleProfileId) : null;
   const rules = styleProfile?.rules ?? {};
+  const history = await repository.listPostHistory();
 
   return {
     ...(styleProfile?.bannedPhrases ? { bannedPhrases: styleProfile.bannedPhrases } : {}),
+    ...(styleProfile?.examplePosts?.length ? { examplePosts: styleProfile.examplePosts } : {}),
     ...(typeof rules.objective === "string" ? { objective: rules.objective } : {}),
     ...(typeof rules.systemPromptExtra === "string" ? { systemPromptExtra: rules.systemPromptExtra } : {}),
-    tone: styleProfile?.tone ?? null
+    tone: styleProfile?.tone ?? null,
+    recentPostHistory: history
+      .filter((item) => item.accountId === accountId)
+      .sort((a, b) => Date.parse(b.postedAt) - Date.parse(a.postedAt))
+      .slice(0, 10)
+      .map((item) => item.postedText)
   };
 }
 

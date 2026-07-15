@@ -1,0 +1,31 @@
+{
+  "name": "@zyquor/desktop",
+  "version": "0.0.0",
+  "productName": "Zyquor",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "dev": "pnpm build && electron dist/main.js",
+    "smoke": "pnpm build && node scripts/logic-smoke.mjs",
+    "test": "vitest run --passWithNoTests",
+    "prepack-zyq": "node ../../scripts/prepack-zyq.mjs",
+    "prepack-zyq-undo": "node ../../scripts/prepack-zyq.mjs --undo",
+    "dist:dir": "pnpm prepack-zyq && electron-builder --dir && pnpm prepack-zyq-undo",
+    "dist:win": "pnpm prepack-zyq && electron-builder --win --x64 && pnpm prepack-zyq-undo"
+  },
+  "dependencies": {
+    "@zyquor/accounts": "workspace:*",
+    "@zyquor/api": "workspace:*",
+    "@zyquor/core": "workspace:*",
+    "@zyquor/storage": "workspace:*",
+    "@zyquor/worker": "workspace:*"
+  },
+  "devDependencies": {
+    "electron": "^37.0.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.7.2"
+  }
+}

@@ -8,8 +8,9 @@ import type {
   SourcePacket,
   StyleProfile
 } from "@zyquor/core";
-import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob } from "@zyquor/core";
+import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor, dataPath, parseReplyTargetUrl } from "@zyquor/core";
 import { mkdirSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import type { ZyquorRepository } from "./types.js";
 import { id, row, rows, normalizePostText, hashPostText } from "./utils.js";
@@ -19,13 +20,17 @@ import {
   toCandidate,
   toJob,
   toAttempt,
+  toIngestRun,
   toPostHistory,
   toStyleProfile,
   toSourcePacket,
-  toIngestConfig
+  toIngestConfig,
+  serializeReplyTarget
 } from "./mappers.js";
 
-export const DEFAULT_DATABASE_PATH = "data/app.sqlite";
+export function defaultDatabasePath(): string {
+  return dataPath("data", "app.sqlite");
+}
 
 interface DatabaseSync {
   exec(sql: string): void;
@@ -76,6 +81,7 @@ CREATE TABLE IF NOT EXISTS drafts (
   source_input TEXT NOT NULL,
   generated_text TEXT,
   edited_text TEXT,
+  reply_to_json TEXT,
   reply_to_url TEXT,
   metadata_json TEXT NOT NULL DEFAULT '{}',
   status TEXT NOT NULL,
@@ -99,6 +105,7 @@ CREATE TABLE IF NOT EXISTS post_jobs (
   status TEXT NOT NULL,
   mode TEXT NOT NULL,
   scheduled_for TEXT,
+  reply_to_json TEXT,
   reply_to_url TEXT,
   approved_at TEXT,
   created_at TEXT NOT NULL,
@@ -115,6 +122,17 @@ CREATE TABLE IF NOT EXISTS post_attempts (
   trace_path TEXT,
   started_at TEXT NOT NULL,
   finished_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS ingest_runs (
+  id TEXT PRIMARY KEY NOT NULL,
+  config_id TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  status TEXT NOT NULL,
+  error TEXT,
+  packets_created INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS post_history (
@@ -159,6 +177,7 @@ CREATE TABLE IF NOT EXISTS source_packets (
 CREATE INDEX IF NOT EXISTS idx_drafts_account_id ON drafts(account_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_account_status ON post_jobs(account_id, status);
 CREATE INDEX IF NOT EXISTS idx_attempts_job_id ON post_attempts(job_id);
+CREATE INDEX IF NOT EXISTS idx_ingest_runs_account_started ON ingest_runs(account_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_history_account_id ON post_history(account_id);
 CREATE INDEX IF NOT EXISTS idx_fingerprints_hash ON content_fingerprints(text_hash);
 CREATE INDEX IF NOT EXISTS idx_source_packets_account_status ON source_packets(account_id, status);
@@ -198,18 +217,26 @@ function runTransaction<T>(db: DatabaseSync, fn: () => T): T {
   }
 }
 
-export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): Promise<ZyquorRepository> {
+function ensureColumn(db: DatabaseSync, table: string, name: string, definition: string) {
+  const columns = rows(db.prepare(`PRAGMA table_info(${table})`).all());
+  if (!columns.some((column) => column.name === name)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+  }
+}
+
+export async function createSqliteRepository(filePath = defaultDatabasePath()): Promise<ZyquorRepository> {
   mkdirSync(dirname(filePath), { recursive: true });
-  const sqlite = (await import("node:sqlite")) as unknown as SqliteModule;
+  const sqlite = createRequire(import.meta.url)("node:sqlite") as SqliteModule;
   const db = new sqlite.DatabaseSync(filePath);
   const now = () => new Date().toISOString();
 
   db.exec("PRAGMA foreign_keys = ON");
   db.exec(sqliteSchema);
-  const ingestColumns = rows(db.prepare("PRAGMA table_info(ingest_configs)").all());
-  if (!ingestColumns.some((column) => column.name === "metadata_json")) {
-    db.exec("ALTER TABLE ingest_configs ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'");
-  }
+  ensureColumn(db, "drafts", "reply_to_json", "reply_to_json TEXT");
+  ensureColumn(db, "drafts", "reply_to_url", "reply_to_url TEXT");
+  ensureColumn(db, "post_jobs", "reply_to_json", "reply_to_json TEXT");
+  ensureColumn(db, "post_jobs", "reply_to_url", "reply_to_url TEXT");
+  ensureColumn(db, "ingest_configs", "metadata_json", "metadata_json TEXT NOT NULL DEFAULT '{}'");
   const historyColumns = rows(db.prepare("PRAGMA table_info(post_history)").all());
   const ensureHistoryColumn = (name: string, definition: string) => {
     if (!historyColumns.some((column) => column.name === name)) {
@@ -495,6 +522,7 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
           sourceInput: input.sourceInput,
           generatedText: firstCandidate,
           editedText: firstCandidate,
+          replyTo: input.replyTo ?? (input.replyToUrl ? (parseReplyTargetUrl(input.replyToUrl) ?? undefined) : undefined),
           replyToUrl: input.replyToUrl ?? null,
           metadata: input.metadata ?? {},
           status: firstCandidate ? "selected" : "created",
@@ -504,8 +532,8 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
 
         db.prepare(
           `INSERT INTO drafts (
-            id, account_id, source_type, source_input, generated_text, edited_text, reply_to_url, metadata_json, status, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            id, account_id, source_type, source_input, generated_text, edited_text, reply_to_json, reply_to_url, metadata_json, status, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
           draft.id,
           draft.accountId,
@@ -513,6 +541,7 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
           draft.sourceInput,
           draft.generatedText,
           draft.editedText,
+          serializeReplyTarget(draft.replyTo),
           draft.replyToUrl,
           JSON.stringify(draft.metadata),
           draft.status,
@@ -659,6 +688,16 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
       });
     },
 
+    async updateDraftMetadata(draftId, metadata) {
+      const timestamp = now();
+      db.prepare("UPDATE drafts SET metadata_json = ?, updated_at = ? WHERE id = ?").run(
+        JSON.stringify(metadata),
+        timestamp,
+        draftId
+      );
+      return requireDraft(draftId);
+    },
+
     async selectCandidate(input) {
       return runTransaction(db, () => {
         const draft = requireDraft(input.draftId);
@@ -719,14 +758,48 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
         );
 
         const jobMode = input.mode ?? (input.scheduledFor ? "scheduled" : "prepare_only");
+        let scheduledFor: string | null = input.scheduledFor ?? null;
+        if (!scheduledFor && jobMode === "autopost") {
+          const lastAutopost = row(
+            db.prepare("SELECT scheduled_for FROM post_jobs WHERE account_id = ? AND mode = 'autopost' ORDER BY created_at DESC LIMIT 1").get(draft.accountId)
+          );
+          const lastScheduledFor = typeof lastAutopost?.scheduled_for === "string" ? lastAutopost.scheduled_for : null;
+          const recentRows = rows(
+            db.prepare(
+              "SELECT scheduled_for, created_at FROM post_jobs WHERE account_id = ? AND mode = 'autopost' ORDER BY created_at DESC LIMIT 5"
+            ).all(draft.accountId)
+          );
+          const recentGapMs: number[] = [];
+          for (let i = 0; i < recentRows.length - 1; i += 1) {
+            const curr = recentRows[i] as { scheduled_for?: string | null; created_at: string } | undefined;
+            const next = recentRows[i + 1] as { scheduled_for?: string | null; created_at: string } | undefined;
+            if (!curr || !next) continue;
+            const currMs = Date.parse(curr.scheduled_for ?? curr.created_at);
+            const nextMs = Date.parse(next.scheduled_for ?? next.created_at);
+            if (Number.isFinite(currMs) && Number.isFinite(nextMs)) {
+              recentGapMs.push(Math.abs(currMs - nextMs));
+            }
+          }
+          const gapMinMinutes = Number(process.env.ZYQUOR_POST_GAP_MIN_MINUTES ?? 30);
+          const gapMaxMinutes = Number(process.env.ZYQUOR_POST_GAP_MAX_MINUTES ?? 90);
+          const next = nextAutopostScheduledFor({
+            lastScheduledFor,
+            timestamp,
+            gapMinMinutes,
+            gapMaxMinutes,
+            recentGapMs
+          });
+          scheduledFor = next.scheduledFor;
+        }
         const job: PostJob = {
           id: id("job"),
           accountId: draft.accountId,
           draftId: draft.id,
           status: "approved",
           mode: jobMode,
-          scheduledFor: input.scheduledFor ?? null,
-          replyToUrl: input.replyToUrl ?? null,
+          scheduledFor,
+          replyTo: input.replyTo ?? draft.replyTo ?? (input.replyToUrl ? (parseReplyTargetUrl(input.replyToUrl) ?? undefined) : undefined),
+          replyToUrl: input.replyToUrl ?? draft.replyToUrl ?? null,
           approvedAt: timestamp,
           createdAt: timestamp,
           updatedAt: timestamp
@@ -734,8 +807,8 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
 
         db.prepare(
           `INSERT INTO post_jobs (
-            id, account_id, draft_id, status, mode, scheduled_for, reply_to_url, approved_at, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            id, account_id, draft_id, status, mode, scheduled_for, reply_to_json, reply_to_url, approved_at, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
           job.id,
           job.accountId,
@@ -743,6 +816,7 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
           job.status,
           job.mode,
           job.scheduledFor,
+          serializeReplyTarget(job.replyTo),
           job.replyToUrl,
           job.approvedAt,
           job.createdAt,
@@ -788,6 +862,16 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
 
       const timestamp = now();
       db.prepare("UPDATE post_jobs SET status = ?, updated_at = ? WHERE id = ?").run(status, timestamp, jobId);
+      return requireJob(jobId);
+    },
+
+    async assignJobSchedule(jobId, scheduledFor) {
+      const timestamp = now();
+      db.prepare("UPDATE post_jobs SET scheduled_for = ?, updated_at = ? WHERE id = ?").run(
+        scheduledFor,
+        timestamp,
+        jobId
+      );
       return requireJob(jobId);
     },
 
@@ -855,6 +939,58 @@ export async function createSqliteRepository(filePath = DEFAULT_DATABASE_PATH): 
       return rows(db.prepare("SELECT * FROM post_attempts WHERE job_id = ? ORDER BY started_at ASC").all(jobId)).map(
         toAttempt
       );
+    },
+
+    async createIngestRun(input) {
+      const run: import("./types.js").IngestRun = {
+        id: id("ingest_run"),
+        configId: input.configId,
+        accountId: input.accountId,
+        startedAt: now(),
+        finishedAt: null,
+        status: "running",
+        error: null,
+        packetsCreated: 0
+      };
+      db.prepare(
+        `INSERT INTO ingest_runs (id, config_id, account_id, started_at, finished_at, status, error, packets_created)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        run.id, run.configId, run.accountId, run.startedAt, run.finishedAt, run.status, run.error, run.packetsCreated
+      );
+      return run;
+    },
+
+    async updateIngestRun(runId, input) {
+      const existing = row(db.prepare("SELECT * FROM ingest_runs WHERE id = ?").get(runId));
+      if (!existing) throw new Error(`Ingest run ${runId} not found`);
+      const current = toIngestRun(existing);
+      const updated: import("./types.js").IngestRun = {
+        ...current,
+        status: input.status,
+        error: input.error === undefined ? current.error : input.error,
+        packetsCreated: input.packetsCreated ?? current.packetsCreated,
+        finishedAt: input.status === "running" ? null : now()
+      };
+      db.prepare(
+        "UPDATE ingest_runs SET status = ?, error = ?, packets_created = ?, finished_at = ? WHERE id = ?"
+      ).run(updated.status, updated.error, updated.packetsCreated, updated.finishedAt, runId);
+      return updated;
+    },
+
+    async listIngestRuns(accountId, limit = 50) {
+      const cappedLimit = Math.min(50, Math.max(0, limit));
+      const result = accountId
+        ? db.prepare("SELECT * FROM ingest_runs WHERE account_id = ? ORDER BY started_at DESC, id DESC LIMIT ?").all(accountId, cappedLimit)
+        : db.prepare("SELECT * FROM ingest_runs ORDER BY started_at DESC, id DESC LIMIT ?").all(cappedLimit);
+      return rows(result).map(toIngestRun);
+    },
+
+    async recoverRunningIngestRuns() {
+      const result = db.prepare(
+        "UPDATE ingest_runs SET status = 'failed', error = 'interrupted', finished_at = ? WHERE status = 'running'"
+      ).run(now());
+      return Number((result as { changes?: unknown }).changes ?? 0);
     },
 
     async createPostHistory(input) {

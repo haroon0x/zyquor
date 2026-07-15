@@ -7,6 +7,7 @@ import {
   isCleanTweetText,
   postProcessTweetText,
   resolveGenerationProviderConfig,
+  scoreTweetQuality,
   buildSourceTweetInput,
   renderSourceContext,
   type FetchLike
@@ -20,6 +21,31 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 describe("ollama generation", () => {
+  it("renders reply context without treating the URL as browsed content", async () => {
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const fetchImpl: FetchLike = async (url, init) => {
+      calls.push({ url: String(url), init });
+      return jsonResponse({ response: '{"candidates":[{"text":"Useful reply."}]}' });
+    };
+    const provider = createOllamaGenerationProvider({ fetch: fetchImpl });
+
+    await provider.generateDraftCandidates({
+      idea: "The post says audit logs should be readable by users.",
+      tweetType: "reply",
+      replyContext: {
+        authorHandle: "target_user",
+        url: "https://x.com/target_user/status/1898765432109876543"
+      }
+    });
+
+    const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
+    expect(String(body.prompt)).toContain(
+      "You are drafting a reply to @target_user's post at https://x.com/target_user/status/1898765432109876543."
+    );
+    expect(String(body.prompt)).toContain("using the user's description of the target post");
+    expect(String(body.prompt)).toContain("Do not claim to have opened or read the linked post.");
+  });
+
   it("posts non-streaming JSON generation request", async () => {
     const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
     const fetchImpl: FetchLike = async (url, init) => {
@@ -48,8 +74,8 @@ describe("ollama generation", () => {
     expect(String(body.system)).toContain("Forbidden characters: — and –");
     expect(String(body.system)).toContain("not affiliated");
     expect(candidates).toEqual([
-      { text: "First local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 1 } },
-      { text: "Second local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 2 } }
+      { text: "first local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 1, quality: -1 } },
+      { text: "second local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 2, quality: -1 } }
     ]);
   });
 
@@ -78,12 +104,12 @@ describe("ollama generation", () => {
     expect(String(retryBody.prompt)).toContain("Forbidden characters: — and –");
     expect(candidates).toEqual([
       {
-        text: "Keep the automation path auditable before it touches a public account.",
-        score: { provider: "ollama", model: "qwen2.5:0.5b", rank: 1 }
+        text: "keep the automation path auditable before it touches a public account.",
+        score: { provider: "ollama", model: "qwen2.5:0.5b", rank: 1, quality: 0 }
       },
       {
-        text: "Local-first tools should make every browser action inspectable.",
-        score: { provider: "ollama", model: "qwen2.5:0.5b", rank: 2 }
+        text: "local-first tools should make every browser action inspectable.",
+        score: { provider: "ollama", model: "qwen2.5:0.5b", rank: 2, quality: 0 }
       }
     ]);
   });
@@ -98,7 +124,7 @@ describe("openrouter generation", () => {
         return jsonResponse({
           data: [
             {
-              id: "minimax/minimax-m2.5:free",
+              id: "moonshotai/kimi-k2.6:free",
               pricing: { prompt: "0", completion: "0", request: "0" }
             }
           ]
@@ -118,7 +144,7 @@ describe("openrouter generation", () => {
     };
     const provider = createOpenRouterGenerationProvider({
       apiKey: "test-key",
-      model: "minimax/minimax-m2.5:free",
+      model: "moonshotai/kimi-k2.6:free",
       fetch: fetchImpl
     });
 
@@ -129,10 +155,10 @@ describe("openrouter generation", () => {
     expect(calls[0]?.url).toBe("https://openrouter.ai/api/v1/models");
     expect(calls[1]?.url).toBe("https://openrouter.ai/api/v1/chat/completions");
     expect(headers.authorization).toBe("Bearer test-key");
-    expect(body).toMatchObject({ model: "minimax/minimax-m2.5:free", response_format: { type: "json_object" } });
+    expect(body).toMatchObject({ model: "moonshotai/kimi-k2.6:free", response_format: { type: "json_object" } });
     expect(candidates).toEqual([
-      { text: "A clean OpenRouter draft.", score: { provider: "openrouter", model: "minimax/minimax-m2.5:free", rank: 1 } },
-      { text: "Another clean OpenRouter draft.", score: { provider: "openrouter", model: "minimax/minimax-m2.5:free", rank: 2 } }
+      { text: "a clean openrouter draft.", score: { provider: "openrouter", model: "moonshotai/kimi-k2.6:free", rank: 1, quality: -1 } },
+      { text: "another clean openrouter draft.", score: { provider: "openrouter", model: "moonshotai/kimi-k2.6:free", rank: 2, quality: -1 } }
     ]);
   });
 
@@ -144,7 +170,7 @@ describe("openrouter generation", () => {
         return jsonResponse({
           data: [
             {
-              id: "minimax/minimax-m2.5:free",
+              id: "moonshotai/kimi-k2.6:free",
               pricing: { prompt: "0", completion: "0", request: "0" }
             }
           ]
@@ -174,7 +200,7 @@ describe("openrouter generation", () => {
     };
     const provider = createOpenRouterGenerationProvider({
       apiKey: "test-key",
-      model: "minimax/minimax-m2.5:free",
+      model: "moonshotai/kimi-k2.6:free",
       fetch: fetchImpl
     });
 
@@ -191,12 +217,12 @@ describe("openrouter generation", () => {
     expect(retryBody).toMatchObject({ temperature: 0.5, max_tokens: 500 });
     expect(candidates).toEqual([
       {
-        text: "Keep Zyquor ingest drafts human-reviewed before anything reaches X.",
-        score: { provider: "openrouter", model: "minimax/minimax-m2.5:free", rank: 1 }
+        text: "keep zyquor ingest drafts human-reviewed before anything reaches x.",
+        score: { provider: "openrouter", model: "moonshotai/kimi-k2.6:free", rank: 1, quality: 0 }
       },
       {
-        text: "Make local posting automation auditable enough that every account action has a trail.",
-        score: { provider: "openrouter", model: "minimax/minimax-m2.5:free", rank: 2 }
+        text: "make local posting automation auditable enough that every account action has a trail.",
+        score: { provider: "openrouter", model: "moonshotai/kimi-k2.6:free", rank: 2, quality: 0 }
       }
     ]);
   });
@@ -208,7 +234,7 @@ describe("openrouter generation", () => {
       return jsonResponse({
         data: [
           {
-            id: "minimax/minimax-m2.5:free",
+            id: "moonshotai/kimi-k2.6:free",
             pricing: { prompt: "0.000001", completion: "0", request: "0" }
           }
         ]
@@ -216,12 +242,12 @@ describe("openrouter generation", () => {
     };
     const provider = createOpenRouterGenerationProvider({
       apiKey: "test-key",
-      model: "minimax/minimax-m2.5:free",
+      model: "moonshotai/kimi-k2.6:free",
       fetch: fetchImpl
     });
 
     await expect(provider.generateDraftCandidates({ idea: "Make it safe.", count: 1 })).rejects.toThrow(
-      "OpenRouter model is not confirmed free: minimax/minimax-m2.5:free"
+      "OpenRouter model is not confirmed free: moonshotai/kimi-k2.6:free"
     );
     expect(calls.map((call) => call.url)).toEqual(["https://openrouter.ai/api/v1/models"]);
   });
@@ -266,7 +292,7 @@ describe("gemini generation", () => {
       }
     });
     expect(candidates).toEqual([
-      { text: "A clean Gemini draft.", score: { provider: "gemini", model: "gemini-2.0-flash", rank: 1 } }
+      { text: "a clean gemini draft.", score: { provider: "gemini", model: "gemini-2.0-flash", rank: 1, quality: -1 } }
     ]);
   });
 });
@@ -279,12 +305,31 @@ describe("tweet quality harness", () => {
     expect(isCleanTweetText("Noctua released official fan CAD models so builders can verify fit before buying.")).toBe(true);
   });
 
+  it("rejects AI-slop formula patterns", () => {
+    expect(isCleanTweetText("Hot take: serverless is overrated for steady workloads.")).toBe(false);
+    expect(isCleanTweetText("Unpopular opinion that most startups ship too slowly.")).toBe(false);
+    expect(isCleanTweetText("Most AI startups will fail this year. Let that sink in.")).toBe(false);
+    expect(isCleanTweetText("It's not the model, it's the data pipeline that decides quality.")).toBe(false);
+    expect(isCleanTweetText("Nobody talks about how expensive vector databases get at scale.")).toBe(false);
+    expect(isCleanTweetText("OpenAI just shipped a 10M token context window. Wild.")).toBe(false);
+    expect(isCleanTweetText("Serverless billing punishes steady workloads: you pay for elasticity you never use.")).toBe(true);
+  });
+
+  it("scores specific candidates above vague ones", () => {
+    const specific = "SQLite handles about 35% of production write loads fine if you batch transactions over 60 rows.";
+    const vague = "Interesting how databases keep evolving!";
+    expect(scoreTweetQuality(specific)).toBeGreaterThan(scoreTweetQuality(vague));
+  });
+
   it("post-processes em dashes and drops duplicate candidates", async () => {
     expect(postProcessTweetText("AI infra — not model demos — is where the bottleneck moved.")).toBe(
-      "AI infra, not model demos, is where the bottleneck moved."
+      "ai infra, not model demos, is where the bottleneck moved."
     );
     expect(postProcessTweetText("why this matters:\n\n-  models ship faster  \n- users still need trust")).toBe(
       "why this matters:\n\n- models ship faster\n- users still need trust"
+    );
+    expect(postProcessTweetText("Read HTTPS://Example.COM/CaseSensitivePath?Token=AbC now")).toBe(
+      "read HTTPS://Example.COM/CaseSensitivePath?Token=AbC now"
     );
 
     const fetchImpl: FetchLike = async () =>
@@ -301,12 +346,12 @@ describe("tweet quality harness", () => {
 
     await expect(provider.generateDraftCandidates({ idea: "AI infra bottleneck", count: 3 })).resolves.toEqual([
       {
-        text: "AI infra, not model demos, is where the bottleneck moved.",
-        score: { provider: "ollama", model: "llama3.1", rank: 1 }
+        text: "ai infra, not model demos, is where the bottleneck moved.",
+        score: { provider: "ollama", model: "llama3.1", rank: 1, quality: 1 }
       },
       {
-        text: "Compute supply now decides which AI products can scale.",
-        score: { provider: "ollama", model: "llama3.1", rank: 2 }
+        text: "compute supply now decides which ai products can scale.",
+        score: { provider: "ollama", model: "llama3.1", rank: 2, quality: -1 }
       }
     ]);
   });
@@ -323,7 +368,11 @@ describe("tweet quality harness", () => {
     });
 
     expect(input.idea).toContain("Source title: Automatic posting worker ships");
-    expect(input.idea).toContain("Include the source URL only if it makes the post more useful or credible.");
+    expect(input.idea).toContain("Required attribution: <source-title>Automatic posting worker ships</source-title>");
+    expect(input.idea).toContain(
+      "Required source link: <source-url>https://news.ycombinator.com/item?id=1</source-url>"
+    );
+    expect(input.idea).toContain("reference at least one concrete fact above");
     expect(renderSourceContext(input.source)).toContain("Source type: news");
     expect(renderSourceContext(input.source)).toContain("Topic tags: ai, devtools");
     expect(renderSourceContext(input.source)).toContain("Grounded facts:");
@@ -372,7 +421,7 @@ describe("generation config", () => {
       })
     ).toMatchObject({
       provider: "openrouter",
-      model: "nvidia/nemotron-3-super-120b-a12b:free",
+      model: "openrouter/owl-alpha",
       configured: true
     });
 
@@ -380,11 +429,11 @@ describe("generation config", () => {
       resolveGenerationProviderConfig({
         ZYQUOR_LLM_PROVIDER: "openrouter",
         ZYQUOR_OPENROUTER_API_KEY: "test-key",
-        ZYQUOR_OPENROUTER_MODEL: "minimax/minimax-m2.5:free"
+        ZYQUOR_OPENROUTER_MODEL: "moonshotai/kimi-k2.6:free"
       })
     ).toMatchObject({
       provider: "openrouter",
-      model: "minimax/minimax-m2.5:free",
+      model: "moonshotai/kimi-k2.6:free",
       configured: true
     });
 
@@ -392,11 +441,11 @@ describe("generation config", () => {
       resolveGenerationProviderConfig({
         ZYQUOR_LLM_PROVIDER: "openrouter",
         ZYQUOR_OPENROUTER_API_KEY: "test-key",
-        ZYQUOR_OPENROUTER_MODEL: "tencent/hy3-preview:free"
+        ZYQUOR_OPENROUTER_MODEL: "z-ai/glm-4.5-air:free"
       })
     ).toMatchObject({
       provider: "openrouter",
-      model: "tencent/hy3-preview:free",
+      model: "z-ai/glm-4.5-air:free",
       configured: true
     });
 
@@ -404,18 +453,18 @@ describe("generation config", () => {
       resolveGenerationProviderConfig({
         ZYQUOR_LLM_PROVIDER: "openrouter",
         ZYQUOR_OPENROUTER_API_KEY: "test-key",
-        ZYQUOR_OPENROUTER_MODEL: "inclusionai/ling-2.6-1t:free"
+        ZYQUOR_OPENROUTER_MODEL: "qwen/qwen3-next-80b-a3b-instruct:free"
       })
     ).toMatchObject({
       provider: "openrouter",
-      model: "inclusionai/ling-2.6-1t:free",
+      model: "qwen/qwen3-next-80b-a3b-instruct:free",
       configured: true
     });
   });
 
   it("exposes provider-specific model dropdown options", () => {
-    expect(GENERATION_MODEL_OPTIONS.openrouter).toContain("minimax/minimax-m2.5:free");
-    expect(GENERATION_MODEL_OPTIONS.openrouter).toContain("inclusionai/ling-2.6-1t:free");
+    expect(GENERATION_MODEL_OPTIONS.openrouter).toContain("moonshotai/kimi-k2.6:free");
+    expect(GENERATION_MODEL_OPTIONS.openrouter).toContain("openrouter/owl-alpha");
     expect(GENERATION_MODEL_OPTIONS.gemini).toContain("gemini-2.0-flash");
     expect(GENERATION_MODEL_OPTIONS.ollama).toContain("llama3.1");
   });

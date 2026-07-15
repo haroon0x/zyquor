@@ -1,23 +1,32 @@
-import { createSqliteRepository, DEFAULT_DATABASE_PATH } from "./sqlite.js";
-import { createJsonFileRepository, DEFAULT_JSON_DATABASE_PATH } from "./memory.js";
-import { resolve } from "node:path";
+import { createSqliteRepository, defaultDatabasePath } from "./sqlite.js";
+import { createJsonFileRepository, defaultJsonDatabasePath } from "./memory.js";
 import type { ZyquorRepository } from "./types.js";
+
+import { createRequire } from "node:module";
 
 export * from "./types.js";
 export * from "./sqlite.js";
 export * from "./memory.js";
 export * from "./mappers.js";
 export * from "./utils.js";
+export { ensureFirstRun } from "./firstrun.js";
 
-function defaultLocalDatabasePath() {
-  return process.env.ZYQUOR_WORKSPACE_ROOT ? resolve(process.env.ZYQUOR_WORKSPACE_ROOT, DEFAULT_DATABASE_PATH) : DEFAULT_DATABASE_PATH;
+export async function detectSqliteSupport(): Promise<{ available: boolean; error?: string }> {
+  try {
+    const req = createRequire(import.meta.url);
+    req("node:sqlite");
+    return { available: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { available: false, error: message };
+  }
 }
 
-export async function createLocalRepository(filePath = defaultLocalDatabasePath()): Promise<ZyquorRepository> {
+export async function createLocalRepository(filePath = defaultDatabasePath()): Promise<ZyquorRepository> {
   try {
     return await createSqliteRepository(filePath);
   } catch (error) {
     console.warn("Failed to create SQLite repository, falling back to JSON file:", error);
-    return createJsonFileRepository(DEFAULT_JSON_DATABASE_PATH);
+    return createJsonFileRepository(defaultJsonDatabasePath());
   }
 }

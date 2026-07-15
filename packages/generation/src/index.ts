@@ -5,9 +5,12 @@ export type GenerationProviderName = "openrouter" | "gemini" | "ollama";
 export interface GenerateDraftCandidatesInput {
   bannedPhrases?: string[];
   context?: import("./harness.js").TweetSourceContext;
+  examplePosts?: string[];
   idea: string;
   count?: number;
   objective?: string;
+  recentPostHistory?: string[];
+  replyContext?: { authorHandle: string; url: string };
   systemPromptExtra?: string;
   tone?: string | null;
   tweetType?: string;
@@ -50,12 +53,22 @@ export interface GenerationEnvironment {
 }
 
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
-const DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3-super-120b-a12b:free";
+const DEFAULT_OPENROUTER_MODEL = "openrouter/owl-alpha";
 export const OPENROUTER_MODELS = [
+  "openrouter/owl-alpha",
+  "nex-agi/nex-n2-pro:free",
   "nvidia/nemotron-3-super-120b-a12b:free",
-  "inclusionai/ling-2.6-1t:free",
-  "minimax/minimax-m2.5:free",
-  "tencent/hy3-preview:free"
+  "nvidia/nemotron-3-nano-30b-a3b:free",
+  "nvidia/nemotron-nano-9b-v2:free",
+  "qwen/qwen3-next-80b-a3b-instruct:free",
+  "google/gemma-4-26b-a4b-it:free",
+  "google/gemma-4-31b-it:free",
+  "z-ai/glm-4.5-air:free",
+  "moonshotai/kimi-k2.6:free",
+  "poolside/laguna-xs.2:free",
+  "poolside/laguna-m.1:free",
+  "liquid/lfm-2.5-1.2b-thinking:free",
+  "liquid/lfm-2.5-1.2b-instruct:free"
 ] as const;
 const ALLOWED_OPENROUTER_MODELS = OPENROUTER_MODELS;
 const DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
@@ -100,13 +113,26 @@ const INCOMPLETE_PATTERNS = [
   /[:;,]\s*$/
 ];
 const GENERIC_SLOP_PATTERNS = [
-  /\bgame changer\b/i,
+  /\bgame.chang(er|ing)\b/i,
   /\bunlock\b/i,
   /\bleverage\b/i,
   /\bsynergy\b/i,
   /\bin today's (fast-paced )?world\b/i,
   /\bnow more than ever\b/i,
-  /\bas an ai\b/i
+  /\bas an ai\b/i,
+  /\blet that sink in\b/i,
+  /\bread that again\b/i,
+  /\bhere'?s the (thing|kicker)\b/i,
+  /\bthe best part\?/i,
+  /\bhot take:/i,
+  /\bunpopular opinion\b/i,
+  /\b(nobody|no one) talks about\b/i,
+  /\bdelve\b/i,
+  /\bmind.blowing\b/i,
+  /\bthis changes everything\b/i,
+  /\bthe future is here\b/i,
+  /\bit'?s not [^.!?\n]{1,60}, it'?s\b/i,
+  /\b(wild|huge|insane)\.$/i
 ];
 
 function normalizeCount(count: number | undefined) {
@@ -118,7 +144,14 @@ function normalizeIdea(idea: string) {
 }
 
 export function postProcessTweetText(text: string) {
-  return text
+  const urls: string[] = [];
+  const protectedText = text.replace(/https?:\/\/[^\s]+/gi, (url) => {
+    const token = `\uE000${urls.length}\uE001`;
+    urls.push(url);
+    return token;
+  });
+
+  return protectedText
     .replace(/\r\n?/g, "\n")
     .replace(/\s*[\u2013\u2014]\s*/g, ", ")
     .split("\n")
@@ -131,31 +164,38 @@ export function postProcessTweetText(text: string) {
     )
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
-    .trim();
+    .trim()
+    .toLowerCase()
+    .replace(/\uE000(\d+)\uE001/g, (_token, index: string) => urls[Number(index)] ?? "");
 }
 
 function characterLimit(input: GenerateDraftCandidatesInput) {
   return DEFAULT_CHARACTER_LIMIT;
 }
 
-const FUTURE_WORKFLOW_PROMPT_RULES = [
-  "Zyquor is evolving beyond v1 into a multi-account, source-aware, scheduled, voice-assisted posting system. Keep drafts portable across review, rewrite, schedule, reply, and autopost flows.",
-  "Every post should be usable as an auditable draft: no hidden assumptions, no private workflow details, no unexplained source jumps, and no phrasing that depends on unseen thread context.",
-  "Optimize for future style profiles by varying content style, format style, and voice style across candidates while still obeying the account tone and objective."
+const AUTHENTICITY_RULES = [
+  "Sound like a person typing out a thought, not like content being produced. Plain words. No performance.",
+  "Start at the point. If the first sentence is setup or throat-clearing, delete it and start at the second.",
+  "One specific point per post. Let the most concrete detail, a number, a name, a mechanism, carry the post.",
+  "Plain is fine. A clear statement of a genuinely interesting fact beats a styled take on a boring one.",
+  "Never use hook formulas: 'Hot take:', 'Unpopular opinion:', 'Nobody talks about', 'Here's the thing', 'Let that sink in', 'Read that again', 'The best part?'.",
+  "Never use the contrast template 'It's not X, it's Y'. Never end on a one-word punch like 'Wild.' or 'Huge.'.",
+  "An opinion must carry its reasoning in the same post. A claim without its why is bait.",
+  "Use line breaks or short '-' lists only when the content really is a list or timeline. Never force a sentence into a format.",
+  "Greentext '>' timeline lines are allowed only for narrative history posts built on verified dates and facts.",
+  "A sentence fragment or natural lowercase is fine when it reads like a real person typed it. No fake misspellings. No forced slang.",
+  "Output every post in lowercase. No capitalized words anywhere, including proper nouns, acronyms, brand names, and the first letter of the post. This is a hard rule for the whole post.",
+  "Final check per candidate: if it could appear on LinkedIn or in an ad, rewrite it plainer and more specific."
 ];
 
-const ENGAGEMENT_STYLE_GUIDE = [
-  "Tweet style menu: choose one clear CONTENT_STYLE per candidate when it fits the idea.",
-  "CONTENT_STYLE options: HOT_TAKE, OPEN_LOOP_QUESTION, RELATABLE_PAIN_FIX, MICRO_STORY, HISTORICAL_IRONY, CHECKLIST, YOURE_DOING_IT_WRONG, WHAT_NO_ONE_TELLS_YOU, SPIKY_COMPARISON, CONFESSION, STATS_SHOCK, THREAD_HOOK, POLL_VIBE_QUESTION.",
-  "FORMAT_STYLE options: SINGLE_LINE_BANGER, DOUBLE_LINE_PUNCH, LIST_DASHES, LIST_ARROWS, GREENTEXT_TIMELINE, RATIO_LAYOUT, TITLE_SUBTITLE, SPARSE_BREAKS, ALL_CAPS_EMPHASIS, QUOTE_FORMAT, TIMELINE, MINI_THREAD_INDICATOR.",
-  "VOICE_STYLE options: CASUAL_LOWERCASE, SLIGHTLY_CHAOTIC, DRY_SARCASTIC, WHOLESOME_ENCOURAGING, AUTHORITY_BUT_CHILL.",
-  "Use Gen-Z-aware internet rhythm without forced slang: short lines, specific hooks, natural lowercase when useful, and zero corporate essay tone.",
-  "Preserve deliberate line breaks when a list, timeline, sparse-break, or double-line format is chosen. Do not flatten those formats into one paragraph.",
-  "A tiny amount of human irregularity is allowed: natural lowercase, a sentence fragment, or a clipped phrase. Do not add random misspellings that reduce clarity.",
-  "For high-engagement variants, prefer hooks that create replies, saves, or quote posts: a defensible hot take, a real question, a hidden truth, a sharp comparison, a mini playbook, or a then-vs-now lesson.",
-  "Format variety rules: lists may use '-' or '>' lines; comparisons may use 'X > Y' only when defensible; ALL CAPS may emphasize 1-3 words only; timeline posts should use compact year/state lines.",
-  "Narrative history style: when the facts support an inventor, researcher, founder, old paper, standard, or forgotten origin story, you may use a compact greentext timeline: lines starting with '>' followed by a reflective closing sentence. Keep it factual, dryly funny, and under the character limit.",
-  "Do not overuse thread markers. Use '(thread)' or '(1/?)' only when the idea genuinely needs follow-up; otherwise each post must remain complete by itself."
+const VOICE_EXAMPLES = [
+  "Voice calibration. These pairs show tone and shape only. Never reuse their facts, topics, or wording.",
+  "Weak: 'AI agents are a game changer for software development. The future is here.'",
+  "Strong: 'coding agents removed the activation energy of starting. i finally fix the stuff i ignored for months because opening the file was the hard part.'",
+  "Weak: 'Unpopular opinion: most startups fail because of poor execution. Let that sink in.'",
+  "Strong: 'every failed-startup post-mortem has the same line: \"we built for 18 months before talking to users.\" at some point that stops being bad luck and becomes the cause.'",
+  "Weak: 'New paper alert! Researchers unlock massive gains in LLM reasoning. This changes everything.'",
+  "Strong: 'New result: letting the model decide when to stop reasoning cuts inference cost about 40%. Smaller models gain more than big ones, which nobody predicted.'"
 ];
 
 const PUNCTUATION_RULES = [
@@ -179,14 +219,77 @@ function tweetTypeInstruction(tweetType: string | undefined) {
     reply: "Tweet type: reply. Draft a useful reply to the given post. Add context or a practical point without sounding automated.",
     tool: "Tweet type: tool. Explain what a tool is useful for and when to use it.",
     hiring:
-      "Tweet type: hiring. Share a real hiring post with role/company/context and the source link. Make it clear you are not affiliated with the company, just sharing because it may help someone.",
+      "Tweet type: hiring. Share a real hiring post with role/company/context and the exact source link. Make it clear you are not affiliated with the company, just sharing because it may help someone.",
     article_summary:
-      "Tweet type: article summary. Start with a natural 'read this' or 'worth reading' framing, then explain the article/blog's useful point in plain language. Include the source link when it fits.",
+      "Tweet type: article summary. Say what the article's genuinely useful point is in plain language, like recommending it to a friend. Include the exact source link. Vary the framing; never open every post the same way.",
     narrative_history:
       "Tweet type: narrative history. Turn verified facts into a compact historical or biographical arc with irony, delayed payoff, and a reflective closing. Greentext-style '>' timeline lines are allowed when they fit. Do not invent dates, causality, or attribution."
   };
 
   return labels[tweetType] ?? `Tweet type: ${tweetType}.`;
+}
+
+const WEAK_OPENER_PATTERN = /^(interesting|a reminder|this shows|fun fact|breaking:|just in|imagine|picture this|in a world)/i;
+
+const ADJECTIVE_BLOAT_PATTERNS = [
+  /\b(exciting|thrilling|groundbreaking|revolutionary|disruptive|innovative|cutting-edge|state-of-the-art|powerful|robust|seamless|effortless|comprehensive|holistic|impactful|strategic|dynamic|scalable)\b/gi
+];
+
+const LINKEDIN_VOICE_PATTERNS = [
+  /\b(thrilled|excited|honored|humbled|proud|grateful|blessed|journey|exciting news|big news|i'?m excited to announce|we are pleased to announce)\b/i,
+  /\bleverage\b/i,
+  /\bunlocking\b/i,
+  /\bthought leadership\b/i,
+  /\bkey takeaways\b/i
+];
+
+const WEAK_ENDING_PATTERN = /\b(etc\.?|\.\.\.|…|\bso\b|and\b|but\b|or\b)\s*$/i;
+
+function containsAdjectiveBloat(text: string) {
+  return ADJECTIVE_BLOAT_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function containsLinkedInVoice(text: string) {
+  return LINKEDIN_VOICE_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function hasWeakEnding(text: string) {
+  return WEAK_ENDING_PATTERN.test(text.trim());
+}
+
+function scoreReadability(text: string) {
+  let score = 0;
+  if (text.length >= 90 && text.length <= 260) score += 1;
+  if (text.length < 60) score -= 1;
+  if (text.length > 270) score -= 1;
+  return score;
+}
+
+function countNamedEntities(text: string) {
+  return (text.match(/\b([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)\b/g) ?? []).length;
+}
+
+function countSpecificNouns(text: string) {
+  const technical = /\b(model|database|API|kernel|compiler|chip|GPU|CPU|LLM|agent|router|index|cache|queue|token|protocol|framework|library|repo|commit|release|version|patch|benchmark|latency|throughput|dataset|embedding|vector|cluster|node|pod|container|function|service|endpoint|query|transaction|inference|training|fine-tuning|distillation|quantization|attention|transformer|diffusion|RAG|SLM|MoE|dense|sparse)\b/gi;
+  return (text.match(technical) ?? []).length;
+}
+
+export function scoreTweetQuality(text: string) {
+  const trimmed = text.trim();
+  let score = 0;
+  if (/\d/.test(trimmed)) score += 2;
+  if (/https?:\/\//.test(trimmed)) score += 1;
+  score += scoreReadability(trimmed);
+  score += countNamedEntities(trimmed);
+  score += countSpecificNouns(trimmed) * 2;
+  if (WEAK_OPENER_PATTERN.test(trimmed)) score -= 2;
+  if (/!/.test(trimmed)) score -= 1;
+  if (/\?$/.test(trimmed) && trimmed.length < 60) score -= 1;
+  if (hasWeakEnding(trimmed)) score -= 1;
+  if (containsAdjectiveBloat(trimmed)) score -= 2;
+  if (containsLinkedInVoice(trimmed)) score -= 3;
+  if (GENERIC_SLOP_PATTERNS.some((pattern) => pattern.test(trimmed))) score -= 2;
+  return score;
 }
 
 export function isCleanTweetText(text: string) {
@@ -197,60 +300,91 @@ export function isCleanTweetText(text: string) {
     !INTERNAL_LEAK_PATTERNS.some((pattern) => pattern.test(trimmed)) &&
     !INCOMPLETE_PATTERNS.some((pattern) => pattern.test(trimmed)) &&
     !GENERIC_SLOP_PATTERNS.some((pattern) => pattern.test(trimmed)) &&
+    !LINKEDIN_VOICE_PATTERNS.some((pattern) => pattern.test(trimmed)) &&
+    !WEAK_ENDING_PATTERN.test(trimmed) &&
     !/^[-*[{]/.test(trimmed) &&
     !trimmed.includes("\uFFFD")
   );
 }
 
-function systemPrompt(input: GenerateDraftCandidatesInput) {
-  const count = normalizeCount(input.count);
-  const bannedPhrases = input.bannedPhrases?.length ? input.bannedPhrases.join(", ") : "game changer, unlock, 10x";
-  const limit = characterLimit(input);
-  const diversityInstruction =
-    count >= 3
-      ? "Candidate mix: one direct why-it-matters post, one practical takeaway post, and one smart-bro casual post. If more candidates are requested, add a contrarian/context angle and a concise founder/operator angle. Vary content style, format style, and voice style instead of paraphrasing."
-      : "Candidate mix: make each candidate use a distinct angle, not paraphrases of the same sentence.";
+function formatExamplePosts(examplePosts: string[] | undefined) {
+  if (!examplePosts?.length) return "";
+  const posts = examplePosts
+    .map((post) => post.trim())
+    .filter(Boolean)
+    .slice(0, 5)
+    .map((post) => `> ${post.replace(/\n/g, "\n> ")}`)
+    .join("\n");
   return [
-    "You are Zyquor's draft generator for X posts.",
-    "Write concrete, concise, review-ready draft candidates.",
-    "Objective: maximize useful reach, views, and reputation by being specific, timely, clear, and valuable.",
-    "Prefer angles around AI, technology, programming, science, research, economics, markets, geopolitics shaped by tech, policy, startups, and business news when the context supports it.",
-    ...FUTURE_WORKFLOW_PROMPT_RULES,
-    diversityInstruction,
-    "Lead with the sharpest specific fact or implication. Avoid throat-clearing like 'Interesting', 'A reminder', 'In today's world', or 'This shows'.",
-    "If using news context, explain the second-order implication: who it affects, what changes, or why builders/investors/operators should care.",
-    "Use strong hooks and tasteful tension when useful. Do not use cheap bait, fake claims, hashtags, emojis, or generic startup phrases.",
-    ...ENGAGEMENT_STYLE_GUIDE,
-    ...PUNCTUATION_RULES,
-    "Grounding rule: only use facts supplied by the user or source context. If facts are thin, write a narrower observation instead of inventing missing details.",
-    "Context engineering rule: pick one angle per candidate. Do not mash together every fact. Make the most relevant detail carry the post.",
-    "Write only public-facing post text. Never mention internal labels like SourcePacket, source packet, compact input, candidate, draft, metadata, JSON, prompt, or distillation.",
-    "Never mention 'source context', 'grounded facts', or other harness wording.",
-    "No incomplete teasers. Every candidate must be a complete standalone post.",
-    `Banned phrases: ${bannedPhrases}.`,
-    input.tone ? `Account tone: ${input.tone}.` : "Account tone: clear, useful, direct.",
-    "At least one candidate should feel like you are sending it to a smart bro: casual, direct, useful, and not cringe.",
-    input.objective ? `Account objective: ${input.objective}.` : "Account objective: provide meaningful posts people save, share, and remember.",
-    `Hard limit: every candidate must be ${limit} characters or fewer for X free-tier posts and replies.`,
-    "The LLM only writes final tweet text. Do not invent sources, browsing results, dates, numbers, quotes, schedules, or strategy.",
-    "You may include the source URL when it improves credibility, context, or usefulness and the post still fits the character limit. Do not force links into every candidate.",
-    "For hiring tweets, include the job/source URL and say you are not affiliated or just sharing.",
-    "For article summary tweets, say what the article/blog is about without pretending you authored it.",
-    "Do not imply you read more than the provided context.",
-    "Keep human control, auditability, local-first operation, and explicit approval visible when relevant.",
-    `Return exactly ${count} non-empty candidates.`,
-    "Each candidate must be 1-3 short sentences, must directly use the user's rough idea, and must stand alone without thread context.",
-    input.context?.facts?.length
-      ? "Use only the provided source context and grounded facts. Do not add details that are not present."
-      : "",
-    'Return strict JSON only with this shape: {"candidates":[{"text":"first draft"},{"text":"second draft"}]}.',
-    "Never return an empty candidates array.",
-    input.systemPromptExtra ? `Extra user system prompt:\n${input.systemPromptExtra}` : ""
+    "Your own past posts that match your voice. Match their shape and sentence rhythm, but never copy their topics or facts:",
+    posts
   ].join("\n");
 }
 
+function formatRecentHistory(history: string[] | undefined) {
+  if (!history?.length) return "";
+  const lines = history
+    .map((post) => post.trim())
+    .filter(Boolean)
+    .slice(0, 10)
+    .map((post, index) => `${index + 1}. ${post.slice(0, 120)}${post.length > 120 ? "..." : ""}`)
+    .join("\n");
+  return [
+    "Your recent posts. Do not repeat these angles, topics, or phrasings; find a fresh take:",
+    lines
+  ].join("\n");
+}
+
+function systemPrompt(input: GenerateDraftCandidatesInput) {
+  const count = normalizeCount(input.count);
+  const bannedPhrases = input.bannedPhrases?.length
+    ? input.bannedPhrases.join(", ")
+    : "game changer, unlock, leverage, 10x, delve, dive into, revolutionize";
+  const limit = characterLimit(input);
+  const diversityInstruction =
+    count >= 3
+      ? "Angle mix: one candidate states the concrete fact and why it matters, one focuses on who it affects or what changes next, one gives a sharper personal read with its reasoning. Different angles on the substance, not different formats, not paraphrases."
+      : "Each candidate must take a distinct angle on the substance, not paraphrase the same sentence.";
+  return [
+    "You write X posts as one human account. Everything you produce must read like that person typed it themselves.",
+    "Quality bar: post only what a sharp follower in tech would find genuinely interesting. Specific beats clever. Clear beats styled. If the idea is thin, write the narrowest true observation rather than inflating it.",
+    input.tone ? `Account tone: ${input.tone}.` : "Account tone: clear, useful, direct.",
+    input.objective ? `Account objective: ${input.objective}.` : "Account objective: posts people save, share, and remember.",
+    "Topic home turf: AI, programming, science, research, markets, startups, and tech-shaped policy, when the context supports it.",
+    input.systemPromptExtra ? `Account-specific instructions (highest priority):\n${input.systemPromptExtra}` : "",
+    ...AUTHENTICITY_RULES,
+    ...VOICE_EXAMPLES,
+    "Voice calibration: every candidate must pass the 'why should a smart follower care?' test in the first 20 words. If it does not, delete the opening and start with the useful part.",
+    "Voice calibration: do not use adjectives that can be removed without changing the meaning. If you can delete the adjective and the sentence is the same, delete it.",
+    "Voice calibration: the final sentence must land on a concrete implication or a specific takeaway. No trailing questions, no 'etc.', no '...', no one-word endings like 'Wild.' or 'Huge.'.",
+    "Voice calibration: no LinkedIn/ad voice. Never use 'thrilled', 'humbled', 'journey', 'key takeaways', 'thought leadership', 'excited to announce', or 'leverage'.",
+    ...PUNCTUATION_RULES,
+    "No hashtags. No emojis. No cheap bait or fake claims.",
+    "Write as the human, never as an observer of feeds or data. Never use 'I notice', 'I've noticed', 'I observe', or similar detector phrasing. Just say the thing.",
+    "Grounding: use only facts supplied by the user or source context. Never invent dates, numbers, quotes, names, or causality. If facts are thin, narrow the claim instead of filling gaps.",
+    "For news, give the second-order implication: who it affects, what changes, why builders or investors should care.",
+    "Write only public-facing post text. Never mention internal labels like SourcePacket, source packet, compact input, candidate, draft, metadata, JSON, prompt, distillation, source context, or grounded facts.",
+    "Every candidate is a complete standalone post. No teasers, no thread dependence.",
+    "For source-backed posts, include the exact supplied source URL. Use only the supplied <source-title> value for attribution; never invent an author, publisher, or attribution. For hiring posts, say you are just sharing, not affiliated. For article posts, recommend the piece in your own words and vary the framing; never open every post the same way.",
+    `Banned phrases: ${bannedPhrases}.`,
+    `Hard limit: every candidate must be ${limit} characters or fewer.`,
+    diversityInstruction,
+    input.context?.facts?.length ? "Use only the provided facts. Do not add details that are not present." : "",
+    formatExamplePosts(input.examplePosts),
+    formatRecentHistory(input.recentPostHistory),
+    `Return exactly ${count} non-empty candidates.`,
+    'Return strict JSON only with this shape: {"candidates":[{"text":"first draft"},{"text":"second draft"}]}.',
+    "Never return an empty candidates array."
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function userPrompt(input: GenerateDraftCandidatesInput) {
-  return `${tweetTypeInstruction(input.tweetType)}\n\nContext to turn into public X posts:\n${normalizeIdea(input.idea)}${renderSourceContext(input.context)}`;
+  const replyInstruction = input.replyContext
+    ? `You are drafting a reply to @${input.replyContext.authorHandle}'s post at ${input.replyContext.url}. Write a useful reply using the user's description of the target post below. Do not claim to have opened or read the linked post.`
+    : "";
+  return `${tweetTypeInstruction(input.tweetType)}${replyInstruction ? `\n${replyInstruction}` : ""}\n\nContext to turn into public X posts:\n${normalizeIdea(input.idea)}${renderSourceContext(input.context)}`;
 }
 
 function linePrompt(input: GenerateDraftCandidatesInput) {
@@ -259,16 +393,18 @@ function linePrompt(input: GenerateDraftCandidatesInput) {
   return [
     `Write exactly ${count} concise X post drafts about this idea: ${normalizeIdea(input.idea)}`,
     tweetTypeInstruction(input.tweetType),
+    input.replyContext
+      ? `You are drafting a reply to @${input.replyContext.authorHandle}'s post at ${input.replyContext.url}. Write a useful reply using the user's description of the target post. Do not claim to have opened or read the linked post.`
+      : "",
     `Each draft must be ${limit} characters or fewer.`,
     "One draft per line.",
     "No numbering, no labels, no JSON.",
-    "Vary styles across lines: one may be a hot take, one a practical mini-playbook, one an open-loop question, comparison, or then-vs-now lesson.",
-    "Use modern X rhythm: concise, casual, specific, no corporate essay tone.",
+    "Each line takes a different angle on the idea, not a paraphrase.",
+    "Write like a person typing a thought: plain words, specific details, no hook formulas like 'Hot take:' or 'Unpopular opinion:', no corporate tone.",
     "Never mention SourcePacket, source packet, compact input, candidate, draft, metadata, prompt, or distillation.",
     "Avoid cheap bait, fake claims, hashtags, and emojis.",
-    ...PUNCTUATION_RULES,
-    "Mention auditability/control/local-first only if it fits the idea."
-  ].join("\n");
+    ...PUNCTUATION_RULES
+  ].filter(Boolean).join("\n");
 }
 
 function asText(value: unknown) {
@@ -335,14 +471,19 @@ function candidatesFromText(raw: string, input: GenerateDraftCandidatesInput, pr
     throw new Error(`${provider} returned no draft candidates`);
   }
 
-  return texts.slice(0, count).map((text, index) => ({
-    text,
-    score: {
-      provider,
-      model,
-      rank: index + 1
-    }
-  }));
+  return texts
+    .map((text, index) => ({ text, modelOrder: index, quality: scoreTweetQuality(text) }))
+    .sort((a, b) => b.quality - a.quality || a.modelOrder - b.modelOrder)
+    .slice(0, count)
+    .map(({ text, quality }, index) => ({
+      text,
+      score: {
+        provider,
+        model,
+        rank: index + 1,
+        quality
+      }
+    }));
 }
 
 function isNoCandidatesError(error: unknown, provider: GenerationProviderName) {
@@ -650,6 +791,4 @@ export function createGenerationProviderFromEnv(
   throw new Error(`Unsupported LLM provider: ${config.provider}`);
 }
 
-export * from "./viral-prompt.js";
 export * from "./harness.js";
-export * from "./viral-generation.js";

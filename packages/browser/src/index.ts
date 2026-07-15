@@ -1,6 +1,115 @@
-import { mkdirSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { chromium, type BrowserContext, type Locator, type Page } from "playwright";
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
+import { chromium, type BrowserContext, type Locator, type Page } from "playwright-core";
+import { dataPath, profilesPath, resolveDataRoot, type ReplyTarget } from "@zyquor/core";
+
+export function resolveProfileDir(profileDir: string): string {
+  return isAbsolute(profileDir) ? profileDir : resolve(resolveDataRoot(), profileDir);
+}
+
+const isWsl = existsSync("/proc/sys/fs/binfmt_misc/WSLInterop") || Boolean(process.env.WSL_DISTRO_NAME);
+
+let activeCdpPid: number | null = null;
+
+export async function ensureBrowserCdp(cdpUrl: string, profileDir: string): Promise<boolean> {
+  const browser = await chromium.connectOverCDP(cdpUrl).catch(() => null);
+  if (browser) {
+    return true;
+  }
+
+  const port = process.env.ZYQUOR_BROWSER_CDP_PORT ?? new URL(cdpUrl).port;
+  const workspaceRoot = process.env.ZYQUOR_DATA_ROOT ?? process.env.ZYQUOR_WORKSPACE_ROOT ?? resolve(process.cwd(), "../..");
+
+  if (isWsl && process.env.ZYQUOR_WSL_PROFILE_BASE) {
+    const wslBase = process.env.ZYQUOR_WSL_PROFILE_BASE;
+    const profileName = profileDir.split(/[\\/]/).filter(Boolean).pop() ?? profileDir;
+    const windowsUserDir = `${wslBase.replace("/mnt/c/", "C:\\").replace(/\//g, "\\")}\\${profileName}`;
+    const wslUserDir = `${wslBase}/${profileName}`;
+    mkdirSync(wslUserDir, { recursive: true });
+
+    const psScript = [
+      '$chrome = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"',
+      "$chromeArgs = @(",
+      `  '--user-data-dir=${windowsUserDir}',`,
+      "  '--profile-directory=Default',",
+      `  '--remote-debugging-port=${port}',`,
+      "  '--remote-debugging-address=0.0.0.0',",
+      "  '--no-first-run',",
+      "  '--no-default-browser-check',",
+      "  '--no-sandbox',",
+      "  '--disable-dev-shm-usage',",
+      "  'https://x.com/home'",
+      ")",
+      "Start-Process -FilePath $chrome -ArgumentList $chromeArgs"
+    ].join("\n");
+
+    const psPath = "/tmp/launch-chrome-cdp.ps1";
+    writeFileSync(psPath, psScript);
+
+    const child = spawn("powershell.exe", ["-ExecutionPolicy", "Bypass", "-File", psPath.replace("/mnt/c/", "C:\\").replace(/\//g, "\\")], {
+      detached: true,
+      stdio: "ignore"
+    });
+    child.on("error", () => undefined);
+    child.unref();
+    activeCdpPid = child.pid ?? null;
+  } else {
+    const chromeBin = process.env.CHROME_BIN ?? "google-chrome-stable";
+    const chromeConfigDir = process.env.ZYQUOR_CHROME_CONFIG_DIR ? resolve(process.env.ZYQUOR_CHROME_CONFIG_DIR) : profilesPath("chrome-config");
+    mkdirSync(chromeConfigDir, { recursive: true });
+    const child = spawn(chromeBin, [
+      `--user-data-dir=${resolveProfileDir(profileDir)}`,
+      "--profile-directory=Default",
+      `--remote-debugging-port=${port}`,
+      "--remote-debugging-address=127.0.0.1",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--no-sandbox",
+      "--disable-crash-reporter",
+      "--disable-dev-shm-usage",
+      "--ozone-platform=x11",
+      "https://x.com/home"
+    ], {
+      detached: true,
+      env: { ...process.env, XDG_CONFIG_HOME: chromeConfigDir },
+      stdio: "ignore"
+    });
+    child.on("error", () => undefined);
+    child.unref();
+    activeCdpPid = child.pid ?? null;
+  }
+
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    await new Promise((r) => setTimeout(r, 1_000));
+    const connected = await chromium.connectOverCDP(cdpUrl).catch(() => null);
+    if (connected) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export async function closeBrowserCdp(cdpUrl: string): Promise<void> {
+  try {
+    const browser = await chromium.connectOverCDP(cdpUrl).catch(() => null);
+    if (browser) {
+      await browser.close().catch(() => undefined);
+    }
+  } catch {
+    /* ignore */
+  }
+
+  if (activeCdpPid) {
+    try {
+      process.kill(activeCdpPid, "SIGTERM");
+    } catch {
+      /* already gone */
+    }
+    activeCdpPid = null;
+  }
+}
 
 export interface PreparePostInput {
   profileDir: string;
@@ -12,6 +121,7 @@ export interface PreparePostInput {
   closeAfterPrepare?: boolean;
   headless?: boolean;
   mediaPaths?: string[];
+  replyTo?: ReplyTarget;
   replyToUrl?: string | null;
   submit?: boolean;
   typingDelayMs?: number;
@@ -86,26 +196,23 @@ async function assertNotLoginPage(page: Page) {
   }
 }
 
-async function gotoXCompose(page: Page, xUrl: string, replyToUrl?: string | null) {
-  const targetUrl = replyToUrl || xUrl;
-  if (page.url().startsWith(targetUrl)) {
-    return;
-  }
-
-  try {
-    await page.goto(targetUrl, { waitUntil: "commit", timeout: 45_000 });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown navigation error";
-    const currentUrl = page.url();
-    if (!message.includes("Timeout") || !currentUrl.startsWith(targetUrl)) {
-      throw error;
+export async function openPostComposer(page: Page, xUrl: string, replyTo?: ReplyTarget, replyToUrl?: string | null) {
+  const targetUrl = replyTo?.url ?? replyToUrl ?? xUrl;
+  if (!page.url().startsWith(targetUrl)) {
+    try {
+      await page.goto(targetUrl, { waitUntil: "commit", timeout: 45_000 });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown navigation error";
+      const currentUrl = page.url();
+      if (!message.includes("Timeout") || !currentUrl.startsWith(targetUrl)) {
+        throw error;
+      }
     }
   }
 
-  if (replyToUrl) {
-    // If it's a reply, we need to click the reply button to open the editor
-    const replyButton = page.locator('[data-testid="reply"]').first();
-    await replyButton.click({ timeout: 15_000 }).catch(() => undefined);
+  if (replyTo || replyToUrl) {
+    const replyButton = page.locator('article[data-testid="tweet"] [data-testid="reply"], [data-testid="reply"]').first();
+    await replyButton.click({ timeout: 15_000 });
   }
 }
 
@@ -132,10 +239,9 @@ async function pageForSessionCheck(context: BrowserContext, input: CheckXLoginIn
   await closeDuplicateXPages(context);
   const xPage = existingXPage(context);
   if (xPage) return xPage;
-  if (input.cdpUrl) {
-    throw new Error("No existing X tab is open in Chrome CDP. Open one X tab and retry.");
-  }
-  return context.pages()[0] ?? (await context.newPage());
+  const page = context.pages()[0] ?? (await context.newPage());
+  await page.goto(input.xHomeUrl ?? "https://x.com/home", { waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => undefined);
+  return page;
 }
 
 async function pageForPost(context: BrowserContext, input: PreparePostInput) {
@@ -257,19 +363,30 @@ async function resolvePostedPermalink(page: Page) {
 }
 
 async function openPersistentContext(input: {
+  autoLaunchCdp?: boolean;
   browserChannel?: string | null;
   cdpUrl?: string;
   headless?: boolean;
   profileDir: string;
 }) {
-  const browser = input.cdpUrl ? await chromium.connectOverCDP(input.cdpUrl).catch(() => null) : null;
-  if (input.cdpUrl && !browser) {
+  let browser = input.cdpUrl ? await chromium.connectOverCDP(input.cdpUrl).catch(() => null) : null;
+  if (input.cdpUrl && !browser && input.autoLaunchCdp !== false) {
+    const autoLaunched = await ensureBrowserCdp(input.cdpUrl, input.profileDir);
+    if (autoLaunched) {
+      browser = await chromium.connectOverCDP(input.cdpUrl).catch(() => null);
+    }
+    if (!browser) {
+      throw new Error(
+        `Chrome CDP is unavailable at ${input.cdpUrl}. Launch failed or CDP did not become available within 30 seconds.`
+      );
+    }
+  } else if (input.cdpUrl && !browser) {
     throw new Error(
       `Chrome CDP is unavailable at ${input.cdpUrl}. Start ./zyquor or pnpm profile:x:cdp and keep that Chrome window open. Refusing to launch a fallback browser against the persistent X profile.`
     );
   }
   const browserChannel = input.browserChannel === "chromium" ? null : input.browserChannel;
-  const chromeConfigDir = resolve(process.env.ZYQUOR_CHROME_CONFIG_DIR ?? "profiles/chrome-config");
+  const chromeConfigDir = process.env.ZYQUOR_CHROME_CONFIG_DIR ? resolve(process.env.ZYQUOR_CHROME_CONFIG_DIR) : profilesPath("chrome-config");
   mkdirSync(chromeConfigDir, { recursive: true });
   const context =
     browser?.contexts()[0] ??
@@ -289,14 +406,13 @@ async function openPersistentContext(input: {
 }
 
 export async function checkXLogin(input: CheckXLoginInput): Promise<CheckXLoginResult> {
-  const { context, ownsContext } = await openPersistentContext(input);
+  const { context, ownsContext } = await openPersistentContext({
+    ...input,
+    autoLaunchCdp: false
+  });
 
   try {
     const page = await pageForSessionCheck(context, input);
-    if (!isXPage(page)) {
-      await page.goto(input.xHomeUrl ?? "https://x.com/home", { waitUntil: "domcontentloaded", timeout: 15_000 });
-    }
-    await page.waitForTimeout(2_500);
     await assertNotLoginPage(page);
     const result = { loggedIn: true, url: page.url() };
     if (ownsContext) {
@@ -330,7 +446,10 @@ export async function preparePost(input: PreparePostInput): Promise<PreparePostR
   const screenshotPath = join(artifactsDir, `prepare-${artifactId}.png`);
   const tracePath = join(artifactsDir, `prepare-${artifactId}.zip`);
 
-  const { context, ownsContext } = await openPersistentContext(input);
+  const { context, ownsContext } = await openPersistentContext({
+    ...input,
+    autoLaunchCdp: true
+  });
 
   try {
     context.setDefaultTimeout(30_000);
@@ -340,7 +459,7 @@ export async function preparePost(input: PreparePostInput): Promise<PreparePostR
     page.on("dialog", (dialog) => {
       void dialog.dismiss().catch(() => undefined);
     });
-    await gotoXCompose(page, input.xUrl ?? "https://x.com/compose/post", input.replyToUrl);
+    await openPostComposer(page, input.xUrl ?? "https://x.com/compose/post", input.replyTo, input.replyToUrl);
     await page.waitForTimeout(actionDelayMs);
     await assertNotLoginPage(page);
 

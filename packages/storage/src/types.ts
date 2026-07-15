@@ -5,6 +5,7 @@ import type {
   PostAttempt,
   PostHistory,
   PostJob,
+  ReplyTarget,
   SourcePacket,
   StyleProfile,
   IngestConfig
@@ -13,6 +14,17 @@ import type {
 export interface DraftWithCandidates {
   draft: Draft;
   candidates: DraftCandidate[];
+}
+
+export interface IngestRun {
+  id: string;
+  configId: string;
+  accountId: string;
+  startedAt: string;
+  finishedAt: string | null;
+  status: "running" | "succeeded" | "failed";
+  error: string | null;
+  packetsCreated: number;
 }
 
 export interface ZyquorRepository {
@@ -25,6 +37,7 @@ export interface ZyquorRepository {
     accountId: string;
     sourceInput: string;
     candidates?: Array<{ text: string; score: Record<string, unknown> }>;
+    replyTo?: ReplyTarget;
     replyToUrl?: string | null;
     metadata?: Record<string, unknown>;
   }): Promise<DraftWithCandidates>;
@@ -48,18 +61,21 @@ export interface ZyquorRepository {
   getDraftBySourcePacketId(sourcePacketId: string): Promise<DraftWithCandidates | null>;
   deleteDraft(id: string): Promise<DraftWithCandidates>;
   saveDraftCandidates(draftId: string, candidates: Array<{ text: string; score: Record<string, unknown> }>): Promise<DraftWithCandidates>;
+  updateDraftMetadata(draftId: string, metadata: Record<string, unknown>): Promise<Draft>;
   selectCandidate(input: { draftId: string; candidateId: string; editedText?: string }): Promise<DraftWithCandidates>;
   approveDraft(input: {
     draftId: string;
     editedText: string;
     mode?: PostJob["mode"];
     scheduledFor?: string | null;
+    replyTo?: ReplyTarget;
     replyToUrl?: string | null;
   }): Promise<{ draft: Draft; job: PostJob }>;
   listJobs(): Promise<PostJob[]>;
   getJob(id: string): Promise<PostJob | null>;
   deleteJob(id: string): Promise<PostJob>;
   updateJobStatus(id: string, status: PostJob["status"]): Promise<PostJob>;
+  assignJobSchedule(id: string, scheduledFor: string | null): Promise<PostJob>;
   claimJobForBrowserRun(id: string, claimableStatuses: PostJob["status"][]): Promise<PostJob | null>;
   createAttempt(input: {
     jobId: string;
@@ -70,6 +86,14 @@ export interface ZyquorRepository {
     tracePath?: string | null;
   }): Promise<PostAttempt>;
   listAttempts(jobId: string): Promise<PostAttempt[]>;
+  createIngestRun(input: { configId: string; accountId: string }): Promise<IngestRun>;
+  updateIngestRun(id: string, input: {
+    status: IngestRun["status"];
+    error?: string | null;
+    packetsCreated?: number;
+  }): Promise<IngestRun>;
+  listIngestRuns(accountId?: string, limit?: number): Promise<IngestRun[]>;
+  recoverRunningIngestRuns(): Promise<number>;
   createPostHistory(input: {
     accountId: string;
     draftId: string;
@@ -116,6 +140,7 @@ export interface RepositorySnapshot {
   candidates: DraftCandidate[];
   jobs: PostJob[];
   attempts: PostAttempt[];
+  ingestRuns: IngestRun[];
   history: PostHistory[];
   fingerprints: ContentFingerprint[];
   ingestConfigs: IngestConfig[];

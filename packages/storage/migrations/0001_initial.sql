@@ -32,6 +32,8 @@ CREATE TABLE drafts (
   source_input TEXT NOT NULL,
   generated_text TEXT,
   edited_text TEXT,
+  reply_to_json TEXT,
+  reply_to_url TEXT,
   status TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -53,6 +55,8 @@ CREATE TABLE post_jobs (
   status TEXT NOT NULL,
   mode TEXT NOT NULL,
   scheduled_for TEXT,
+  reply_to_json TEXT,
+  reply_to_url TEXT,
   approved_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -73,6 +77,19 @@ CREATE TABLE post_attempts (
 CREATE INDEX idx_drafts_account_id ON drafts(account_id);
 CREATE INDEX idx_jobs_account_status ON post_jobs(account_id, status);
 CREATE INDEX idx_attempts_job_id ON post_attempts(job_id);
+
+CREATE TABLE ingest_runs (
+  id TEXT PRIMARY KEY NOT NULL,
+  config_id TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  status TEXT NOT NULL,
+  error TEXT,
+  packets_created INTEGER NOT NULL
+);
+
+CREATE INDEX idx_ingest_runs_account_started ON ingest_runs(account_id, started_at DESC);
 
 CREATE TABLE post_history (
   id TEXT PRIMARY KEY NOT NULL,

@@ -107,11 +107,8 @@ cp .env.example .env
 # edit .env:
 # ZYQUOR_LLM_PROVIDER=openrouter
 # ZYQUOR_OPENROUTER_API_KEY=...
-# Allowed free OpenRouter models:
-# nvidia/nemotron-3-super-120b-a12b:free
-# minimax/minimax-m2.5:free
-# tencent/hy3-preview:free
-# ZYQUOR_OPENROUTER_MODEL=nvidia/nemotron-3-super-120b-a12b:free
+# Full free-model allowlist is in OPENROUTER_MODELS in packages/generation/src/index.ts.
+# Default: openrouter/owl-alpha
 pnpm dev:api
 ```
 
@@ -241,3 +238,18 @@ curl http://127.0.0.1:3001/worker/status
 curl http://127.0.0.1:3001/ingest-sources
 ./zyquor analyze --hours 24
 ```
+
+## Desktop app (Windows)
+
+Zyquor ships as a system-tray Electron desktop app for Windows. The API, worker, and web UI run in-process instead of separate terminals. The window can be closed to tray, keeping the worker alive in the background.
+
+```bash
+pnpm dev:desktop        # build and launch
+pnpm smoke:desktop      # headless logic smoke (no GUI required)
+pnpm dist:desktop       # produce NSIS installer (CI: dist-desktop-win job)
+```
+
+- **Data root**: `%APPDATA%/Zyquor` (overridable via `ZYQUOR_DATA_ROOT`).
+- **Settings**: `settings.json` in the data root — edit from the Desktop Settings panel in the UI.
+- **Posting Chrome**: launch from the tray menu; it spawns a dedicated Chrome profile with CDP on port 9222.
+- **App icon and code signing** are not yet configured. Windows verification is manual for now.

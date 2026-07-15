@@ -6,7 +6,9 @@ import {
   processIngest,
   processNewSourcePackets,
   recoverStaleJobs,
-  runWorkerCycle
+  runWorkerCycle,
+  startWorker,
+  type WorkerHandle
 } from "./index.js";
 
 const baseJob = {
@@ -182,8 +184,8 @@ describe("worker job processing", () => {
         if (url.endsWith("/jobs")) {
           return Response.json({
             jobs: [
-              { ...baseJob, id: "job_auto", mode: "autopost" },
-              { ...baseJob, id: "job_auto", mode: "autopost" }
+              { ...baseJob, id: "job_auto", mode: "autopost", scheduledFor: "2026-04-25T11:00:00.000Z" },
+              { ...baseJob, id: "job_auto", mode: "autopost", scheduledFor: "2026-04-25T11:00:00.000Z" }
             ]
           });
         }
@@ -207,6 +209,63 @@ describe("worker job processing", () => {
     expect(first.approvedProcessed).toBe(1);
     expect(second.approvedProcessed).toBe(0);
     expect(calls.filter((call) => call === "POST http://api.test/jobs/job_auto/post")).toHaveLength(1);
+  });
+
+  it("back-fills a random 30-90 min scheduledFor on legacy autopost jobs with no schedule", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
+    const calls: string[] = [];
+    const patchBodies: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (init?.body) patchBodies.push(JSON.parse(init.body as string));
+        if (url.endsWith("/drafts/pending")) {
+          return Response.json({ drafts: [] });
+        }
+        if (url.endsWith("/jobs/recover-stale")) {
+          return Response.json({ recoveredCount: 0, recovered: [] });
+        }
+        if (url.endsWith("/ingest-run/async")) {
+          return Response.json({ accepted: false, ingestRun: { processed: 0, running: true } }, { status: 202 });
+        }
+        if (url.endsWith("/health")) {
+          return Response.json({ ok: true });
+        }
+        if (url.endsWith("/jobs") && init?.method !== "PATCH") {
+          return Response.json({
+            jobs: [{ ...baseJob, id: "job_legacy", mode: "autopost" }]
+          });
+        }
+        if (url.endsWith("/accounts")) {
+          return Response.json({ accounts: [baseAccount] });
+        }
+        if (url.includes("/browser/x-session")) {
+          return Response.json({ loggedIn: true });
+        }
+        return Response.json({ ok: true });
+      })
+    );
+    const state = createWorkerState();
+    const options = { apiUrl: "http://api.test", pollMs: 1000, ingestIntervalMs: 60_000 };
+
+    const result = await runWorkerCycle(options, state);
+
+    expect(result.approvedProcessed).toBe(0);
+    const patchCalls = calls.filter((call) => call === "PATCH http://api.test/jobs/job_legacy");
+    expect(patchCalls).toHaveLength(1);
+    const body = patchBodies.find((raw) => {
+      const obj = raw as { scheduledFor?: unknown };
+      return typeof obj?.scheduledFor === "string";
+    }) as { scheduledFor: string } | undefined;
+    expect(body).toBeDefined();
+    expect(body!.scheduledFor).toBeTruthy();
+    const scheduledMs = Date.parse(body!.scheduledFor);
+    const nowMs = Date.parse("2026-04-25T12:00:00.000Z");
+    const gapMinutes = (scheduledMs - nowMs) / 60_000;
+    expect(gapMinutes).toBeGreaterThanOrEqual(30);
+    expect(gapMinutes).toBeLessThanOrEqual(90 * 1.2);
   });
 
   it("recovers stale jobs before processing approved jobs in a worker cycle", async () => {
@@ -301,7 +360,7 @@ describe("worker job processing", () => {
         }
         if (url.endsWith("/jobs")) {
           return Response.json({
-            jobs: [{ ...baseJob, id: "job_capped", mode: "autopost" }]
+            jobs: [{ ...baseJob, id: "job_capped", mode: "autopost", scheduledFor: "2026-04-25T11:00:00.000Z" }]
           });
         }
         if (url.endsWith("/accounts")) {
@@ -341,8 +400,8 @@ describe("worker job processing", () => {
         if (url.endsWith("/jobs")) {
           return Response.json({
             jobs: [
-              { ...baseJob, id: "job_busy", mode: "autopost" },
-              { ...baseJob, id: "job_later", mode: "autopost" }
+              { ...baseJob, id: "job_busy", mode: "autopost", scheduledFor: "2026-04-25T11:00:00.000Z" },
+              { ...baseJob, id: "job_later", mode: "autopost", scheduledFor: "2026-04-25T11:00:00.000Z" }
             ]
           });
         }
@@ -557,5 +616,193 @@ describe("worker startup checks", () => {
     expect(result.seededConfigId).toBe("ingest_default");
     expect(result.warnings).toEqual([]);
     expect(calls).toContain("POST http://api.test/ingest-configs/default-news");
+  });
+
+  it("skips X session check when both browser prepare and browser post are disabled", async () => {
+    const originalPrepare = process.env.ZYQUOR_ENABLE_BROWSER_PREPARE;
+    const originalPost = process.env.ZYQUOR_ENABLE_BROWSER_POST;
+    process.env.ZYQUOR_ENABLE_BROWSER_PREPARE = "0";
+    process.env.ZYQUOR_ENABLE_BROWSER_POST = "0";
+
+    try {
+      const calls: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string, init?: RequestInit) => {
+          calls.push(`${init?.method ?? "GET"} ${url}`);
+          if (url.endsWith("/health")) return Response.json({ ok: true });
+          if (url.endsWith("/accounts")) return Response.json({ accounts: [baseAccount] });
+          if (url.endsWith("/ingest-configs")) return Response.json({ configs: [{ id: "cfg1", enabled: true }] });
+          if (url.includes("/browser/x-session")) return Response.json({ loggedIn: true, error: null });
+          return Response.json({ ok: true });
+        })
+      );
+
+      const result = await checkWorkerStartup({ apiUrl: "http://api.test", pollMs: 1000 });
+
+      expect(result.warnings).toEqual([
+        "ZYQUOR_ENABLE_BROWSER_POST=0, so autopost jobs cannot submit to X."
+      ]);
+      expect(calls).not.toContain(expect.stringContaining("/browser/x-session"));
+    } finally {
+      if (originalPrepare !== undefined) {
+        process.env.ZYQUOR_ENABLE_BROWSER_PREPARE = originalPrepare;
+      } else {
+        delete process.env.ZYQUOR_ENABLE_BROWSER_PREPARE;
+      }
+      if (originalPost !== undefined) {
+        process.env.ZYQUOR_ENABLE_BROWSER_POST = originalPost;
+      } else {
+        delete process.env.ZYQUOR_ENABLE_BROWSER_POST;
+      }
+    }
+  });
+});
+
+describe("startWorker", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("runs at least one cycle after starting", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
+    const cycleCalls: number[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.endsWith("/health")) return Response.json({ ok: true });
+        if (url.endsWith("/accounts")) return Response.json({ accounts: [baseAccount] });
+        if (url.endsWith("/ingest-configs")) return Response.json({ configs: [{ id: "cfg1", enabled: true }] });
+        if (url.includes("/browser/x-session")) return Response.json({ loggedIn: true, error: null });
+        if (url.endsWith("/jobs/recover-stale")) { cycleCalls.push(1); return Response.json({ recoveredCount: 0 }); }
+        if (url.endsWith("/jobs")) return Response.json({ jobs: [] });
+        if (url.endsWith("/drafts/pending")) return Response.json({ drafts: [] });
+        if (url.endsWith("/source-packets")) return Response.json({ packets: [] });
+        if (url.endsWith("/ingest-run/async")) return Response.json({ accepted: false, ingestRun: { processed: 0, running: true } });
+        return Response.json({ ok: true });
+      })
+    );
+
+    const handle = startWorker({ apiUrl: "http://api.test", pollMs: 100 });
+
+    // Advance time enough for startup + at least one cycle
+    await vi.advanceTimersByTimeAsync(500);
+    await handle.stop();
+
+    expect(cycleCalls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("stop() prevents further cycles from running", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
+    const cycleCalls: number[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.endsWith("/health")) return Response.json({ ok: true });
+        if (url.endsWith("/accounts")) return Response.json({ accounts: [baseAccount] });
+        if (url.endsWith("/ingest-configs")) return Response.json({ configs: [{ id: "cfg1", enabled: true }] });
+        if (url.includes("/browser/x-session")) return Response.json({ loggedIn: true, error: null });
+        if (url.endsWith("/jobs/recover-stale")) { cycleCalls.push(1); return Response.json({ recoveredCount: 0 }); }
+        if (url.endsWith("/jobs")) return Response.json({ jobs: [] });
+        if (url.endsWith("/drafts/pending")) return Response.json({ drafts: [] });
+        if (url.endsWith("/source-packets")) return Response.json({ packets: [] });
+        if (url.endsWith("/ingest-run/async")) return Response.json({ accepted: false, ingestRun: { processed: 0, running: true } });
+        return Response.json({ ok: true });
+      })
+    );
+
+    const handle = startWorker({ apiUrl: "http://api.test", pollMs: 100 });
+
+    // Let startup + one cycle run
+    await vi.advanceTimersByTimeAsync(500);
+    const countBeforeStop = cycleCalls.length;
+    expect(countBeforeStop).toBeGreaterThanOrEqual(1);
+
+    await handle.stop();
+    const countAfterStop = cycleCalls.length;
+
+    // Advance well beyond the poll interval
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(cycleCalls.length).toBe(countAfterStop);
+  });
+
+  it("stop() waits for an in-flight slow cycle to complete", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
+    let cycleStarted = false;
+    let cycleFinished = false;
+    let cycleResolve!: () => void;
+    const resumePromise = new Promise<void>((resolve) => { cycleResolve = resolve; });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.endsWith("/health")) return Response.json({ ok: true });
+        if (url.endsWith("/accounts")) return Response.json({ accounts: [baseAccount] });
+        if (url.endsWith("/ingest-configs")) return Response.json({ configs: [{ id: "cfg1", enabled: true }] });
+        if (url.includes("/browser/x-session")) return Response.json({ loggedIn: true, error: null });
+        if (url.endsWith("/jobs/recover-stale")) {
+          cycleStarted = true;
+          await resumePromise;
+          cycleFinished = true;
+          return Response.json({ recoveredCount: 0 });
+        }
+        if (url.endsWith("/jobs")) return Response.json({ jobs: [] });
+        if (url.endsWith("/drafts/pending")) return Response.json({ drafts: [] });
+        if (url.endsWith("/source-packets")) return Response.json({ packets: [] });
+        if (url.endsWith("/ingest-run/async")) return Response.json({ accepted: false, ingestRun: { processed: 0, running: true } });
+        return Response.json({ ok: true });
+      })
+    );
+
+    const handle = startWorker({ apiUrl: "http://api.test", pollMs: 100 });
+
+    // Let startup run + start first cycle (which will hang in recover-stale)
+    await vi.advanceTimersByTimeAsync(500);
+    expect(cycleStarted).toBe(true);
+    expect(cycleFinished).toBe(false);
+
+    // Initiate stop — it should NOT resolve yet since cycle is in-flight
+    let stopped = false;
+    const stopPromise = handle.stop().then(() => { stopped = true; });
+
+    // Advance time — stop should still be pending
+    await vi.advanceTimersByTimeAsync(500);
+    expect(stopped).toBe(false);
+
+    // Release the in-flight cycle
+    cycleResolve();
+    await vi.runAllTimersAsync();
+    await stopPromise;
+
+    expect(stopped).toBe(true);
+    expect(cycleFinished).toBe(true);
+  });
+
+  it("startup failure: finished rejects and stop() still resolves normally", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const startupError = new Error("API unreachable");
+    const mockCheckStartup = vi.fn().mockRejectedValue(startupError);
+
+    const handle = startWorker(
+      { apiUrl: "http://api.test", pollMs: 100 },
+      { checkStartup: mockCheckStartup }
+    );
+
+    // finished should reject with the startup error
+    await expect(handle.finished).rejects.toThrow("API unreachable");
+
+    // stop() should still resolve normally after a startup failure
+    await handle.stop();
+    // stop() called twice is idempotent
+    await handle.stop();
+
+    expect(mockCheckStartup).toHaveBeenCalledTimes(1);
   });
 });

@@ -16,7 +16,8 @@ const testProvider: DraftGenerationProvider = {
         score: {
           provider: "test",
           hasSourceContext: Boolean(input.context?.facts?.length),
-          tweetType: input.tweetType
+          tweetType: input.tweetType,
+          quality: 3
         }
       }
     ];
@@ -123,7 +124,9 @@ describe("automatic ingest", () => {
       tweetType: "news_context"
     });
     expect(draft?.candidates).toEqual([]);
-    expect(draft?.draft.editedText).toBe("Useful read: HN: automatic workers changes how teams think about automation.");
+    expect(draft?.draft.editedText).toBe(
+      "useful read: hn: automatic workers changes how teams think about automation. https://news.ycombinator.com/item?id=1"
+    );
   });
 
   it("repairs source-backed generated text before auto-approve", async () => {
@@ -151,7 +154,7 @@ describe("automatic ingest", () => {
         return [
           {
             text: "> old failover was brittle > new defaults reduce operator risk",
-            score: {}
+            score: { quality: 3 }
           }
         ];
       }
@@ -325,7 +328,7 @@ describe("automatic ingest", () => {
         return [
           {
             text: generateCount === 1 ? "x".repeat(281) : "Good generated source is useful.",
-            score: {}
+            score: { quality: 3 }
           }
         ];
       }
@@ -350,7 +353,7 @@ describe("automatic ingest", () => {
 
     expect(result.processed).toBe(1);
     expect(result.results).toMatchObject([{ url: "https://example.com/good-generated" }]);
-    expect(result.errors[0]?.error).toContain("post_text_too_long_after_quality_repair");
+    expect(result.errors[0]?.error).toContain("Post text exceeds 280 characters");
     await expect(repository.getSourcePacketByUrl("https://example.com/already-posted", "account_personal")).resolves.toBeNull();
     await expect(repository.getSourcePacketByUrl("https://example.com/bad-generated", "account_personal")).resolves.toBeNull();
   });

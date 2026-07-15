@@ -9,13 +9,15 @@ import type {
   StyleProfile,
   IngestConfig
 } from "@zyquor/core";
-import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob } from "@zyquor/core";
+import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor, dataPath, parseReplyTargetUrl } from "@zyquor/core";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { ZyquorRepository, RepositorySnapshot, ContentFingerprint } from "./types.js";
+import type { ZyquorRepository, RepositorySnapshot, ContentFingerprint, IngestRun } from "./types.js";
 import { id as idGen, normalizePostText, hashPostText } from "./utils.js";
 
-export const DEFAULT_JSON_DATABASE_PATH = "data/app.json";
+export function defaultJsonDatabasePath(): string {
+  return dataPath("data", "app.json");
+}
 
 export interface MemoryRepositoryOptions {
   now?: () => string;
@@ -70,6 +72,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
   );
   const jobs = new Map<string, PostJob>((options.snapshot?.jobs ?? []).map((job) => [job.id, job]));
   const attempts = new Map<string, PostAttempt>((options.snapshot?.attempts ?? []).map((attempt) => [attempt.id, attempt]));
+  const ingestRuns = new Map<string, IngestRun>((options.snapshot?.ingestRuns ?? []).map((run) => [run.id, run]));
   const history = new Map<string, PostHistory>((options.snapshot?.history ?? []).map((item) => [item.id, item]));
   const fingerprints = new Map<string, ContentFingerprint>(
     (options.snapshot?.fingerprints ?? []).map((item) => [item.id, item])
@@ -89,6 +92,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       candidates: [...candidates.values()],
       jobs: [...jobs.values()],
       attempts: [...attempts.values()],
+      ingestRuns: [...ingestRuns.values()],
       history: [...history.values()],
       fingerprints: [...fingerprints.values()],
       ingestConfigs: [...ingestConfigs.values()],
@@ -262,6 +266,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
         sourceInput: input.sourceInput,
         generatedText: firstCandidate,
         editedText: firstCandidate,
+        replyTo: input.replyTo ?? (input.replyToUrl ? (parseReplyTargetUrl(input.replyToUrl) ?? undefined) : undefined),
         replyToUrl: input.replyToUrl ?? null,
         metadata: input.metadata ?? {},
         status: firstCandidate ? "selected" : "created",
@@ -378,6 +383,14 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       return { draft: updatedDraft, candidates: candidatesForDraft(draftId) };
     },
 
+    async updateDraftMetadata(draftId, metadata) {
+      const draft = requireDraft(draftId);
+      const updated: Draft = { ...draft, metadata, updatedAt: now() };
+      drafts.set(draftId, updated);
+      persist();
+      return updated;
+    },
+
     async selectCandidate(input) {
       const draft = requireDraft(input.draftId);
       if (!canTransitionDraft(draft.status, "selected") && draft.status !== "selected") {
@@ -434,13 +447,44 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       drafts.set(updatedDraft.id, updatedDraft);
 
       const jobMode = input.mode ?? (input.scheduledFor ? "scheduled" : "prepare_only");
+      let scheduledFor: string | null = input.scheduledFor ?? null;
+      if (!scheduledFor && jobMode === "autopost") {
+        const accountJobs = [...jobs.values()]
+          .filter((j) => j.accountId === draft.accountId && j.mode === "autopost")
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        const lastAutopost = accountJobs[0];
+        const lastScheduledFor = lastAutopost?.scheduledFor ?? null;
+        const recentGapMs: number[] = [];
+        for (let i = 0; i < accountJobs.length - 1; i += 1) {
+          const curr = accountJobs[i];
+          const next = accountJobs[i + 1];
+          if (!curr || !next) continue;
+          const currMs = Date.parse(curr.scheduledFor ?? curr.createdAt);
+          const nextMs = Date.parse(next.scheduledFor ?? next.createdAt);
+          if (Number.isFinite(currMs) && Number.isFinite(nextMs)) {
+            recentGapMs.push(Math.abs(currMs - nextMs));
+          }
+        }
+        const gapMinMinutes = Number(process.env.ZYQUOR_POST_GAP_MIN_MINUTES ?? 30);
+        const gapMaxMinutes = Number(process.env.ZYQUOR_POST_GAP_MAX_MINUTES ?? 90);
+        const next = nextAutopostScheduledFor({
+          lastScheduledFor,
+          timestamp,
+          gapMinMinutes,
+          gapMaxMinutes,
+          recentGapMs
+        });
+        scheduledFor = next.scheduledFor;
+      }
       const job: PostJob = {
         id: id("job"),
         accountId: draft.accountId,
         draftId: draft.id,
         status: "approved",
         mode: jobMode,
-        scheduledFor: input.scheduledFor ?? null,
+        scheduledFor,
+        replyTo: input.replyTo ?? draft.replyTo ?? (input.replyToUrl ? (parseReplyTargetUrl(input.replyToUrl) ?? undefined) : undefined),
+        replyToUrl: input.replyToUrl ?? draft.replyToUrl ?? null,
         approvedAt: timestamp,
         createdAt: timestamp,
         updatedAt: timestamp
@@ -496,6 +540,14 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       return updatedJob;
     },
 
+    async assignJobSchedule(id, scheduledFor) {
+      const job = requireJob(id);
+      const updatedJob = { ...job, scheduledFor, updatedAt: now() };
+      jobs.set(id, updatedJob);
+      persist();
+      return updatedJob;
+    },
+
     async claimJobForBrowserRun(id, claimableStatuses) {
       const job = jobs.get(id);
       if (!job || !claimableStatuses.includes(job.status)) {
@@ -537,6 +589,55 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
 
     async listAttempts(jobId) {
       return [...attempts.values()].filter((attempt) => attempt.jobId === jobId);
+    },
+
+    async createIngestRun(input) {
+      const run: IngestRun = {
+        id: id("ingest_run"),
+        configId: input.configId,
+        accountId: input.accountId,
+        startedAt: now(),
+        finishedAt: null,
+        status: "running",
+        error: null,
+        packetsCreated: 0
+      };
+      ingestRuns.set(run.id, run);
+      persist();
+      return run;
+    },
+
+    async updateIngestRun(id, input) {
+      const run = ingestRuns.get(id);
+      if (!run) throw new Error(`Ingest run ${id} not found`);
+      const updated: IngestRun = {
+        ...run,
+        status: input.status,
+        error: input.error === undefined ? run.error : input.error,
+        packetsCreated: input.packetsCreated ?? run.packetsCreated,
+        finishedAt: input.status === "running" ? null : now()
+      };
+      ingestRuns.set(id, updated);
+      persist();
+      return updated;
+    },
+
+    async listIngestRuns(accountId, limit = 50) {
+      return [...ingestRuns.values()]
+        .filter((run) => !accountId || run.accountId === accountId)
+        .sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id))
+        .slice(0, Math.min(50, Math.max(0, limit)));
+    },
+
+    async recoverRunningIngestRuns() {
+      let recoveredCount = 0;
+      for (const [id, run] of ingestRuns.entries()) {
+        if (run.status !== "running") continue;
+        ingestRuns.set(id, { ...run, status: "failed", error: "interrupted", finishedAt: now() });
+        recoveredCount += 1;
+      }
+      if (recoveredCount > 0) persist();
+      return recoveredCount;
     },
 
     async createPostHistory(input) {
@@ -625,7 +726,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
   };
 }
 
-export function createJsonFileRepository(filePath = DEFAULT_JSON_DATABASE_PATH): ZyquorRepository {
+export function createJsonFileRepository(filePath = defaultJsonDatabasePath()): ZyquorRepository {
   mkdirSync(dirname(filePath), { recursive: true });
 
   let snapshot: Partial<RepositorySnapshot> | undefined;

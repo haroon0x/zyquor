@@ -6,6 +6,8 @@ import {
   createDraftBatchRequestSchema,
   createDraftRequestSchema,
   createSourcePacketRequestSchema,
+  draftSchema,
+  parseReplyTargetUrl,
   postJobSchema
 } from "./index.js";
 
@@ -45,6 +47,61 @@ describe("domain schemas", () => {
         updatedAt: timestamp
       })
     ).toThrow();
+  });
+
+  it("validates reply targets on drafts and jobs", () => {
+    const replyTo = {
+      tweetId: "1891234567890123456",
+      authorHandle: "example_user",
+      url: "https://x.com/example_user/status/1891234567890123456"
+    };
+    const base = {
+      id: "draft_1",
+      accountId: "account_personal",
+      sourceType: "text",
+      sourceInput: "A reply",
+      generatedText: null,
+      editedText: null,
+      metadata: {},
+      status: "created",
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+
+    expect(draftSchema.parse({ ...base, replyTo })).toMatchObject({ replyTo });
+    expect(
+      postJobSchema.parse({
+        id: "job_1",
+        accountId: "account_personal",
+        draftId: "draft_1",
+        replyTo,
+        status: "approved",
+        mode: "prepare_only",
+        scheduledFor: null,
+        approvedAt: timestamp,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      })
+    ).toMatchObject({ replyTo });
+    expect(() => draftSchema.parse({ ...base, replyTo: { ...replyTo, tweetId: "not-a-tweet-id" } })).toThrow();
+  });
+
+  it.each([
+    ["https://x.com/example/status/1891234567890123456", "example", "1891234567890123456"],
+    ["https://twitter.com/example_user/status/12345?s=20", "example_user", "12345"]
+  ])("parses reply target URL %s", (url, authorHandle, tweetId) => {
+    expect(parseReplyTargetUrl(url)).toEqual({ url, authorHandle, tweetId });
+  });
+
+  it.each([
+    "http://x.com/example/status/12345",
+    "https://example.com/example/status/12345",
+    "https://x.com/example/status/not-a-number",
+    "https://x.com/example/status/12345/extra",
+    "https://x.com/home",
+    "not a URL"
+  ])("rejects non-status reply target URL %s", (url) => {
+    expect(parseReplyTargetUrl(url)).toBeNull();
   });
 
   it("accepts tweet type options for single and batch drafting", () => {

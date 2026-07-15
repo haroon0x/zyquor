@@ -81,6 +81,42 @@ export type AttemptStatus = (typeof ATTEMPT_STATUSES)[number];
 export const idSchema = z.string().min(1);
 export const isoTimestampSchema = z.string().datetime({ offset: true });
 
+export interface ReplyTarget {
+  tweetId: string;
+  authorHandle: string;
+  url: string;
+}
+
+export const replyTargetSchema: z.ZodType<ReplyTarget> = z.object({
+  tweetId: z.string().regex(/^\d+$/),
+  authorHandle: z.string().regex(/^[A-Za-z0-9_]{1,15}$/),
+  url: z.string().url()
+});
+
+export function parseReplyTargetUrl(url: string): ReplyTarget | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:" || !["x.com", "twitter.com"].includes(parsed.hostname)) {
+      return null;
+    }
+    if (parsed.username || parsed.password || parsed.port) {
+      return null;
+    }
+    const match = /^\/([A-Za-z0-9_]{1,15})\/status\/(\d+)\/?$/.exec(parsed.pathname);
+    if (!match) {
+      return null;
+    }
+    const authorHandle = match[1];
+    const tweetId = match[2];
+    if (!authorHandle || !tweetId) {
+      return null;
+    }
+    return { tweetId, authorHandle, url };
+  } catch {
+    return null;
+  }
+}
+
 export const accountSchema = z.object({
   id: idSchema,
   handle: z.string().min(1).max(64),
@@ -115,6 +151,7 @@ export const draftSchema = z.object({
   sourceInput: z.string().min(1).max(4000),
   generatedText: z.string().max(X_FREE_POST_CHARACTER_LIMIT).nullable(),
   editedText: z.string().max(X_FREE_POST_CHARACTER_LIMIT).nullable(),
+  replyTo: replyTargetSchema.optional(),
   replyToUrl: z.string().url().nullable().optional(),
   metadata: z.record(z.unknown()),
   status: z.enum(DRAFT_STATUSES),
@@ -135,6 +172,7 @@ export const postJobSchema = z.object({
   id: idSchema,
   accountId: idSchema,
   draftId: idSchema,
+  replyTo: replyTargetSchema.optional(),
   replyToUrl: z.string().url().nullable().optional(),
   status: z.enum(POST_JOB_STATUSES),
   mode: z.enum(POSTING_MODES),
@@ -191,8 +229,8 @@ export const createDraftRequestSchema = z.object({
   count: z.number().int().min(1).max(5).optional(),
   tweetType: z.enum(TWEET_TYPES).optional(),
   replyToUrl: z.string().url().optional(),
-  yolo: z.boolean().optional().default(true),
-  autopost: z.boolean().optional().default(true)
+  yolo: z.boolean().optional().default(false),
+  autopost: z.boolean().optional().default(false)
 });
 
 export const createDraftBatchRequestSchema = z.object({
@@ -203,8 +241,8 @@ export const createDraftBatchRequestSchema = z.object({
   scheduleStart: isoTimestampSchema.nullable().optional(),
   replyToUrl: z.string().url().optional(),
   tweetType: z.enum(TWEET_TYPES).optional(),
-  yolo: z.boolean().optional().default(true),
-  autopost: z.boolean().optional().default(true)
+  yolo: z.boolean().optional().default(false),
+  autopost: z.boolean().optional().default(false)
 });
 
 export const createSourcePacketRequestSchema = z.object({
@@ -586,3 +624,86 @@ export function loadDotEnv(filePath?: string) {
 }
 
 export { canTransitionDraft, canTransitionPostJob } from "./state.js";
+export { nextAutopostScheduledFor } from "./spacing.js";
+export type { NextAutopostInput, NextAutopostResult } from "./spacing.js";
+export { resolveDataRoot, dataPath, profilesPath } from "./paths.js";
+export const AI_SLOP_PHRASES = [
+  "let's dive in",
+  "let us dive in",
+  "dive in",
+  "delve",
+  "delve into",
+  "tapestry",
+  "it's important to note",
+  "in conclusion",
+  "in today's",
+  "in this day and age",
+  "embark",
+  "navigate the landscape",
+  "navigate the complexities",
+  "navigate the world",
+  "game-changer",
+  "game changer",
+  "unlock the power",
+  "unlock your",
+  "robust solution",
+  "leverage",
+  "leverages",
+  "synergy",
+  "synergies",
+  "cutting-edge",
+  "cutting edge",
+  "revolutionize",
+  "revolutionary",
+  "streamline",
+  "streamlines",
+  "holistic",
+  "paradigm",
+  "paradigm shift",
+  "unleash the power",
+  "unleash",
+  "world-class",
+  "world class",
+  "seamless",
+  "seamlessly",
+  "elevate your",
+  "empower",
+  "harness the power",
+  "harness the",
+  "foster",
+  "propel",
+  "redefine",
+  "in essence",
+  "firstly",
+  "secondly",
+  "thirdly",
+  "lastly",
+  "moving forward",
+  "at the end of the day",
+  "when it comes to",
+  "in the realm of",
+  "in the world of",
+  "a myriad of",
+  "myriad of",
+  "plethora of",
+  "in this article",
+  "this article will",
+  "this guide will",
+  "hope this helps",
+  "as an ai",
+  "as a language model",
+  "as a large language model",
+  "i cannot",
+  "i'm sorry",
+  "i am sorry",
+  "i don't have",
+  "feel free to",
+  "don't hesitate to",
+  "in summary",
+  "to summarize",
+  "ultimately",
+  "ensure",
+  "in order to",
+  "in order for"
+] as const;
+export type AiSlopPhrase = (typeof AI_SLOP_PHRASES)[number];

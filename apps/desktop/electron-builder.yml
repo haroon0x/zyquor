@@ -1,0 +1,54 @@
+# electron-builder config
+# pnpm monorepo: workspace deps (@zyquor/*) are symlinks in node_modules.
+# electron-builder copies symlinks as-is, which become dead in the asar.
+# Strategy: prepack script (scripts/prepack-zyq.mjs) resolves symlinks by
+# copying built workspace packages into apps/desktop/node_modules/@zyquor/*
+# as real directories before electron-builder runs.
+# Native pnpm support in electron-builder is evolving; this is the reliable
+# path for pnpm v10 workspaces.
+
+appId: so.brace.zyquor
+productName: Zyquor
+
+directories:
+  output: release
+
+files:
+  - dist/**
+  - node_modules/**
+  - package.json
+  - "!dist/**/*.map"
+  - "!**/*.map"
+  - "!**/*.test.*"
+  - "!**/*.spec.*"
+  - "!**/src/**"
+  - "!**/test/**"
+  - "!**/tests/**"
+  - "!**/docs/**"
+  - "!**/examples/**"
+  - "!**/data/**"
+  - "!node_modules/.cache"
+  - "!node_modules/electron*/**"
+  - "!node_modules/typescript/**"
+
+asar: true
+
+win:
+  # Cross-build from Linux/WSL without wine: skip exe resource editing/signing.
+  # Exe keeps default Electron metadata; harmless on windows-latest CI too.
+  signAndEditExecutable: false
+  target:
+    - target: nsis
+      arch:
+        - x64
+  # icon: build/icon.ico — future work (needs a .ico file generated from SVG/PNG)
+  # code signing — future work (needs cert + CI secrets)
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+linux:
+  target:
+    - target: dir
+      arch:
+        - x64
