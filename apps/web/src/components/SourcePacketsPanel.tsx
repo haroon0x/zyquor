@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import type { DraftResponse, PanelProps, SourcePacket } from "../types.js";
 import { tweetTypeOptions } from "../types.js";
+import { Busy, InlineError, StatusBadge, errorMessage } from "./Feedback.js";
 
 export interface SourcePacketsState {
   setDraft: (draft: DraftResponse | null) => void;
@@ -9,20 +10,22 @@ export interface SourcePacketsState {
 }
 
 export function SourcePacketsPanel({ panel, state }: { panel: PanelProps; state: SourcePacketsState }) {
-  const { accountId, busy, refresh, refreshToken, reportError, run } = panel;
+  const { accountId, busy, refresh, refreshToken, run } = panel;
   const { setDraft, setEditedText } = state;
   const [sourcePackets, setSourcePackets] = useState<SourcePacket[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [packetDraft, setPacketDraft] = useState({
     facts: "", sourceType: "manual", summary: "", title: "", tweetType: "useful_info", url: ""
   });
 
   async function loadSourcePackets() {
+    setLoadError(null);
     const { packets } = await api<{ packets: SourcePacket[] }>(`/source-packets?accountId=${encodeURIComponent(accountId)}`);
     setSourcePackets(packets);
   }
 
   useEffect(() => {
-    void loadSourcePackets().catch((error) => reportError(error, "Source packets unavailable"));
+    void loadSourcePackets().catch((error) => setLoadError(errorMessage(error, "Source packets unavailable")));
   }, [accountId, refreshToken]);
 
   function createSourcePacket() {
@@ -92,9 +95,10 @@ export function SourcePacketsPanel({ panel, state }: { panel: PanelProps; state:
         <h2>Sources</h2>
         <div className="panel-head-actions">
           <span>{sourcePackets.length}</span>
-          <button className="secondary danger compact-button" disabled={busy || sourcePackets.length === 0} onClick={deleteAllSources}>Delete all</button>
+          <button className="secondary danger compact-button" disabled={busy || sourcePackets.length === 0} onClick={deleteAllSources}><Busy active={busy} />Delete all</button>
         </div>
       </div>
+      <InlineError message={loadError} />
       <div className="source-layout">
         <form className="source-form" onSubmit={(event) => { event.preventDefault(); createSourcePacket(); }}>
           <div className="settings-grid">
@@ -121,7 +125,7 @@ export function SourcePacketsPanel({ panel, state }: { panel: PanelProps; state:
             <label>Summary<textarea value={packetDraft.summary} onChange={(event) => setPacketDraft({ ...packetDraft, summary: event.target.value })} rows={4} /></label>
             <label>Facts<textarea value={packetDraft.facts} onChange={(event) => setPacketDraft({ ...packetDraft, facts: event.target.value })} placeholder="One fact per line" rows={5} /></label>
           </div>
-          <button disabled={!packetDraft.title.trim() || !packetDraft.summary.trim() || busy}>Create source</button>
+          <button disabled={!packetDraft.title.trim() || !packetDraft.summary.trim() || busy}><Busy active={busy} />Create source</button>
         </form>
 
         <div className="source-list">
@@ -129,14 +133,15 @@ export function SourcePacketsPanel({ panel, state }: { panel: PanelProps; state:
             <article className="source-card" key={packet.id}>
               <div className="source-meta">
                 <strong>{packet.title}</strong>
-                <span>{packet.sourceType} · {packet.tweetType} · {packet.status}</span>
+                <span>{packet.sourceType} · {packet.tweetType}</span>
+                <StatusBadge status={packet.status} />
               </div>
               <p>{packet.summary}</p>
               {packet.facts.length ? <ul>{packet.facts.slice(0, 3).map((fact) => <li key={fact}>{fact}</li>)}</ul> : null}
               <div className="source-actions">
-                <button className="secondary" disabled={busy || packet.status === "drafted"} onClick={() => draftFromSourcePacket(packet)}>Draft</button>
-                <button className="secondary danger" disabled={busy || packet.status !== "drafted"} onClick={() => deleteDraftFromSourcePacket(packet)}>Delete draft</button>
-                <button className="secondary danger" disabled={busy} onClick={() => deleteSourcePacket(packet)}>Delete source</button>
+                <button className="secondary" disabled={busy || packet.status === "drafted"} onClick={() => draftFromSourcePacket(packet)}><Busy active={busy} />Draft</button>
+                <button className="secondary danger" disabled={busy || packet.status !== "drafted"} onClick={() => deleteDraftFromSourcePacket(packet)}><Busy active={busy} />Delete draft</button>
+                <button className="secondary danger" disabled={busy} onClick={() => deleteSourcePacket(packet)}><Busy active={busy} />Delete source</button>
               </div>
             </article>
           )) : <p className="empty">Manual, news, feed, bookmark, note, and guide packets appear here.</p>}

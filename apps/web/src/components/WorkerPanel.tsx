@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import type { IngestRun, PanelProps, WorkerStatus } from "../types.js";
+import { Busy, InlineError, StatusBadge, errorMessage } from "./Feedback.js";
 
 export function WorkerPanel({ panel }: { panel: PanelProps }) {
-  const { accountId, busy, refreshToken, reportError, run } = panel;
+  const { accountId, busy, refreshToken, run } = panel;
   const [ingestRuns, setIngestRuns] = useState<IngestRun[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus | null>(null);
 
   async function loadWorkerPanel() {
+    setLoadError(null);
     const [status, { runs }] = await Promise.all([
       api<WorkerStatus>("/worker/status"),
       api<{ runs: IngestRun[] }>(`/ingest-runs?accountId=${encodeURIComponent(accountId)}`)
@@ -17,7 +20,7 @@ export function WorkerPanel({ panel }: { panel: PanelProps }) {
   }
 
   useEffect(() => {
-    void loadWorkerPanel().catch((error) => reportError(error, "Worker status unavailable"));
+    void loadWorkerPanel().catch((error) => setLoadError(errorMessage(error, "Worker status unavailable")));
   }, [accountId, refreshToken]);
 
   return (
@@ -34,10 +37,11 @@ export function WorkerPanel({ panel }: { panel: PanelProps }) {
             {workerStatus?.workerRunning ? "running" : "offline"}
           </span>
           <button className="secondary compact-button" disabled={busy} onClick={() => run(panel.refresh)}>
-            Refresh
+            <Busy active={busy} />Refresh
           </button>
         </div>
       </div>
+      <InlineError message={loadError} />
       <p className={workerStatus?.lastError ? "worker-error" : "empty"}>
         Last error: {workerStatus?.lastError ?? "none"}
       </p>
@@ -49,7 +53,7 @@ export function WorkerPanel({ panel }: { panel: PanelProps }) {
                 <strong>{new Date(ingestRun.startedAt).toLocaleString()}</strong>
                 <span>{ingestRun.packetsCreated} packets created</span>
               </div>
-              <span className={`status ${ingestRun.status}`}>{ingestRun.status}</span>
+              <StatusBadge status={ingestRun.status} />
               {ingestRun.error ? <p>{ingestRun.error}</p> : null}
             </article>
           ))

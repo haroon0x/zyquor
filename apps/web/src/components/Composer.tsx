@@ -1,6 +1,7 @@
 import { api } from "../api.js";
 import type { Draft, DraftResponse, Job, PanelProps } from "../types.js";
 import { tweetTypeOptions } from "../types.js";
+import { Busy } from "./Feedback.js";
 
 export interface ComposerState {
   autoPost: boolean;
@@ -106,6 +107,9 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
         generateDrafts();
       }}
     >
+      <div className="panel-head">
+        <h2>Composer</h2>
+      </div>
       <label htmlFor="idea">Idea</label>
       <textarea
         id="idea"
@@ -149,6 +153,7 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
         </label>
       </div>
       <button disabled={!idea.trim() || busy}>
+        <Busy active={busy} />
         {postPlan === "batch" ? "Create batch jobs" : autoPost ? "Autopost" : "Generate drafts"}
       </button>
     </form>

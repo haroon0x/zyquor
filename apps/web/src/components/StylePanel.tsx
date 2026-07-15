@@ -1,15 +1,18 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import type { PanelProps, StyleProfile } from "../types.js";
+import { Busy, InlineError, errorMessage } from "./Feedback.js";
 
 export function StylePanel({ panel, styleProfileId }: { panel: PanelProps; styleProfileId: string }) {
   const { busy, run } = panel;
   const [styleProfile, setStyleProfile] = useState<StyleProfile | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [systemPromptExtra, setSystemPromptExtra] = useState("");
   const [objective, setObjective] = useState("Maximize useful reach, views, and reputation without cheap spam.");
   const [bannedPhrases, setBannedPhrases] = useState("game changer\nunlock\n10x");
 
   async function loadStyleProfile() {
+    setLoadError(null);
     const { profile } = await api<{ profile: StyleProfile }>(`/style-profiles/${styleProfileId}`);
     setStyleProfile(profile);
     setSystemPromptExtra(typeof profile.rules.systemPromptExtra === "string" ? profile.rules.systemPromptExtra : "");
@@ -22,7 +25,7 @@ export function StylePanel({ panel, styleProfileId }: { panel: PanelProps; style
   }
 
   useEffect(() => {
-    void loadStyleProfile();
+    void loadStyleProfile().catch((error) => setLoadError(errorMessage(error, "Prompt unavailable")));
   }, [styleProfileId, panel.refreshToken]);
 
   function saveStyleProfile() {
@@ -40,13 +43,14 @@ export function StylePanel({ panel, styleProfileId }: { panel: PanelProps; style
     });
   }
 
-  return styleProfile ? (
+  return (
     <section className="panel settings">
       <div className="panel-head">
         <h2>Prompt</h2>
-        <span>{styleProfile.name}</span>
+        {styleProfile ? <span>{styleProfile.name}</span> : null}
       </div>
-      <div className="settings-grid">
+      <InlineError message={loadError} />
+      {styleProfile ? <><div className="settings-grid">
         <label>
           Tone
           <input
@@ -67,7 +71,7 @@ export function StylePanel({ panel, styleProfileId }: { panel: PanelProps; style
           <textarea value={systemPromptExtra} onChange={(event) => setSystemPromptExtra(event.target.value)} rows={5} />
         </label>
       </div>
-      <button disabled={busy} onClick={saveStyleProfile}>Save prompt</button>
+      <button disabled={busy} onClick={saveStyleProfile}><Busy active={busy} />Save prompt</button></> : !loadError ? <p className="empty">Loading prompt…</p> : null}
     </section>
-  ) : null;
+  );
 }

@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import type { Attempt, Job, PanelProps } from "../types.js";
+import { Busy, InlineError, StatusBadge, errorMessage } from "./Feedback.js";
 
 export function JobsPanel({ panel }: { panel: PanelProps }) {
-  const { accountId, busy, refresh, refreshToken, reportError, run } = panel;
+  const { accountId, busy, refresh, refreshToken, run } = panel;
   const [jobs, setJobs] = useState<Job[]>([]);
   const [attemptsByJob, setAttemptsByJob] = useState<Record<string, Attempt[]>>({});
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
 
   async function loadJobs() {
+    setLoadError(null);
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     const { jobs: loadedJobs } = await api<{ jobs: Job[] }>(`/jobs?accountId=${encodeURIComponent(accountId)}`);
@@ -25,7 +28,7 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
   }
 
   useEffect(() => {
-    void loadJobs().catch((error) => reportError(error, "Jobs unavailable"));
+    void loadJobs().catch((error) => setLoadError(errorMessage(error, "Jobs unavailable")));
   }, [accountId, refreshToken]);
 
   function prepareJob(job: Job) { run(async () => { await api(`/jobs/${job.id}/prepare`, { method: "POST" }); await refresh(); }); }
@@ -90,15 +93,16 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
   return (
     <section className="panel queue">
       <div className="panel-head"><h2>Jobs</h2><span>{jobs.length}</span></div>
+      <InlineError message={loadError} />
       <div className="job-dashboard">
         <span>ready now {readyNowJobs.length}</span><span>scheduled later {scheduledLaterJobs.length}</span>
         <span>failed {failedJobs.length}</span><span>posted {postedJobs.length}</span>
       </div>
-      {readyNowJobs.length || failedJobs.length ? <button className="secondary queue-action" disabled={busy} onClick={postAllReadyJobs}>Post all ready</button> : null}
-      {readyForBulkPrepare.length ? <button className="secondary queue-action" disabled={busy} onClick={prepareAllReadyJobs}>Prepare all ready</button> : null}
-      {postedJobs.length || failedJobs.length ? <button className="secondary queue-action" disabled={busy} onClick={deleteCleanupJobs}>Cleanup</button> : null}
-      {accountJobs.length ? <button className="secondary danger queue-action" disabled={busy} onClick={deleteAllJobs}>Delete all</button> : null}
-      {selectedDeletableJobs.length ? <button className="secondary danger queue-action" disabled={busy} onClick={deleteSelectedJobs}>Delete selected failed/prepared ({selectedDeletableJobs.length})</button> : null}
+      {readyNowJobs.length || failedJobs.length ? <button className="secondary queue-action" disabled={busy} onClick={postAllReadyJobs}><Busy active={busy} />Post all ready</button> : null}
+      {readyForBulkPrepare.length ? <button className="secondary queue-action" disabled={busy} onClick={prepareAllReadyJobs}><Busy active={busy} />Prepare all ready</button> : null}
+      {postedJobs.length || failedJobs.length ? <button className="secondary queue-action" disabled={busy} onClick={deleteCleanupJobs}><Busy active={busy} />Cleanup</button> : null}
+      {accountJobs.length ? <button className="secondary danger queue-action" disabled={busy} onClick={deleteAllJobs}><Busy active={busy} />Delete all</button> : null}
+      {selectedDeletableJobs.length ? <button className="secondary danger queue-action" disabled={busy} onClick={deleteSelectedJobs}><Busy active={busy} />Delete selected failed/prepared ({selectedDeletableJobs.length})</button> : null}
       {selectedJobIds.length ? <button className="secondary queue-action" disabled={busy} onClick={() => setSelectedJobIds([])}>Clear selection ({selectedJobIds.length})</button> : null}
       {accountJobs.length ? (
         <div className="job-buckets">
@@ -117,18 +121,18 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
                         <span>{job.scheduledFor ? `${job.mode} · ${new Date(job.scheduledFor).toLocaleString()}` : job.mode}</span>
                         {job.replyTo ? <span className="reply-tag">reply → @{job.replyTo.authorHandle}</span> : null}
                       </div>
-                      <span className={`status ${job.status}`}>{job.status}</span>
+                      <StatusBadge status={job.status} />
                       <label className="checkbox-row job-select">
                         <input checked={selectedJobIds.includes(job.id)} type="checkbox" onChange={() => toggleJobSelection(job.id)} />Select
                       </label>
                       <div className="job-actions">
-                        <button className="secondary" disabled={(job.status !== "approved" && job.status !== "failed") || busy} onClick={() => prepareJob(job)}>Prepare</button>
-                        <button className="secondary" disabled={(job.status !== "approved" && job.status !== "prepared" && job.status !== "failed") || busy} onClick={() => postJob(job)}>Post</button>
-                        <button className="secondary danger" disabled={job.status === "running" || busy} onClick={() => deleteJob(job)}>Delete</button>
+                        <button className="secondary" disabled={(job.status !== "approved" && job.status !== "failed") || busy} onClick={() => prepareJob(job)}><Busy active={busy} />Prepare</button>
+                        <button className="secondary" disabled={(job.status !== "approved" && job.status !== "prepared" && job.status !== "failed") || busy} onClick={() => postJob(job)}><Busy active={busy} />Post</button>
+                        <button className="secondary danger" disabled={job.status === "running" || busy} onClick={() => deleteJob(job)}><Busy active={busy} />Delete</button>
                       </div>
                       {attemptsByJob[job.id]?.length ? <div className="attempts">{attemptsByJob[job.id]?.map((attempt) => (
                         <p key={attempt.id}><strong>{attempt.status}</strong>{attempt.errorMessage ? `: ${attempt.errorMessage}` : ""}{attempt.screenshotPath ? ` Screenshot: ${attempt.screenshotPath}` : ""}{attempt.tracePath ? ` Trace: ${attempt.tracePath}` : ""}</p>
-                      ))}</div> : null}
+                      ))}</div> : <p className="empty attempts-empty">No run history.</p>}
                     </article>
                   ))}
                 </div>

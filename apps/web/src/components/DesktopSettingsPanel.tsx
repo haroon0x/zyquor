@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import type { DesktopSettingsData, PanelProps } from "../types.js";
+import { Busy, InlineError, errorMessage } from "./Feedback.js";
 
 export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
   const { busy, run } = panel;
   const [desktopSettings, setDesktopSettings] = useState<DesktopSettingsData>({});
   const [desktopRestartRequired, setDesktopRestartRequired] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   function patchSetting<K extends keyof DesktopSettingsData>(key: K, value: DesktopSettingsData[K] | undefined) {
     setDesktopSettings((prev) => {
@@ -17,11 +19,12 @@ export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
   }
 
   function loadDesktopSettings() {
-    run(async () => {
+    setLoadError(null);
+    void (async () => {
       const settings = await api<DesktopSettingsData>("/settings");
       setDesktopSettings(settings);
       setDesktopRestartRequired(false);
-    });
+    })().catch((error) => setLoadError(errorMessage(error, "Desktop settings unavailable")));
   }
 
   useEffect(() => {
@@ -50,6 +53,7 @@ export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
         <h2>Desktop Settings</h2>
         {desktopRestartRequired ? <span className="provider-pill failed">Restart required</span> : null}
       </div>
+      <InlineError message={loadError} />
       {desktopRestartRequired ? <p className="empty">Changes to browser, provider, or API keys require an app restart.</p> : null}
       <div className="settings-grid">
         <label className="checkbox-row">
@@ -92,7 +96,7 @@ export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
           <input type="number" value={desktopSettings.cdpPort ?? ""} onChange={(event) => patchSetting("cdpPort", event.target.value ? Number(event.target.value) : undefined)} placeholder="9222" />
         </label>
       </div>
-      <button disabled={busy} onClick={saveDesktopSettings}>Save settings</button>
+      <button disabled={busy} onClick={saveDesktopSettings}><Busy active={busy} />Save settings</button>
     </section>
   );
 }

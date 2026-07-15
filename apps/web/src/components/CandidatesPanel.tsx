@@ -1,6 +1,7 @@
 import { api } from "../api.js";
 import type { Candidate, Draft, DraftResponse, Job, PanelProps } from "../types.js";
 import { X_FREE_POST_CHARACTER_LIMIT } from "../types.js";
+import { Busy, StatusBadge } from "./Feedback.js";
 
 export interface CandidatesState {
   autoPost: boolean;
@@ -66,19 +67,20 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
       <section className="panel candidates">
         <div className="panel-head">
           <h2>Candidates</h2>
-          <span>{draft?.draft.status ?? "empty"}</span>
+          <StatusBadge status={draft?.draft.status ?? "empty"} />
         </div>
         <div className="candidate-list">
-          {draft?.candidates.map((candidate) => (
+          {draft?.candidates.length ? draft.candidates.map((candidate) => (
             <button
               aria-pressed={candidate.selected}
               className={candidate.selected ? "candidate selected" : "candidate"}
+              disabled={busy}
               key={candidate.id}
               onClick={() => selectCandidate(candidate)}
             >
-              {candidate.text}
+              <Busy active={busy} />{candidate.text}
             </button>
-          )) ?? <p className="empty">Generate drafts to review options.</p>}
+          )) : <p className="empty">Generate drafts to review options.</p>}
         </div>
       </section>
 
@@ -121,7 +123,7 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
           }
           onClick={approveDraft}
         >
-          Approve job
+          <Busy active={busy} />Approve job
         </button>
       </section>
     </>

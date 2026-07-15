@@ -10,6 +10,7 @@ import { JobsPanel } from "./components/JobsPanel.js";
 import { SourcePacketsPanel } from "./components/SourcePacketsPanel.js";
 import { StylePanel } from "./components/StylePanel.js";
 import { WorkerPanel } from "./components/WorkerPanel.js";
+import { Busy } from "./components/Feedback.js";
 import type {
   Account,
   BrowserSession,
@@ -122,25 +123,29 @@ function App() {
               X {browserSession.loggedIn ? "logged in" : "logged out"}
             </span>
           ) : <span className="session-pill unknown">X unchecked</span>}
-          <button className="strip-button" disabled={busy} onClick={checkBrowserSession}>Check X</button>
+          <button className="strip-button" disabled={busy} onClick={checkBrowserSession}><Busy active={busy} />Check X</button>
         </section>
       ) : null}
 
-      {error ? <div className="alert">{error}</div> : null}
-      <AutomationPanel panel={panel} />
-      <WorkerPanel panel={panel} />
-      <section className="workspace">
-        <Composer panel={panel} state={composerState} />
-        <CandidatesPanel panel={panel} state={candidatesState} />
+      {error ? <p className="notice error" role="alert">{error}</p> : null}
+      <section className="app-layout">
+        <div className="primary-flow">
+          <Composer panel={panel} state={composerState} />
+          <CandidatesPanel panel={panel} state={candidatesState} />
+          <JobsPanel panel={panel} />
+        </div>
+        <aside className="utility-flow">
+          <AutomationPanel panel={panel} />
+          <WorkerPanel panel={panel} />
+          <SourcePacketsPanel panel={panel} state={{ setDraft, setEditedText }} />
+          {activeAccount ? <StylePanel panel={panel} styleProfileId={activeAccount.styleProfileId} /> : null}
+          <GenerationPanel
+            panel={panel}
+            state={{ generation, generationModelOptions, setGeneration, setGenerationModelOptions }}
+          />
+          {isElectron ? <DesktopSettingsPanel panel={panel} /> : null}
+        </aside>
       </section>
-      <SourcePacketsPanel panel={panel} state={{ setDraft, setEditedText }} />
-      {activeAccount ? <StylePanel panel={panel} styleProfileId={activeAccount.styleProfileId} /> : null}
-      <GenerationPanel
-        panel={panel}
-        state={{ generation, generationModelOptions, setGeneration, setGenerationModelOptions }}
-      />
-      {isElectron ? <DesktopSettingsPanel panel={panel} /> : null}
-      <JobsPanel panel={panel} />
       {appVersion ? <footer className="version-footer">v{appVersion}</footer> : null}
     </main>
   );

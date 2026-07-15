@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, liveModelLabel, providerLabel } from "../api.js";
 import type { GenerationConfig, GenerationModelOptions, GenerationResponse, PanelProps } from "../types.js";
+import { Busy } from "./Feedback.js";
 
 export interface GenerationState {
   generation: GenerationConfig | null;
@@ -82,7 +83,7 @@ export function GenerationPanel({ panel, state }: { panel: PanelProps; state: Ge
           />
         </label>
       </div>
-      <button disabled={!generationDraft.model.trim() || busy} onClick={saveGenerationConfig}>Save model</button>
+      <button disabled={!generationDraft.model.trim() || busy} onClick={saveGenerationConfig}><Busy active={busy} />Save model</button>
     </section>
   );
 }

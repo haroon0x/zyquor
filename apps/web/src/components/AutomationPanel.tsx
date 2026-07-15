@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import type { IngestConfig, PanelProps } from "../types.js";
 import { tweetTypeOptions } from "../types.js";
+import { Busy, InlineError, errorMessage } from "./Feedback.js";
 
 function draftFromIngestConfig(config: IngestConfig | null) {
   const usefulWeight = config?.tweetTypeMix.useful_info ?? 0;
@@ -20,18 +21,20 @@ function draftFromIngestConfig(config: IngestConfig | null) {
 }
 
 export function AutomationPanel({ panel }: { panel: PanelProps }) {
-  const { accountId, busy, refresh, refreshToken, reportError, run } = panel;
+  const { accountId, busy, refresh, refreshToken, run } = panel;
   const [ingestConfigs, setIngestConfigs] = useState<IngestConfig[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [automationDraft, setAutomationDraft] = useState(draftFromIngestConfig(null));
 
   async function loadConfig() {
+    setLoadError(null);
     const { configs } = await api<{ configs: IngestConfig[] }>(`/ingest-configs?accountId=${encodeURIComponent(accountId)}`);
     setIngestConfigs(configs);
     setAutomationDraft(draftFromIngestConfig(configs[0] ?? null));
   }
 
   useEffect(() => {
-    void loadConfig().catch((error) => reportError(error, "Automation unavailable"));
+    void loadConfig().catch((error) => setLoadError(errorMessage(error, "Automation unavailable")));
   }, [accountId, refreshToken]);
 
   function saveAutomationConfig() {
@@ -98,9 +101,10 @@ export function AutomationPanel({ panel }: { panel: PanelProps }) {
           {automationDraft.enabled ? "enabled" : "disabled"}
         </span>
       </div>
+      <InlineError message={loadError} />
       <div className="automation-grid">
         <label className="checkbox-row switch-row">
-          <input checked={automationDraft.enabled} type="checkbox" onChange={toggleAutomation} />
+          <input checked={automationDraft.enabled} disabled={busy} type="checkbox" onChange={toggleAutomation} />
           Auto ingest and post
         </label>
         <label>
@@ -136,8 +140,8 @@ export function AutomationPanel({ panel }: { panel: PanelProps }) {
         </label>
       </div>
       <div className="automation-actions">
-        <button disabled={busy || (automationDraft.sourceType === "feed" && !automationDraft.feedUrl.trim())} onClick={saveAutomationConfig}>Save automation</button>
-        <button className="secondary" disabled={busy || !automationDraft.enabled || (automationDraft.sourceType === "feed" && !automationDraft.feedUrl.trim())} onClick={runAutomationNow}>Run now</button>
+        <button disabled={busy || (automationDraft.sourceType === "feed" && !automationDraft.feedUrl.trim())} onClick={saveAutomationConfig}><Busy active={busy} />Save automation</button>
+        <button className="secondary" disabled={busy || !automationDraft.enabled || (automationDraft.sourceType === "feed" && !automationDraft.feedUrl.trim())} onClick={runAutomationNow}><Busy active={busy} />Run now</button>
       </div>
     </section>
   );
