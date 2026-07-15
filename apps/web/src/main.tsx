@@ -113,7 +113,7 @@ function App() {
           <p className="tagline">Draft, review, prepare.</p>
         </div>
         <div className="product-controls">
-          {activeAccount ? <span>@{activeAccount.handle}</span> : null}
+          {activeAccount ? <span className="account-pill">@{activeAccount.handle}</span> : null}
           {generation ? (
             <span className={generation.configured ? "provider-pill" : "provider-pill failed"}>
               {liveModelLabel(generation)}

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import type { PanelProps, StyleProfile } from "../types.js";
-import { Busy, InlineError, errorMessage } from "./Feedback.js";
+import { Busy, InlineError, PanelIcon, errorMessage } from "./Feedback.js";
 
 export function StylePanel({ panel, styleProfileId }: { panel: PanelProps; styleProfileId: string }) {
   const { busy, run } = panel;
@@ -46,7 +46,7 @@ export function StylePanel({ panel, styleProfileId }: { panel: PanelProps; style
   return (
     <section className="panel settings">
       <div className="panel-head">
-        <h2>Prompt</h2>
+        <h2 className="panel-title"><PanelIcon name="edit" />Prompt</h2>
         {styleProfile ? <span>{styleProfile.name}</span> : null}
       </div>
       <InlineError message={loadError} />

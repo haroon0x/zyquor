@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import type { Attempt, Job, PanelProps } from "../types.js";
-import { Busy, InlineError, StatusBadge, errorMessage } from "./Feedback.js";
+import { Busy, InlineError, PanelIcon, StatusBadge, errorMessage } from "./Feedback.js";
 
 export function JobsPanel({ panel }: { panel: PanelProps }) {
   const { accountId, busy, refresh, refreshToken, run } = panel;
@@ -92,11 +92,11 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
 
   return (
     <section className="panel queue">
-      <div className="panel-head"><h2>Jobs</h2><span>{jobs.length}</span></div>
+      <div className="panel-head"><h2 className="panel-title"><PanelIcon name="list-checks" />Jobs</h2><span>{jobs.length}</span></div>
       <InlineError message={loadError} />
       <div className="job-dashboard">
-        <span>ready now {readyNowJobs.length}</span><span>scheduled later {scheduledLaterJobs.length}</span>
-        <span>failed {failedJobs.length}</span><span>posted {postedJobs.length}</span>
+        <span>ready now <span className="segment-count">{readyNowJobs.length}</span></span><span>scheduled later <span className="segment-count">{scheduledLaterJobs.length}</span></span>
+        <span>failed <span className="segment-count">{failedJobs.length}</span></span><span>posted <span className="segment-count">{postedJobs.length}</span></span>
       </div>
       {readyNowJobs.length || failedJobs.length ? <button className="queue-action" disabled={busy} onClick={postAllReadyJobs}><Busy active={busy} />Post all ready</button> : null}
       {readyForBulkPrepare.length ? <button className="secondary queue-action" disabled={busy} onClick={prepareAllReadyJobs}><Busy active={busy} />Prepare all ready</button> : null}
@@ -111,7 +111,7 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
             { title: "Failed", jobs: failedJobs }, { title: "Posted", jobs: postedJobs }, { title: "Other", jobs: otherJobs }
           ].map((bucket) => (
             <section className="job-bucket" key={bucket.title}>
-              <div className="panel-head"><h3>{bucket.title}</h3><span>{bucket.jobs.length}</span></div>
+              <div className="panel-head"><h3 className="panel-title"><PanelIcon name="clock" />{bucket.title}</h3><span>{bucket.jobs.length}</span></div>
               {bucket.jobs.length ? (
                 <div className="job-list">
                   {bucket.jobs.map((job) => (

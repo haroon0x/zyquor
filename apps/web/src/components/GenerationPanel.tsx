@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, liveModelLabel, providerLabel } from "../api.js";
 import type { GenerationConfig, GenerationModelOptions, GenerationResponse, PanelProps } from "../types.js";
-import { Busy } from "./Feedback.js";
+import { Busy, PanelIcon } from "./Feedback.js";
 
 export interface GenerationState {
   generation: GenerationConfig | null;
@@ -43,7 +43,7 @@ export function GenerationPanel({ panel, state }: { panel: PanelProps; state: Ge
   return (
     <section className="panel settings">
       <div className="panel-head">
-        <h2>Model</h2>
+        <h2 className="panel-title"><PanelIcon name="settings" />Model</h2>
         {generation ? (
           <span className={generation.configured ? "provider-pill" : "provider-pill failed"}>
             {generation.configured ? `Live: ${liveModelLabel(generation)}` : `${providerLabel(generation.provider)} key missing`}

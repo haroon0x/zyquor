@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import type { DraftResponse, PanelProps, SourcePacket } from "../types.js";
 import { tweetTypeOptions } from "../types.js";
-import { Busy, InlineError, StatusBadge, errorMessage } from "./Feedback.js";
+import { Busy, InlineError, PanelIcon, StatusBadge, errorMessage } from "./Feedback.js";
 
 export interface SourcePacketsState {
   setDraft: (draft: DraftResponse | null) => void;
@@ -92,7 +92,7 @@ export function SourcePacketsPanel({ panel, state }: { panel: PanelProps; state:
   return (
     <section className="panel source-packets">
       <div className="panel-head">
-        <h2>Sources</h2>
+        <h2 className="panel-title"><PanelIcon name="inbox" />Sources</h2>
         <div className="panel-head-actions">
           <span>{sourcePackets.length}</span>
           <button className="secondary danger compact-button" disabled={busy || sourcePackets.length === 0} onClick={deleteAllSources}><Busy active={busy} />Delete all</button>

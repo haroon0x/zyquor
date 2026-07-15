@@ -1,7 +1,7 @@
 import { api } from "../api.js";
 import type { Candidate, Draft, DraftResponse, Job, PanelProps } from "../types.js";
 import { X_FREE_POST_CHARACTER_LIMIT } from "../types.js";
-import { Busy, StatusBadge } from "./Feedback.js";
+import { Busy, PanelIcon, StatusBadge } from "./Feedback.js";
 
 export interface CandidatesState {
   autoPost: boolean;
@@ -68,7 +68,7 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
     <>
       <section className="panel candidates">
         <div className="panel-head">
-          <h2>Candidates</h2>
+          <h2 className="panel-title"><PanelIcon name="layers" />Candidates</h2>
           {draft ? <StatusBadge status={draft.draft.status} /> : null}
         </div>
         <div className={draft?.candidates.length ? "candidate-list data-content" : "candidate-list empty-state"}>
@@ -88,13 +88,14 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
 
       {selectedCandidate ? <section className="panel editor">
         <div className="panel-head">
-          <h2>Editor</h2>
+          <h2 className="panel-title"><PanelIcon name="edit" />Editor</h2>
           <span>{editedText.length}/{X_FREE_POST_CHARACTER_LIMIT}</span>
         </div>
         <textarea aria-label="Edited draft" value={editedText} onChange={(event) => setEditedText(event.target.value)} rows={12} />
         <div className="schedule-grid">
-          <label className="checkbox-row">
+          <label className="checkbox-row switch-row">
             <input checked={autoPost} type="checkbox" onChange={(event) => setAutoPost(event.target.checked)} />
+            <span aria-hidden="true" className="switch" />
             Autopost
           </label>
           <label>

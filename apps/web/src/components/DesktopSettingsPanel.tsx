@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import type { DesktopSettingsData, PanelProps } from "../types.js";
-import { Busy, InlineError, errorMessage } from "./Feedback.js";
+import { Busy, InlineError, PanelIcon, errorMessage } from "./Feedback.js";
 
 export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
   const { busy, run } = panel;
@@ -54,22 +54,25 @@ export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
   return (
     <section className="panel settings">
       <div className="panel-head">
-        <h2>Desktop Settings</h2>
+        <h2 className="panel-title"><PanelIcon name="settings" />Desktop Settings</h2>
         {desktopRestartRequired ? <span className="provider-pill failed">Restart required</span> : null}
       </div>
       <InlineError message={loadError} />
       {desktopRestartRequired ? <p className="empty">Changes to browser, provider, or API keys require an app restart.</p> : null}
       <div className="settings-grid">
-        <label className="checkbox-row">
+        <label className="checkbox-row switch-row">
           <input checked={desktopSettings.enableBrowserPrepare ?? false} type="checkbox" onChange={(event) => patchSetting("enableBrowserPrepare", event.target.checked)} />
+          <span aria-hidden="true" className="switch" />
           Browser prepare
         </label>
-        <label className="checkbox-row">
+        <label className="checkbox-row switch-row">
           <input checked={desktopSettings.enableBrowserPost ?? false} type="checkbox" onChange={(event) => patchSetting("enableBrowserPost", event.target.checked)} />
+          <span aria-hidden="true" className="switch" />
           Browser post
         </label>
-        <label className="checkbox-row">
+        <label className="checkbox-row switch-row">
           <input checked={desktopSettings.closeChromeAfterPost ?? false} type="checkbox" onChange={(event) => patchSetting("closeChromeAfterPost", event.target.checked)} />
+          <span aria-hidden="true" className="switch" />
           Close Chrome after post
         </label>
         <label>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import type { IngestRun, PanelProps, WorkerStatus } from "../types.js";
-import { Busy, InlineError, StatusBadge, errorMessage } from "./Feedback.js";
+import { Busy, InlineError, PanelIcon, StatusBadge, errorMessage } from "./Feedback.js";
 
 export function WorkerPanel({ panel }: { panel: PanelProps }) {
   const { accountId, busy, refreshToken, run } = panel;
@@ -26,7 +26,7 @@ export function WorkerPanel({ panel }: { panel: PanelProps }) {
   return (
     <section className="panel worker-panel">
       <div className="panel-head">
-        <h2>Worker</h2>
+        <h2 className="panel-title"><PanelIcon name="activity" />Worker</h2>
         <div className="panel-head-actions">
           <span className={workerStatus?.workerRunning ? "provider-pill" : "session-pill failed"}>
             {workerStatus?.workerRunning ? "running" : "offline"}

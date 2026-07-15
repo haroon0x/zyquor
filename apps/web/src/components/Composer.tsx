@@ -1,7 +1,7 @@
 import { api } from "../api.js";
 import type { Draft, DraftResponse, Job, PanelProps } from "../types.js";
 import { tweetTypeOptions } from "../types.js";
-import { Busy } from "./Feedback.js";
+import { Busy, PanelIcon } from "./Feedback.js";
 
 export interface ComposerState {
   autoPost: boolean;
@@ -108,7 +108,7 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
       }}
     >
       <div className="panel-head">
-        <h2>Composer</h2>
+        <h2 className="panel-title"><PanelIcon name="pencil" />Composer</h2>
       </div>
       <label htmlFor="idea">Idea</label>
       <textarea

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import type { IngestConfig, PanelProps } from "../types.js";
 import { tweetTypeOptions } from "../types.js";
-import { Busy, InlineError, errorMessage } from "./Feedback.js";
+import { Busy, InlineError, PanelIcon, errorMessage } from "./Feedback.js";
 
 function draftFromIngestConfig(config: IngestConfig | null) {
   const usefulWeight = config?.tweetTypeMix.useful_info ?? 0;
@@ -94,7 +94,7 @@ export function AutomationPanel({ panel }: { panel: PanelProps }) {
     <section className="panel automation">
       <div className="panel-head">
         <div>
-          <h2>Automatic Poster</h2>
+          <h2 className="panel-title"><PanelIcon name="zap" />Automatic Poster</h2>
           <p className="empty">Live sources create clean autopost jobs. Disable anytime.</p>
         </div>
         <span className={automationDraft.enabled ? "provider-pill" : "session-pill unknown"}>
@@ -105,6 +105,7 @@ export function AutomationPanel({ panel }: { panel: PanelProps }) {
       <div className="automation-grid">
         <label className="checkbox-row switch-row">
           <input checked={automationDraft.enabled} disabled={busy} type="checkbox" onChange={toggleAutomation} />
+          <span aria-hidden="true" className="switch" />
           Auto ingest and post
         </label>
         <label>
