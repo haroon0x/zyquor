@@ -16,7 +16,7 @@ Automated lane: deterministic source ingestion → compact source packet → one
 
 X free-tier character limit enforced at 280. Tweet types: `feed_observation`, `news_context`, `useful_info`, `guide`, `lesson`, `tool`, `opinion`, `reply`, `hiring`, `article_summary`, `narrative_history`.
 
-Controlled posting only behind env flags. Multi-account UI, reply drafting, Tauri, and E2E tests are future work.
+Controlled posting only behind env flags. Multi-account UI, Tauri, and E2E tests are future work. Reply drafting shipped (plan 007-C).
 
 ## Architecture
 
@@ -26,7 +26,7 @@ Controlled posting only behind env flags. Multi-account UI, reply drafting, Taur
 - `packages/core`: domain types, Zod schemas.
 - `packages/adapters`: source adapters, aggregation, source health.
 - `packages/automation`: ingest and source-packet drafting.
-- `packages/generation`: OpenRouter/Ollama/Gemini/mock providers.
+- `packages/generation`: OpenRouter/Ollama/Gemini providers (no mock provider; tests inject providers via buildApp options).
 - `packages/storage`: SQLite + JSON fallback repositories.
 - `packages/browser`: Playwright prepare/post flow.
 - `packages/accounts`: account config helpers.
@@ -150,7 +150,7 @@ pnpm dist:desktop
 - Worker polls due jobs every 5s
 - Electron desktop app: `apps/desktop/` — Electron 37, tray-resident, runs API/worker in-process. Data root via `ZYQUOR_DATA_ROOT` (defaults to Electron `userData`). Settings kept as `settings.json` in data root instead of `.env`. Logs to `<dataRoot>/logs/main.log` (rotates at 5 MB). Entry points: `src/main.ts` (main process), `src/preload.ts` (context bridge), `src/chrome.ts` (CDP launch), `src/settings.ts` (JSON config), `src/log.ts` (file logging).
 
-Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (disabled by default for safety), `ZYQUOR_LLM_PROVIDER=openrouter|gemini|ollama|auto|mock`.
+Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (disabled by default for safety), `ZYQUOR_LLM_PROVIDER=openrouter|gemini|ollama|auto`.
 Source smoke: `pnpm smoke:adapters`. Product Hunt is optional without `ZYQUOR_PRODUCTHUNT_API_TOKEN`.
 
 ### pnpm Setup
@@ -180,21 +180,22 @@ ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
 - Live adapter smoke added and arXiv RSS fallback fixed.
 - Source health now cools down failing/empty aggregated upstreams.
 - Post-history analysis and source metadata tracing exist.
-- Source packet repost cap is 3 per account.
+- Source packet repost cap is 2 per account.
 - TODO pruned so Next tracks remaining work only.
 
 ## Next Steps
 
-**Maintainability** — split large API/web/generation/adapters files into route modules, services, components, and focused helpers.
+Shipped since the last update (plans/006, plans/007): Electron desktop app,
+api/web file splits, worker durability + status panel, source routing/quality,
+reply drafting end-to-end, web design pass, safety fixes (manual review never
+autoposts by default, masked keys can't clobber real ones, stealth flag
+removed, posting disabled by default everywhere).
 
-**Worker reliability** — durable async ingest/generation/posting stages, worker UI panel, startup checks for posting readiness.
-
-**Source routing/quality** — route job posts to hiring, blog/feed posts to article summary, preserve links/attribution, reduce generic framing.
-
-**Reply drafting** — explicit reviewable jobs for reply tweets. Needs:
-- Reply target tracking (tweet ID, author handle)
-- Reply draft generation
-- Reusable in normal single/batch/yolo flows
+**Remaining**: split large generation/adapters files; account creation flow
+(only GET/PATCH exist); schedule-clearing via PATCH /jobs/:id; shuffled
+post-all (docs promised, code is chronological); surface quality-gate-failed
+drafts in UI; app icon + Windows code signing; OS keychain for API keys;
+auto-update.
 
 **Deferred**: multi-account UI, voice input, E2E test suite.
 

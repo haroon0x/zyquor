@@ -49,6 +49,48 @@ const testGenerationProvider: DraftGenerationProvider = {
 };
 
 describe("api workflow", () => {
+  it("keeps a draft with omitted automation fields in manual review", async () => {
+    const app = buildApp({
+      generationProvider: testGenerationProvider,
+      repository: createMemoryRepository({
+        now: () => "2026-04-24T17:00:00.000Z"
+      })
+    });
+
+    const missingAccountResponse = await app.inject({
+      method: "POST",
+      url: "/drafts",
+      payload: { idea: "Keep this draft in manual review." }
+    });
+    expect(missingAccountResponse.statusCode).toBe(400);
+
+    const draftResponse = await app.inject({
+      method: "POST",
+      url: "/drafts",
+      payload: {
+        accountId: "account_personal",
+        idea: "Keep this draft in manual review."
+      }
+    });
+
+    expect(draftResponse.statusCode).toBe(201);
+    expect(draftResponse.json().draft.metadata).toMatchObject({ autopost: false, yolo: false });
+    const draftId = draftResponse.json().draft.id;
+    const generateResponse = await app.inject({
+      method: "POST",
+      url: `/drafts/${draftId}/generate`
+    });
+    expect(generateResponse.statusCode).toBe(201);
+    expect(generateResponse.json().draft.status).not.toBe("approved");
+
+    const jobsResponse = await app.inject({
+      method: "GET",
+      url: "/jobs?accountId=account_personal"
+    });
+    expect(jobsResponse.json().jobs).toEqual([]);
+    await app.close();
+  });
+
   it("generates, approves, and dry-run prepares a job", async () => {
     const app = buildApp({
       generationProvider: testGenerationProvider,

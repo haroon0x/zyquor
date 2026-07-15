@@ -84,6 +84,26 @@ describe("/settings routes", () => {
     await app.close();
   });
 
+  it("PATCH ignores a masked API key", async () => {
+    const openrouterApiKey = "sk-or-v1-1234567890abcdef";
+    const dep = mockDesktopSettings({ openrouterApiKey });
+    const app = buildApp({
+      desktopSettings: dep,
+      repository: createMemoryRepository({ now: () => "2026-07-07T12:00:00.000Z" }),
+    });
+    const masked = "*********************cdef";
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/settings",
+      payload: { openrouterApiKey: masked },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(dep.update).toHaveBeenCalledWith({});
+    expect(dep.get().openrouterApiKey).toBe(openrouterApiKey);
+    expect(res.json().restartRequired).toBe(false);
+    await app.close();
+  });
+
   it("empty-string value deletes a key", async () => {
     const dep = mockDesktopSettings({ chromePath: "/usr/bin/chrome", cdpPort: 9222 });
     const app = buildApp({

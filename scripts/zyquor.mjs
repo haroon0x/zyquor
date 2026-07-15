@@ -168,8 +168,8 @@ async function start() {
     ZYQUOR_API_PORT: apiPort,
     ZYQUOR_API_URL: apiUrl,
     ZYQUOR_BROWSER_CDP_URL: cdpUrl,
-    ZYQUOR_ENABLE_BROWSER_PREPARE: process.env.ZYQUOR_ENABLE_BROWSER_PREPARE ?? "1",
-    ZYQUOR_ENABLE_BROWSER_POST: process.env.ZYQUOR_ENABLE_BROWSER_POST ?? "1"
+    ZYQUOR_ENABLE_BROWSER_PREPARE: process.env.ZYQUOR_ENABLE_BROWSER_PREPARE ?? "0",
+    ZYQUOR_ENABLE_BROWSER_POST: process.env.ZYQUOR_ENABLE_BROWSER_POST ?? "0"
   };
 
   const apiAlreadyRunning = await httpOk(`${apiUrl}/health`);

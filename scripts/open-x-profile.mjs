@@ -19,7 +19,6 @@ const context = await chromium.launchPersistentContext(profileDir, {
   ...(browserChannel ? { channel: browserChannel } : {}),
   headless: false,
   args: [
-    "--disable-blink-features=AutomationControlled",
     "--no-sandbox",
     "--disable-crash-reporter",
     "--disable-dev-shm-usage",

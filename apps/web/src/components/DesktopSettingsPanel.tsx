@@ -6,6 +6,7 @@ import { Busy, InlineError, errorMessage } from "./Feedback.js";
 export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
   const { busy, run } = panel;
   const [desktopSettings, setDesktopSettings] = useState<DesktopSettingsData>({});
+  const [apiKeys, setApiKeys] = useState({ geminiApiKey: "", openrouterApiKey: "" });
   const [desktopRestartRequired, setDesktopRestartRequired] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -35,14 +36,17 @@ export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
     run(async () => {
       const payload: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(desktopSettings)) {
-        if (key === "restartRequired") continue;
+        if (key === "restartRequired" || key === "openrouterApiKey" || key === "geminiApiKey") continue;
         payload[key] = value;
       }
+      if (apiKeys.openrouterApiKey) payload.openrouterApiKey = apiKeys.openrouterApiKey;
+      if (apiKeys.geminiApiKey) payload.geminiApiKey = apiKeys.geminiApiKey;
       const result = await api<DesktopSettingsData & { restartRequired?: boolean }>("/settings", {
         method: "PATCH",
         body: JSON.stringify(payload)
       });
       setDesktopSettings(result);
+      setApiKeys({ geminiApiKey: "", openrouterApiKey: "" });
       if (result.restartRequired) setDesktopRestartRequired(true);
     });
   }
@@ -81,11 +85,11 @@ export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
         </label>
         <label>
           OpenRouter API key
-          <input type="password" value={desktopSettings.openrouterApiKey ?? ""} onChange={(event) => patchSetting("openrouterApiKey", event.target.value || undefined)} placeholder={desktopSettings.openrouterApiKey ? "••••••••" : "sk-or-..."} />
+          <input type="password" value={apiKeys.openrouterApiKey} onChange={(event) => setApiKeys((current) => ({ ...current, openrouterApiKey: event.target.value }))} placeholder={desktopSettings.openrouterApiKey ? "••••••••" : "sk-or-..."} />
         </label>
         <label>
           Gemini API key
-          <input type="password" value={desktopSettings.geminiApiKey ?? ""} onChange={(event) => patchSetting("geminiApiKey", event.target.value || undefined)} placeholder={desktopSettings.geminiApiKey ? "••••••••" : "AIza..."} />
+          <input type="password" value={apiKeys.geminiApiKey} onChange={(event) => setApiKeys((current) => ({ ...current, geminiApiKey: event.target.value }))} placeholder={desktopSettings.geminiApiKey ? "••••••••" : "AIza..."} />
         </label>
         <label>
           Chrome path

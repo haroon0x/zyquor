@@ -32,10 +32,20 @@ export function registerSettingsRoutes(app: FastifyInstance, deps: AppDeps): voi
 
   app.patch("/settings", async (request, reply) => {
     const patch = (request.body ?? {}) as DesktopSettingsData;
+    const current = deps.desktopSettings!.get();
+    const maskedCurrent = maskSettings(current);
 
     for (const key of Object.keys(patch) as (keyof DesktopSettingsData)[]) {
       if (patch[key] === "") {
         delete patch[key];
+      }
+    }
+
+    for (const key of SENSITIVE_KEYS) {
+      const incoming = patch[key as keyof DesktopSettingsData];
+      const stored = current[key as keyof DesktopSettingsData];
+      if (typeof incoming === "string" && typeof stored === "string" && incoming === maskedCurrent[key as keyof DesktopSettingsData]) {
+        delete patch[key as keyof DesktopSettingsData];
       }
     }
 
