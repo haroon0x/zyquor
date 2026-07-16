@@ -37,6 +37,9 @@ function App() {
   const [activeView, setActiveView] = useState<ViewId>(viewFromHash);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [activeAccountId, setActiveAccountId] = useState("account_personal");
+  const [showAccountForm, setShowAccountForm] = useState(false);
+  const [newAccountHandle, setNewAccountHandle] = useState("");
+  const [newAccountDisplayName, setNewAccountDisplayName] = useState("");
   const [draft, setDraft] = useState<DraftResponse | null>(null);
   const [editedText, setEditedText] = useState("");
   const [postPlan, setPostPlan] = useState("single");
@@ -115,6 +118,25 @@ function App() {
     }, "header");
   }
 
+  function createAccount(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    run(async () => {
+      const { account } = await api<{ account: Account }>("/accounts", {
+        method: "POST",
+        body: JSON.stringify({
+          handle: newAccountHandle,
+          ...(newAccountDisplayName ? { displayName: newAccountDisplayName } : {})
+        })
+      });
+      await refresh();
+      setActiveAccountId(account.id);
+      setBrowserSession(null);
+      setNewAccountHandle("");
+      setNewAccountDisplayName("");
+      setShowAccountForm(false);
+    }, "account-create");
+  }
+
   function navigate(view: ViewId) {
     setActiveView(view);
     window.location.hash = view;
@@ -159,6 +181,8 @@ function App() {
   } else {
     viewContent = (
       <SettingsView
+        accounts={accounts}
+        accountsPanel={panelFor("accounts")}
         desktopPanel={panelFor("desktop-settings")}
         generationPanel={panelFor("generation")}
         generationState={{ generation, generationModelOptions, setGeneration, setGenerationModelOptions }}
@@ -212,6 +236,34 @@ function App() {
               >
                 {accounts.map((account) => <option key={account.id} value={account.id}>{account.displayName} · @{account.handle}</option>)}
               </select>
+              <button className="ghost compact-button add-account-button" onClick={() => setShowAccountForm((current) => !current)}>
+                <span aria-hidden="true">+</span><span className="add-account-label">Add account</span>
+              </button>
+              {showAccountForm ? (
+                <form className="account-create-form" onSubmit={createAccount}>
+                  <input
+                    aria-label="New account handle"
+                    autoFocus
+                    maxLength={15}
+                    pattern="[a-z0-9_]{1,15}"
+                    placeholder="handle"
+                    required
+                    value={newAccountHandle}
+                    onChange={(event) => setNewAccountHandle(event.target.value)}
+                  />
+                  <input
+                    aria-label="New account display name"
+                    maxLength={120}
+                    placeholder="Display name (optional)"
+                    value={newAccountDisplayName}
+                    onChange={(event) => setNewAccountDisplayName(event.target.value)}
+                  />
+                  <button className="compact-button" disabled={busyScopes.includes("account-create")} type="submit">
+                    <Busy active={busyScopes.includes("account-create")} />Create
+                  </button>
+                  <button className="ghost compact-button" type="button" onClick={() => setShowAccountForm(false)}>Cancel</button>
+                </form>
+              ) : null}
               {browserSession ? (
                 <span className={browserSession.loggedIn ? "dot-chip online" : "dot-chip offline"}>X {browserSession.loggedIn ? "active" : "logged out"}</span>
               ) : <span className="dot-chip unknown">X unchecked</span>}

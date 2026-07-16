@@ -132,6 +132,18 @@ export const accountSchema = z.object({
   updatedAt: isoTimestampSchema
 });
 
+export const createAccountRequestSchema = z
+  .object({
+    handle: z.string().regex(/^[a-z0-9_]{1,15}$/),
+    displayName: z.string().min(1).max(120).optional()
+  })
+  .strict()
+  .transform((input) => ({
+    handle: input.handle,
+    displayName: input.displayName ?? input.handle,
+    profileDir: `profiles/${input.handle}`
+  }));
+
 export const styleProfileSchema = z.object({
   id: idSchema,
   name: z.string().min(1).max(120),
@@ -331,6 +343,7 @@ export const prepareJobRequestSchema = z.object({
 });
 
 export type Account = z.infer<typeof accountSchema>;
+export type CreateAccountRequest = z.infer<typeof createAccountRequestSchema>;
 export type StyleProfile = z.infer<typeof styleProfileSchema>;
 export type Draft = z.infer<typeof draftSchema>;
 export type DraftCandidate = z.infer<typeof draftCandidateSchema>;

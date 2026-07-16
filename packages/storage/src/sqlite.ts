@@ -25,7 +25,8 @@ import {
   toStyleProfile,
   toSourcePacket,
   toIngestConfig,
-  serializeReplyTarget
+  serializeReplyTarget,
+  accountInsertValues
 } from "./mappers.js";
 
 export function defaultDatabasePath(): string {
@@ -321,9 +322,66 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
       return rows(db.prepare("SELECT * FROM accounts ORDER BY created_at ASC").all()).map(toAccount);
     },
 
+    async createAccount(input) {
+      const duplicate = row(db.prepare("SELECT id FROM accounts WHERE handle = ?").get(input.handle));
+      if (duplicate) {
+        throw new Error(`Duplicate account handle: ${input.handle}`);
+      }
+
+      const timestamp = now();
+      const account: Account = {
+        id: id("account"),
+        handle: input.handle,
+        displayName: input.displayName,
+        profileDir: input.profileDir,
+        styleProfileId: "style_default",
+        postingMode: "prepare_only",
+        enabled: true,
+        dailyPostLimit: 300,
+        quietHoursStart: null,
+        quietHoursEnd: null,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      };
+      db.prepare(
+        `INSERT INTO accounts (
+          id, handle, display_name, profile_dir, style_profile_id, posting_mode, enabled,
+          daily_post_limit, quiet_hours_start, quiet_hours_end, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(...accountInsertValues(account));
+      return account;
+    },
+
     async getAccount(accountId) {
       const account = row(db.prepare("SELECT * FROM accounts WHERE id = ?").get(accountId));
       return account ? toAccount(account) : null;
+    },
+
+    async deleteAccount(accountId) {
+      return runTransaction(db, () => {
+        const accountRow = row(db.prepare("SELECT * FROM accounts WHERE id = ?").get(accountId));
+        if (!accountRow) {
+          throw new Error(`Account not found: ${accountId}`);
+        }
+        const blockedJob = row(
+          db.prepare("SELECT id FROM post_jobs WHERE account_id = ? AND status NOT IN ('posted', 'cancelled') LIMIT 1").get(accountId)
+        );
+        if (blockedJob) {
+          throw new Error(`Cannot delete account with non-terminal job: ${String(blockedJob.id)}`);
+        }
+
+        db.prepare("DELETE FROM post_attempts WHERE job_id IN (SELECT id FROM post_jobs WHERE account_id = ?)").run(accountId);
+        db.prepare("DELETE FROM post_history WHERE account_id = ?").run(accountId);
+        db.prepare("DELETE FROM content_fingerprints WHERE account_id = ?").run(accountId);
+        db.prepare("DELETE FROM post_jobs WHERE account_id = ?").run(accountId);
+        db.prepare("DELETE FROM draft_candidates WHERE draft_id IN (SELECT id FROM drafts WHERE account_id = ?)").run(accountId);
+        db.prepare("DELETE FROM drafts WHERE account_id = ?").run(accountId);
+        db.prepare("DELETE FROM source_packets WHERE account_id = ?").run(accountId);
+        db.prepare("DELETE FROM ingest_runs WHERE account_id = ?").run(accountId);
+        db.prepare("DELETE FROM ingest_configs WHERE account_id = ?").run(accountId);
+        db.prepare("DELETE FROM accounts WHERE id = ?").run(accountId);
+        return toAccount(accountRow);
+      });
     },
 
     async updateAccount(accountId, input) {

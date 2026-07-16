@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ReplyTarget } from "@zyquor/core";
+import { createAccountRequestSchema, type ReplyTarget } from "@zyquor/core";
 import type { RepositorySnapshot } from "./types.js";
 import { createMemoryRepository, createSqliteRepository, detectSqliteSupport } from "./index.js";
 
@@ -421,6 +421,49 @@ describe("repository workflow", () => {
     await expect(repository.resetSourcePacket(packet.id)).resolves.toMatchObject({ status: "new" });
     await expect(repository.getDraft(created.draft.id)).resolves.toBeNull();
     await expect(repository.listJobs()).resolves.toHaveLength(0);
+  });
+});
+
+describe.each(["memory", "sqlite"] as const)("%s account repository", (backend) => {
+  it("creates and deletes accounts with unified limits and active-job protection", async () => {
+    const directory = backend === "sqlite" ? mkdtempSync(join(tmpdir(), "zyquor-accounts-")) : null;
+    try {
+      const repository = backend === "sqlite"
+        ? await createSqliteRepository(join(directory!, "app.sqlite"))
+        : createMemoryRepository({ now: () => "2026-04-24T17:00:00.000Z" });
+
+      await expect(repository.getAccount("account_personal")).resolves.toMatchObject({ dailyPostLimit: 300 });
+      const input = createAccountRequestSchema.parse({ handle: "second_user", displayName: "Second user" });
+      const account = await repository.createAccount(input);
+      expect(account).toMatchObject({
+        displayName: "Second user",
+        handle: "second_user",
+        profileDir: "profiles/second_user",
+        styleProfileId: "style_default",
+        postingMode: "prepare_only",
+        enabled: true,
+        dailyPostLimit: 300
+      });
+      expect(account.id).toMatch(/^account_/);
+      await expect(repository.createAccount(input)).rejects.toThrow("Duplicate account handle");
+
+      const draft = await repository.createDraft({
+        accountId: account.id,
+        sourceInput: "Account deletion protection",
+        candidates: [{ text: "Keep active account jobs safe", score: {} }]
+      });
+      const approved = await repository.approveDraft({
+        draftId: draft.draft.id,
+        editedText: "Keep active account jobs safe"
+      });
+      await expect(repository.deleteAccount(account.id)).rejects.toThrow("Cannot delete account with non-terminal job");
+      await repository.updateJobStatus(approved.job.id, "cancelled");
+      await expect(repository.deleteAccount(account.id)).resolves.toMatchObject({ id: account.id });
+      await expect(repository.getAccount(account.id)).resolves.toBeNull();
+      await expect(repository.getDraft(draft.draft.id)).resolves.toBeNull();
+    } finally {
+      if (directory) rmSync(directory, { force: true, recursive: true });
+    }
   });
 });
 

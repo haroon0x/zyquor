@@ -43,6 +43,23 @@ export function toAccount(row: Record<string, unknown>): Account {
   };
 }
 
+export function accountInsertValues(account: Account): unknown[] {
+  return [
+    account.id,
+    account.handle,
+    account.displayName,
+    account.profileDir,
+    account.styleProfileId,
+    account.postingMode,
+    account.enabled ? 1 : 0,
+    account.dailyPostLimit,
+    account.quietHoursStart,
+    account.quietHoursEnd,
+    account.createdAt,
+    account.updatedAt
+  ];
+}
+
 export function toDraft(row: Record<string, unknown>): Draft {
   return {
     id: String(row.id),

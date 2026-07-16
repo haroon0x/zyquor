@@ -353,6 +353,26 @@ label {
   font-size: 12px;
 }
 
+.account-create-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.account-create-form input {
+  width: 142px;
+  height: 30px;
+  font-size: 12px;
+}
+
+.account-create-form input:nth-child(2) {
+  width: 168px;
+}
+
+.add-account-button {
+  white-space: nowrap;
+}
+
 .dot-chip {
   display: inline-flex;
   align-items: center;
@@ -1216,6 +1236,51 @@ label {
   row-gap: 14px;
 }
 
+.account-settings-list {
+  display: grid;
+  gap: 8px;
+}
+
+.account-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--input);
+  padding: 11px 12px;
+}
+
+.account-settings-identity {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.account-settings-identity strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.account-settings-identity span,
+.account-settings-identity small {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-settings-identity small {
+  font-size: 10px;
+}
+
+.account-settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .history-panel {
   width: 100%;
 }
@@ -1320,6 +1385,25 @@ label {
     width: 150px;
   }
 
+  .account-create-form {
+    position: absolute;
+    top: 42px;
+    right: 18px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: min(360px, calc(100vw - 92px));
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    background: var(--panel-raised);
+    padding: 10px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  }
+
+  .account-create-form input,
+  .account-create-form input:nth-child(2) {
+    width: 100%;
+  }
+
   .dot-chip {
     display: none;
   }
@@ -1390,6 +1474,20 @@ label {
 
   .account-cluster button {
     padding: 0 8px;
+  }
+
+  .add-account-button {
+    width: 30px;
+  }
+
+  .add-account-label {
+    display: none;
+  }
+
+  .account-settings-row,
+  .account-settings-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .content-area {

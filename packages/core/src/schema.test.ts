@@ -3,6 +3,7 @@ import {
   X_FREE_POST_CHARACTER_LIMIT,
   accountSchema,
   approveDraftRequestSchema,
+  createAccountRequestSchema,
   createDraftBatchRequestSchema,
   createDraftRequestSchema,
   createSourcePacketRequestSchema,
@@ -31,6 +32,28 @@ describe("domain schemas", () => {
         updatedAt: timestamp
       })
     ).not.toThrow();
+  });
+
+  it("derives safe account creation defaults", () => {
+    expect(createAccountRequestSchema.parse({ handle: "example_user" })).toEqual({
+      handle: "example_user",
+      displayName: "example_user",
+      profileDir: "profiles/example_user"
+    });
+    expect(createAccountRequestSchema.parse({ handle: "example", displayName: "Example" })).toMatchObject({
+      displayName: "Example"
+    });
+  });
+
+  it.each(["@example", "Example", "example-user", "example user", "abcdefghijklmnop"])(
+    "rejects invalid account handle %s",
+    (handle) => {
+      expect(() => createAccountRequestSchema.parse({ handle })).toThrow();
+    }
+  );
+
+  it("rejects a user-supplied account profile directory", () => {
+    expect(() => createAccountRequestSchema.parse({ handle: "example", profileDir: "profiles/other" })).toThrow();
   });
 
   it("rejects unsupported job statuses", () => {

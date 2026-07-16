@@ -1,5 +1,6 @@
 import type {
   Account,
+  CreateAccountRequest,
   Draft,
   DraftCandidate,
   PostAttempt,
@@ -29,7 +30,9 @@ export interface IngestRun {
 
 export interface ZyquorRepository {
   listAccounts(): Promise<Account[]>;
+  createAccount(input: CreateAccountRequest): Promise<Account>;
   getAccount(id: string): Promise<Account | null>;
+  deleteAccount(id: string): Promise<Account>;
   updateAccount(id: string, input: Partial<Omit<Account, "id" | "createdAt" | "updatedAt">>): Promise<Account>;
   getStyleProfile(id: string): Promise<StyleProfile | null>;
   updateStyleProfile(id: string, input: Partial<Omit<StyleProfile, "id" | "createdAt" | "updatedAt">>): Promise<StyleProfile>;

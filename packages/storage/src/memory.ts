@@ -54,7 +54,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       styleProfileId: styleProfile.id,
       postingMode: "prepare_only",
       enabled: true,
-      dailyPostLimit: 1000,
+      dailyPostLimit: 300,
       quietHoursStart: null,
       quietHoursEnd: null,
       createdAt: now(),
@@ -136,8 +136,77 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       return [...accounts.values()];
     },
 
+    async createAccount(input) {
+      if ([...accounts.values()].some((account) => account.handle === input.handle)) {
+        throw new Error(`Duplicate account handle: ${input.handle}`);
+      }
+
+      const timestamp = now();
+      const account: Account = {
+        id: id("account"),
+        handle: input.handle,
+        displayName: input.displayName,
+        profileDir: input.profileDir,
+        styleProfileId: "style_default",
+        postingMode: "prepare_only",
+        enabled: true,
+        dailyPostLimit: 300,
+        quietHoursStart: null,
+        quietHoursEnd: null,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      };
+      accounts.set(account.id, account);
+      persist();
+      return account;
+    },
+
     async getAccount(id) {
       return accounts.get(id) ?? null;
+    },
+
+    async deleteAccount(id) {
+      const account = accounts.get(id);
+      if (!account) {
+        throw new Error(`Account not found: ${id}`);
+      }
+      const blockedJob = [...jobs.values()].find(
+        (job) => job.accountId === id && job.status !== "posted" && job.status !== "cancelled"
+      );
+      if (blockedJob) {
+        throw new Error(`Cannot delete account with non-terminal job: ${blockedJob.id}`);
+      }
+
+      const accountDraftIds = new Set([...drafts.values()].filter((draft) => draft.accountId === id).map((draft) => draft.id));
+      const accountJobIds = new Set([...jobs.values()].filter((job) => job.accountId === id).map((job) => job.id));
+      for (const [attemptId, attempt] of attempts) {
+        if (accountJobIds.has(attempt.jobId)) attempts.delete(attemptId);
+      }
+      for (const [candidateId, candidate] of candidates) {
+        if (accountDraftIds.has(candidate.draftId)) candidates.delete(candidateId);
+      }
+      for (const [jobId, job] of jobs) {
+        if (job.accountId === id) jobs.delete(jobId);
+      }
+      for (const [fingerprintId, fingerprint] of fingerprints) {
+        if (fingerprint.accountId === id) fingerprints.delete(fingerprintId);
+      }
+      for (const [historyId, item] of history) {
+        if (item.accountId === id) history.delete(historyId);
+      }
+      for (const [packetId, packet] of sourcePackets) {
+        if (packet.accountId === id) sourcePackets.delete(packetId);
+      }
+      for (const [runId, run] of ingestRuns) {
+        if (run.accountId === id) ingestRuns.delete(runId);
+      }
+      for (const [configId, config] of ingestConfigs) {
+        if (config.accountId === id) ingestConfigs.delete(configId);
+      }
+      for (const draftId of accountDraftIds) drafts.delete(draftId);
+      accounts.delete(id);
+      persist();
+      return account;
     },
 
     async updateAccount(id, input) {
