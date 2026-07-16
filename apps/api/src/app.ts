@@ -20,6 +20,7 @@ import { registerBatchesRoutes } from "./routes/batches.js";
 import { registerJobsRoutes } from "./routes/jobs.js";
 import { registerHistoryRoutes } from "./routes/history.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
+import { registerOnboardingRoutes } from "./routes/onboarding.js";
 
 export { type BuildAppOptions };
 
@@ -67,6 +68,9 @@ export function buildApp(options: BuildAppOptions = {}) {
       running: false
     },
     browserLoaded: false,
+    onboarding: {
+      xSessionCheckedOk: false
+    },
     browser: {
       enablePrepare: options.enableBrowserPrepare ?? false,
       enablePost: options.enableBrowserPost ?? false,
@@ -123,6 +127,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   registerJobsRoutes(app, deps);
   registerHistoryRoutes(app, deps);
   registerSettingsRoutes(app, deps);
+  registerOnboardingRoutes(app, deps);
 
   return app;
 }

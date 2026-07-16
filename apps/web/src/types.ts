@@ -90,6 +90,15 @@ export interface GenerationResponse {
   providers: GenerationModelOptions;
 }
 
+export interface OnboardingStatus {
+  needsOnboarding: boolean;
+  accountsCount: number;
+  hasDrafts: boolean;
+  hasJobs: boolean;
+  generation: GenerationConfig & { isDefault: boolean };
+  xSessionCheckedOk: boolean;
+}
+
 export interface BrowserSession {
   accountId: string;
   cdpUrl: string | null;

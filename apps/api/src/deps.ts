@@ -86,6 +86,9 @@ export interface AppDeps {
     };
   };
   browserLoaded: boolean;
+  onboarding: {
+    xSessionCheckedOk: boolean;
+  };
   browser: {
     enablePrepare: boolean;
     enablePost: boolean;

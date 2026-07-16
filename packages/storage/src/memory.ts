@@ -362,6 +362,10 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       return { draft, candidates: createdCandidates };
     },
 
+    async hasDrafts() {
+      return drafts.size > 0;
+    },
+
     async getDraft(id) {
       const draft = drafts.get(id);
       return draft ? { draft, candidates: candidatesForDraft(id) } : null;

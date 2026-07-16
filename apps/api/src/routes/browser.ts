@@ -30,6 +30,7 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: AppDeps): void
         profileDir,
         ...browserOptions(deps)
       });
+      if (result.loggedIn) deps.onboarding.xSessionCheckedOk = true;
 
       return {
         accountId: account.id,

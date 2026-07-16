@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api, loadAppData } from "./api.js";
 import { Busy, PanelIcon, type PanelIconName } from "./components/Feedback.js";
+import { OnboardingWizard } from "./components/OnboardingWizard.js";
 import type {
   Account,
   BrowserSession,
   DraftResponse,
   GenerationConfig,
   GenerationModelOptions,
+  OnboardingStatus,
   PanelProps,
   WorkerStatus
 } from "./types.js";
@@ -27,6 +29,25 @@ const views: Array<{ description: string; icon: PanelIconName; id: ViewId; title
   { id: "history", icon: "clock", title: "History", description: "Review recently posted content and its sources." },
   { id: "settings", icon: "settings", title: "Settings", description: "Tune generation, writing style, and desktop behavior." }
 ];
+
+const ONBOARDING_COMPLETED_KEY = "zyquor:onboarding-completed";
+const ONBOARDING_DISMISSED_KEY = "zyquor:onboarding-dismissed";
+
+function hasLocalOnboardingChoice() {
+  try {
+    return localStorage.getItem(ONBOARDING_COMPLETED_KEY) === "1" || localStorage.getItem(ONBOARDING_DISMISSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveLocalOnboardingChoice(key: string) {
+  try {
+    localStorage.setItem(key, "1");
+  } catch {
+    return;
+  }
+}
 
 function viewFromHash(): ViewId {
   const value = window.location.hash.slice(1);
@@ -53,6 +74,8 @@ function App() {
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus | null>(null);
   const [generation, setGeneration] = useState<GenerationConfig | null>(null);
   const [generationModelOptions, setGenerationModelOptions] = useState<GenerationModelOptions>({});
+  const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatus | null>(null);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyScopes, setBusyScopes] = useState<string[]>([]);
   const [refreshToken, setRefreshToken] = useState(0);
@@ -88,6 +111,15 @@ function App() {
 
   useEffect(() => {
     void loadRootData().catch((caught) => reportError(caught, "API unavailable"));
+  }, []);
+
+  useEffect(() => {
+    void api<OnboardingStatus>("/onboarding/status")
+      .then((status) => {
+        setOnboardingStatus(status);
+        if (status.needsOnboarding && !hasLocalOnboardingChoice()) setOnboardingOpen(true);
+      })
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -142,6 +174,14 @@ function App() {
     window.location.hash = view;
   }
 
+  function openOnboarding() {
+    run(async () => {
+      const status = await api<OnboardingStatus>("/onboarding/status");
+      setOnboardingStatus(status);
+      setOnboardingOpen(true);
+    }, "onboarding");
+  }
+
   const activeAccount = accounts.find((account) => account.id === activeAccountId);
   const activeViewMeta = views.find((view) => view.id === activeView) ?? views[0]!;
   const panelFor = (scope: string): PanelProps => ({
@@ -194,7 +234,8 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <>
+      <div className="app-shell">
       <aside className="sidebar">
         <button aria-label="Go to Compose" className="brand-mark" onClick={() => navigate("compose")}>Z</button>
         <nav className="sidebar-nav" aria-label="Primary navigation">
@@ -213,6 +254,7 @@ function App() {
           ))}
         </nav>
         <div className="sidebar-status">
+          <button aria-label="Open setup guide" className="ghost onboarding-help" onClick={openOnboarding} title="Setup guide">?</button>
           <span
             aria-label={workerStatus?.workerRunning ? "Worker online" : "Worker offline"}
             className={workerStatus?.workerRunning ? "dot-chip worker-chip online" : "dot-chip worker-chip offline"}
@@ -284,7 +326,32 @@ function App() {
           <div className="view-frame" key={activeView}>{viewContent}</div>
         </main>
       </div>
-    </div>
+      </div>
+      {onboardingOpen && onboardingStatus ? (
+        <OnboardingWizard
+          accountId={activeAccountId}
+          initialStatus={onboardingStatus}
+          onClose={() => setOnboardingOpen(false)}
+          onComplete={() => {
+            saveLocalOnboardingChoice(ONBOARDING_COMPLETED_KEY);
+            setOnboardingOpen(false);
+            navigate("compose");
+          }}
+          onDismissForever={() => {
+            saveLocalOnboardingChoice(ONBOARDING_DISMISSED_KEY);
+            setOnboardingOpen(false);
+          }}
+          onDraftCreated={(createdDraft) => {
+            setDraft(createdDraft);
+            setEditedText(createdDraft?.candidates[0]?.text ?? "");
+          }}
+          onNavigate={(view) => {
+            setOnboardingOpen(false);
+            navigate(view);
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 

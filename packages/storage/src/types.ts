@@ -44,6 +44,7 @@ export interface ZyquorRepository {
     replyToUrl?: string | null;
     metadata?: Record<string, unknown>;
   }): Promise<DraftWithCandidates>;
+  hasDrafts(): Promise<boolean>;
   createSourcePacket(input: {
     accountId: string;
     sourceType: SourcePacket["sourceType"];

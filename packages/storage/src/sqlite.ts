@@ -636,6 +636,10 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
       });
     },
 
+    async hasDrafts() {
+      return Boolean(row(db.prepare("SELECT 1 FROM drafts LIMIT 1").get()));
+    },
+
     async listPendingDrafts() {
       return rows(db.prepare("SELECT * FROM drafts WHERE status = 'created' ORDER BY created_at ASC").all()).map(toDraft);
     },

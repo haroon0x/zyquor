@@ -136,6 +136,17 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
     return draft;
   });
 
+  app.delete("/drafts/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const repository = await deps.repository;
+    const draft = await repository.getDraft(id);
+    if (!draft) {
+      return reply.code(404).send({ error: "Draft not found" });
+    }
+
+    return { draft: await repository.deleteDraft(id) };
+  });
+
   app.post("/drafts/:id/select", async (request) => {
     const { id } = request.params as { id: string };
     const input = selectDraftCandidateRequestSchema.parse(request.body);
