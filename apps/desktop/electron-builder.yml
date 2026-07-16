@@ -10,6 +10,11 @@
 appId: so.brace.zyquor
 productName: Zyquor
 
+publish:
+  provider: github
+  owner: haroon0x
+  repo: zyquor
+
 directories:
   output: release
   buildResources: build
@@ -29,7 +34,8 @@ files:
   - "!**/examples/**"
   - "!**/data/**"
   - "!node_modules/.cache"
-  - "!node_modules/electron*/**"
+  - "!node_modules/electron/**"
+  - "!node_modules/electron-builder/**"
   - "!node_modules/typescript/**"
 
 asar: true

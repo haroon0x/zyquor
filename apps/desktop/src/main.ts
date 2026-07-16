@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, Menu, nativeImage, Tray } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray } from "electron";
+import electronUpdater, { type AppUpdater, type ProgressInfo, type UpdateInfo } from "electron-updater";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
@@ -8,6 +9,23 @@ import { initFileLog, logLine } from "./log.js";
 import { applyDesktopEnvDefaults, applySettingsToEnv, loadSettings, saveSettings, type DesktopSettings } from "./settings.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+type UpdateStatus = {
+  state: "checking" | "available" | "downloaded" | "error";
+  version: string | null;
+};
+
+let updateStatus: UpdateStatus | null = null;
+
+function setUpdateStatus(status: UpdateStatus | null): void {
+  updateStatus = status;
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send("zyquor:update-status", status);
+  }
+}
+
+ipcMain.handle("zyquor:update-status:get", () => updateStatus);
 
 function makeTrayIcon(): Electron.NativeImage {
   const size = 16;
@@ -267,11 +285,41 @@ async function main() {
 
   const trayIcon = appIcon?.resize({ width: 16, height: 16 }) ?? makeTrayIcon();
   const tray = new Tray(trayIcon);
+  let failurePoll: ReturnType<typeof setInterval> | null = null;
+  let updatePoll: ReturnType<typeof setInterval> | null = null;
+  let updater: AppUpdater | null = null;
+  let updateReadyVersion: string | null = null;
+
+  function clearPolls(): void {
+    if (failurePoll) {
+      clearInterval(failurePoll);
+      failurePoll = null;
+    }
+    if (updatePoll) {
+      clearInterval(updatePoll);
+      updatePoll = null;
+    }
+  }
+
   const contextMenu = Menu.buildFromTemplate([
     {
       label: "Open",
       click: () => {
         showOrCreateWindow();
+      },
+    },
+    {
+      id: "restart-to-update",
+      label: "Restart to update",
+      visible: false,
+      click: async () => {
+        const selectedUpdater = updater;
+        if (!selectedUpdater) return;
+        isQuitting = true;
+        clearPolls();
+        await workerHandle.stop();
+        await api.close();
+        selectedUpdater.quitAndInstall(false, true);
       },
     },
     { type: "separator" },
@@ -317,7 +365,7 @@ async function main() {
       label: "Quit",
       click: async () => {
         isQuitting = true;
-        clearInterval(failurePoll);
+        clearPolls();
         await workerHandle.stop();
         await api.close();
         app.quit();
@@ -327,8 +375,61 @@ async function main() {
   tray.setToolTip("Zyquor");
   tray.setContextMenu(contextMenu);
 
+  if (app.isPackaged) {
+    const { autoUpdater } = electronUpdater;
+    updater = autoUpdater;
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+
+    autoUpdater.on("checking-for-update", () => {
+      logLine("info", "updater checking-for-update");
+      setUpdateStatus({ state: "checking", version: null });
+    });
+    autoUpdater.on("update-available", (info: UpdateInfo) => {
+      logLine("info", `updater update-available version ${info.version}`);
+      setUpdateStatus({ state: "available", version: info.version });
+    });
+    autoUpdater.on("update-not-available", (info: UpdateInfo) => {
+      logLine("info", `updater update-not-available version ${info.version}`);
+      setUpdateStatus(null);
+    });
+    autoUpdater.on("download-progress", (progress: ProgressInfo) => {
+      logLine("info", `updater download-progress ${progress.percent.toFixed(1)}%`);
+    });
+    autoUpdater.on("update-downloaded", (info: UpdateInfo) => {
+      logLine("info", `updater update-downloaded version ${info.version}`);
+      updateReadyVersion = info.version;
+      setUpdateStatus({ state: "downloaded", version: info.version });
+      if (updatePoll) {
+        clearInterval(updatePoll);
+        updatePoll = null;
+      }
+      const restartToUpdateItem = contextMenu.getMenuItemById("restart-to-update");
+      if (restartToUpdateItem) {
+        restartToUpdateItem.visible = true;
+        tray.setContextMenu(contextMenu);
+      }
+    });
+    autoUpdater.on("update-cancelled", (info: UpdateInfo) => {
+      logLine("warn", `updater update-cancelled version ${info.version}`);
+    });
+    autoUpdater.on("appimage-filename-updated", (path: string) => {
+      logLine("info", `updater appimage-filename-updated ${path}`);
+    });
+    autoUpdater.on("error", (error: Error) => {
+      logLine("error", `updater error: ${error.stack ?? error.message}`);
+      setUpdateStatus({ state: "error", version: updateReadyVersion });
+    });
+
+    const checkForUpdates = () => {
+      void autoUpdater.checkForUpdates().catch(() => undefined);
+    };
+    checkForUpdates();
+    updatePoll = setInterval(checkForUpdates, UPDATE_CHECK_INTERVAL_MS);
+  }
+
   // Poll job failures for tray tooltip
-  let failurePoll = setInterval(async () => {
+  failurePoll = setInterval(async () => {
     try {
       const res = await fetch(`${workerApiUrl}/jobs`);
       if (!res.ok) return;
@@ -353,7 +454,7 @@ async function main() {
 
   app.on("before-quit", async () => {
     isQuitting = true;
-    clearInterval(failurePoll);
+    clearPolls();
     logLine("info", "app quitting");
     await workerHandle.stop();
     await api.close();

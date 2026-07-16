@@ -10,7 +10,7 @@ Goal: close the gap between "founder-ready" and "users can install and succeed".
 | 8.1 | Account creation flow (POST /accounts + UI, delete/disable, per-account profile dir) | api, storage, core, web | DONE (d2b9c64) |
 | 8.2 | App icon: generated .ico + electron-builder wiring + tray/window icons | desktop, build | DONE |
 | 8.3 | First-run onboarding wizard (Chrome check → X login → provider check → test draft) | web, api (status endpoints exist) | DONE |
-| 8.4 | Auto-update via electron-updater (GitHub releases provider), update-available UI | desktop | TODO |
+| 8.4 | Auto-update via electron-updater (GitHub releases provider), update-available UI | desktop | DONE |
 | 8.5 | OS keychain for API keys (Electron safeStorage — encrypt at rest in settings.json) | desktop, api settings routes | TODO |
 | 8.6 | Code signing: electron-builder Azure Trusted Signing config + CI secrets wiring + docs (cert itself is user's purchase) | build, CI, docs | TODO |
 
