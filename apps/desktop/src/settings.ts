@@ -1,5 +1,7 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { safeStorage } from "electron";
+import { logLine } from "./log.js";
 
 export interface DesktopSettings {
   enableBrowserPrepare?: boolean;
@@ -11,6 +13,64 @@ export interface DesktopSettings {
   chromePath?: string;
   cdpPort?: number;
   startWithWindows?: boolean;
+}
+
+const SECRET_FIELDS = ["openrouterApiKey", "geminiApiKey"] as const;
+const ENCRYPTED_PREFIX = "enc:v1:";
+
+let encryptionUnavailableWarningLogged = false;
+
+function warnEncryptionUnavailable(): void {
+  if (encryptionUnavailableWarningLogged) return;
+  encryptionUnavailableWarningLogged = true;
+  logLine("warn", "settings: secure API key storage is unavailable; API keys will be stored in plaintext");
+}
+
+function decryptSecrets(settings: DesktopSettings): DesktopSettings {
+  const decrypted = { ...settings };
+  const hasSecrets = SECRET_FIELDS.some((field) => typeof decrypted[field] === "string");
+  if (!hasSecrets) return decrypted;
+
+  const encryptionAvailable = safeStorage.isEncryptionAvailable();
+  if (!encryptionAvailable) warnEncryptionUnavailable();
+
+  for (const field of SECRET_FIELDS) {
+    const value = decrypted[field];
+    if (typeof value !== "string" || !value.startsWith(ENCRYPTED_PREFIX)) continue;
+
+    if (!encryptionAvailable) {
+      delete decrypted[field];
+      continue;
+    }
+
+    try {
+      decrypted[field] = safeStorage.decryptString(Buffer.from(value.slice(ENCRYPTED_PREFIX.length), "base64"));
+    } catch (err) {
+      delete decrypted[field];
+      logLine("error", `settings: failed to decrypt ${field}: ${(err as Error).message}`);
+    }
+  }
+
+  return decrypted;
+}
+
+function encryptSecrets(settings: DesktopSettings): DesktopSettings {
+  const encrypted = { ...settings };
+  const hasSecrets = SECRET_FIELDS.some((field) => typeof encrypted[field] === "string");
+  if (!hasSecrets) return encrypted;
+
+  if (!safeStorage.isEncryptionAvailable()) {
+    warnEncryptionUnavailable();
+    return encrypted;
+  }
+
+  for (const field of SECRET_FIELDS) {
+    const value = encrypted[field];
+    if (typeof value !== "string") continue;
+    encrypted[field] = ENCRYPTED_PREFIX + safeStorage.encryptString(value).toString("base64");
+  }
+
+  return encrypted;
 }
 
 function settingsPath(dataRoot: string): string {
@@ -28,7 +88,7 @@ export function loadSettings(dataRoot: string): DesktopSettings {
       console.warn("settings: settings.json is not a JSON object — ignoring");
       return {};
     }
-    return parsed as DesktopSettings;
+    return decryptSecrets(parsed as DesktopSettings);
   } catch (err) {
     console.warn("settings: failed to parse settings.json — ignoring:", (err as Error).message);
     return {};
@@ -38,7 +98,7 @@ export function loadSettings(dataRoot: string): DesktopSettings {
 export function saveSettings(dataRoot: string, settings: DesktopSettings): void {
   const path = settingsPath(dataRoot);
   const tmp = path + ".tmp";
-  writeFileSync(tmp, JSON.stringify(settings, null, 2), "utf8");
+  writeFileSync(tmp, JSON.stringify(encryptSecrets(settings), null, 2), "utf8");
   renameSync(tmp, path);
 }
 

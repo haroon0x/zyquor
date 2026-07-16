@@ -94,7 +94,6 @@ async function main() {
   logLine("info", "app boot");
 
   // Load desktop settings and apply to env before packages read process.env.
-  // Keys are stored plain in userData; OS keychain integration is future work.
   const desktopSettings = loadSettings(process.env.ZYQUOR_DATA_ROOT);
   applySettingsToEnv(desktopSettings);
   applyDesktopEnvDefaults(desktopSettings);

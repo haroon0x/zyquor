@@ -1,6 +1,15 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const safeStorageMock = vi.hoisted(() => ({
+  isEncryptionAvailable: vi.fn((): boolean => true),
+  encryptString: vi.fn((value: string) => Buffer.from(value, "utf8")),
+  decryptString: vi.fn((value: Buffer) => value.toString("utf8")),
+}));
+
+vi.mock("electron", () => ({ safeStorage: safeStorageMock }));
+
 import { applyDesktopEnvDefaults, applySettingsToEnv, loadSettings, saveSettings, type DesktopSettings } from "./settings.js";
 
 const tmpRoot = "/tmp/zyquor-desktop-settings-test";
@@ -13,6 +22,8 @@ function ensureClean() {
 
 beforeEach(() => {
   ensureClean();
+  vi.clearAllMocks();
+  safeStorageMock.isEncryptionAvailable.mockReturnValue(true);
 });
 
 afterEach(() => {
@@ -43,6 +54,15 @@ describe("loadSettings", () => {
     writeFileSync(join(dataRoot, "settings.json"), JSON.stringify(settings), "utf8");
     expect(loadSettings(dataRoot)).toEqual(settings);
   });
+
+  it("loads plaintext API keys for backward compatibility", () => {
+    const settings: DesktopSettings = {
+      openrouterApiKey: "sk-or-plaintext",
+      geminiApiKey: "gemini-plaintext",
+    };
+    writeFileSync(join(dataRoot, "settings.json"), JSON.stringify(settings), "utf8");
+    expect(loadSettings(dataRoot)).toEqual(settings);
+  });
 });
 
 describe("saveSettings", () => {
@@ -50,11 +70,25 @@ describe("saveSettings", () => {
     const settings: DesktopSettings = {
       enableBrowserPost: true,
       openrouterApiKey: "sk-or-v1-secret",
+      geminiApiKey: "gemini-secret",
       chromePath: "/usr/bin/chrome",
     };
     saveSettings(dataRoot, settings);
+    const stored = JSON.parse(readFileSync(join(dataRoot, "settings.json"), "utf8"));
+    expect(stored.openrouterApiKey).toMatch(/^enc:v1:/);
+    expect(stored.geminiApiKey).toMatch(/^enc:v1:/);
+    expect(stored.openrouterApiKey).not.toContain(settings.openrouterApiKey);
+    expect(stored.geminiApiKey).not.toContain(settings.geminiApiKey);
     const loaded = loadSettings(dataRoot);
     expect(loaded).toEqual(settings);
+  });
+
+  it("keeps API keys plaintext when encryption is unavailable", () => {
+    safeStorageMock.isEncryptionAvailable.mockReturnValue(false);
+    const settings: DesktopSettings = { openrouterApiKey: "sk-or-plaintext" };
+    saveSettings(dataRoot, settings);
+    const stored = JSON.parse(readFileSync(join(dataRoot, "settings.json"), "utf8"));
+    expect(stored.openrouterApiKey).toBe(settings.openrouterApiKey);
   });
 
   it("atomic write leaves valid file after crash", () => {
