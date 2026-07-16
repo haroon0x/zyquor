@@ -12,6 +12,7 @@ productName: Zyquor
 
 directories:
   output: release
+  buildResources: build
 
 files:
   - dist/**
@@ -33,6 +34,10 @@ files:
 
 asar: true
 
+extraResources:
+  - from: build/icon.png
+    to: icon.png
+
 win:
   # Cross-build from Linux/WSL without wine: skip exe resource editing/signing.
   # Exe keeps default Electron metadata; harmless on windows-latest CI too.
@@ -41,13 +46,14 @@ win:
     - target: nsis
       arch:
         - x64
-  # icon: build/icon.ico — future work (needs a .ico file generated from SVG/PNG)
+  icon: build/icon.ico
   # code signing — future work (needs cert + CI secrets)
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
 
 linux:
+  icon: build/icon.png
   target:
     - target: dir
       arch:

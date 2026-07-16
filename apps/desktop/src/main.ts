@@ -21,6 +21,15 @@ function makeTrayIcon(): Electron.NativeImage {
   return nativeImage.createFromBuffer(pixels, { width: size, height: size });
 }
 
+function loadAppIcon(): Electron.NativeImage | null {
+  const iconPath = app.isPackaged
+    ? join(process.resourcesPath, "icon.png")
+    : resolve(__dirname, "../build/icon.png");
+  if (!existsSync(iconPath)) return null;
+  const icon = nativeImage.createFromPath(iconPath);
+  return icon.isEmpty() ? null : icon;
+}
+
 app.setName("Zyquor");
 
 let isQuitting = false;
@@ -205,6 +214,7 @@ async function main() {
   const webIndexPath = existsSync(bundledWebIndexPath)
     ? bundledWebIndexPath
     : devWebIndexPath;
+  const appIcon = loadAppIcon();
 
   let win: BrowserWindow | null = null;
 
@@ -219,6 +229,7 @@ async function main() {
       height: 768,
       title: "Zyquor",
       show: false,
+      ...(appIcon ? { icon: appIcon } : {}),
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
@@ -254,7 +265,8 @@ async function main() {
     showOrCreateWindow();
   }
 
-  const tray = new Tray(makeTrayIcon());
+  const trayIcon = appIcon?.resize({ width: 16, height: 16 }) ?? makeTrayIcon();
+  const tray = new Tray(trayIcon);
   const contextMenu = Menu.buildFromTemplate([
     {
       label: "Open",
