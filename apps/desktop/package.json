@@ -16,7 +16,8 @@
     "prepack-zyq": "node ../../scripts/prepack-zyq.mjs",
     "prepack-zyq-undo": "node ../../scripts/prepack-zyq.mjs --undo",
     "dist:dir": "pnpm icons && pnpm prepack-zyq && pnpm copy:web && electron-builder --dir && pnpm prepack-zyq-undo",
-    "dist:win": "pnpm icons && pnpm prepack-zyq && pnpm copy:web && electron-builder --win --x64 --publish onTagOrDraft && pnpm prepack-zyq-undo"
+    "dist:win": "pnpm icons && pnpm prepack-zyq && pnpm copy:web && electron-builder --win --x64 --publish onTagOrDraft && pnpm prepack-zyq-undo",
+    "dist:win:signed": "pnpm icons && pnpm prepack-zyq && pnpm copy:web && electron-builder --config electron-builder.azure.cjs --win --x64 --publish onTagOrDraft && pnpm prepack-zyq-undo"
   },
   "dependencies": {
     "@zyquor/accounts": "workspace:*",

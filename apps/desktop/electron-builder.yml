@@ -53,7 +53,6 @@ win:
       arch:
         - x64
   icon: build/icon.ico
-  # code signing — future work (needs cert + CI secrets)
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true

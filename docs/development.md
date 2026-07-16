@@ -206,5 +206,5 @@ pnpm dist:desktop       # produce NSIS installer (CI: dist-desktop-win job)
 - **Settings**: `settings.json` in the data root instead of `.env`. UI panel gated on `window.zyquor`.
 - **Posting Chrome**: tray menu action spawns a dedicated Chrome profile with CDP on port 9222.
 - **Main-process logging**: `logs/main.log` under the data root (rotates at 5 MB).
-- **App icon and code signing** are not yet configured. Windows verification is manual for now.
+- **Windows releases** use the configured app icon and can be signed through Azure Trusted Signing. See [Windows code signing](code-signing.md).
 - **Entry points**: `src/main.ts` (main process), `src/preload.ts` (context bridge), `src/chrome.ts` (CDP launch), `src/settings.ts` (JSON config), `src/log.ts` (file logging).

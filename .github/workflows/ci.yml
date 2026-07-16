@@ -27,8 +27,6 @@ jobs:
       - run: pnpm check
       - run: pnpm test
 
-  # Windows desktop packaging — manual dispatch or on tags
-  # No code signing yet.
   dist-desktop-win:
     runs-on: windows-latest
     timeout-minutes: 30
@@ -45,7 +43,52 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm --filter @zyquor/web build
-      - run: pnpm --filter @zyquor/desktop dist:win
+      - name: Select Windows signing mode
+        id: windows_signing
+        shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ vars.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ vars.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
+          AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME }}
+        run: |
+          $values = @(
+            $env:AZURE_TENANT_ID
+            $env:AZURE_CLIENT_ID
+            $env:AZURE_CLIENT_SECRET
+            $env:AZURE_TRUSTED_SIGNING_ENDPOINT
+            $env:AZURE_TRUSTED_SIGNING_ACCOUNT_NAME
+            $env:AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME
+          )
+          $enabled = $true
+          foreach ($value in $values) {
+            if ([string]::IsNullOrWhiteSpace($value)) {
+              $enabled = $false
+              break
+            }
+          }
+          "enabled=$($enabled.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          if ($enabled) {
+            Write-Host "Azure Trusted Signing is enabled."
+          } else {
+            Write-Host "Azure Trusted Signing is not fully configured; building unsigned."
+          }
+      - name: Build signed Windows distribution
+        if: ${{ steps.windows_signing.outputs.enabled == 'true' }}
+        run: pnpm --filter @zyquor/desktop dist:win:signed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ vars.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ vars.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
+          AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME }}
+      - name: Build unsigned Windows distribution
+        if: ${{ steps.windows_signing.outputs.enabled != 'true' }}
+        run: pnpm --filter @zyquor/desktop dist:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
