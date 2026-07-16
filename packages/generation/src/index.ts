@@ -54,22 +54,14 @@ export interface GenerationEnvironment {
 }
 
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
-const DEFAULT_OPENROUTER_MODEL = "openrouter/owl-alpha";
+const DEFAULT_OPENROUTER_MODEL = "google/gemma-4-26b-a4b-it:free";
 export const OPENROUTER_MODELS = [
-  "openrouter/owl-alpha",
-  "nex-agi/nex-n2-pro:free",
-  "nvidia/nemotron-3-super-120b-a12b:free",
-  "nvidia/nemotron-3-nano-30b-a3b:free",
-  "nvidia/nemotron-nano-9b-v2:free",
-  "qwen/qwen3-next-80b-a3b-instruct:free",
   "google/gemma-4-26b-a4b-it:free",
   "google/gemma-4-31b-it:free",
-  "z-ai/glm-4.5-air:free",
-  "moonshotai/kimi-k2.6:free",
-  "poolside/laguna-xs.2:free",
-  "poolside/laguna-m.1:free",
-  "liquid/lfm-2.5-1.2b-thinking:free",
-  "liquid/lfm-2.5-1.2b-instruct:free"
+  "tencent/hy3:free",
+  "poolside/laguna-xs-2.1:free",
+  "cohere/north-mini-code:free",
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
 ] as const;
 const ALLOWED_OPENROUTER_MODELS = OPENROUTER_MODELS;
 const DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
@@ -81,8 +73,9 @@ export const GEMINI_MODELS = [
   "gemini-1.5-flash"
 ] as const;
 const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434";
-const DEFAULT_OLLAMA_MODEL = "llama3.1";
+const DEFAULT_OLLAMA_MODEL = "gemma4:e4b";
 export const OLLAMA_MODELS = [
+  "gemma4:e4b",
   "llama3.1",
   "llama3.1:8b",
   "qwen3:8b",
@@ -502,7 +495,28 @@ function isNoCandidatesError(error: unknown, provider: GenerationProviderName) {
 
 function safeOpenRouterModel(model: string | undefined) {
   if (!model) return DEFAULT_OPENROUTER_MODEL;
-  return (ALLOWED_OPENROUTER_MODELS as readonly string[]).includes(model) ? model : DEFAULT_OPENROUTER_MODEL;
+  if ((ALLOWED_OPENROUTER_MODELS as readonly string[]).includes(model)) return model;
+  console.warn(`generation: OpenRouter model "${model}" is not in the free allowlist; using "${DEFAULT_OPENROUTER_MODEL}"`);
+  return DEFAULT_OPENROUTER_MODEL;
+}
+
+export function stripThinking(text: string): string {
+  let stripped = text.replace(/<think\b[^>]*>[\s\S]*?<\/think\s*>/gi, "").trim();
+  while (/^Thinking(?:\.\.\.|…|:)/i.test(stripped)) {
+    const contentStart = stripped.search(/(?:^|\r?\n)\s*(?:(?:```(?:json)?\s*)?[\[{]|(?:Draft|Candidate)\s*1\s*:)/i);
+    if (contentStart > 0) return stripped.slice(contentStart).trim();
+
+    const withoutSection = stripped.replace(
+      /^Thinking(?:\.\.\.|…|:)[^\r\n]*(?:\r?\n(?!\s*$)[^\r\n]*)*\r?\n\s*\r?\n/i,
+      ""
+    ).trim();
+    if (withoutSection === stripped) {
+      return stripped.replace(/^Thinking(?:\.\.\.|…|:)[^\r\n]*(?:\r?\n)?/i, "").trim();
+    }
+    stripped = withoutSection;
+  }
+
+  return stripped;
 }
 
 function isZeroPrice(value: unknown) {
@@ -561,35 +575,39 @@ export function createOllamaGenerationProvider(options: {
     async generateDraftCandidates(input) {
       const count = normalizeCount(input.count);
       try {
-        const body = await postJson<{ response?: unknown }>(fetchImpl, `${baseUrl}/api/generate`, {
+        const body = await postJson<{ message?: { content?: unknown } }>(fetchImpl, `${baseUrl}/api/chat`, {
           model,
-          system: systemPrompt(input),
-          prompt: userPrompt(input),
+          messages: [
+            { role: "system", content: systemPrompt(input) },
+            { role: "user", content: userPrompt(input) }
+          ],
           stream: false,
           format: "json",
+          think: false,
           options: {
             temperature: 0.6,
             num_predict: 900
           }
         });
 
-        return candidatesFromText(asText(body.response), input, "ollama", model);
+        return candidatesFromText(stripThinking(asText(body.message?.content)), input, "ollama", model);
       } catch (error) {
         if (!isNoCandidatesError(error, "ollama")) {
           throw error;
         }
 
-        const retryBody = await postJson<{ response?: unknown }>(fetchImpl, `${baseUrl}/api/generate`, {
+        const retryBody = await postJson<{ message?: { content?: unknown } }>(fetchImpl, `${baseUrl}/api/chat`, {
           model,
-          prompt: linePrompt(input),
+          messages: [{ role: "user", content: linePrompt(input) }],
           stream: false,
+          think: false,
           options: {
             temperature: 0.5,
             num_predict: 500
           }
         });
 
-        return candidatesFromText(asText(retryBody.response), input, "ollama", model);
+        return candidatesFromText(stripThinking(asText(retryBody.message?.content)), input, "ollama", model);
       }
     }
   };
@@ -724,8 +742,6 @@ export function resolveGenerationProviderConfig(env: GenerationEnvironment = pro
         ? "openrouter"
         : env.ZYQUOR_GEMINI_API_KEY
           ? "gemini"
-          : env.ZYQUOR_OLLAMA_BASE_URL || env.ZYQUOR_OLLAMA_MODEL
-          ? "ollama"
           : "ollama"
       : requestedProvider
   ) as GenerationProviderName;

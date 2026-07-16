@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createGeminiGenerationProvider,
   createOllamaGenerationProvider,
@@ -8,6 +8,7 @@ import {
   postProcessTweetText,
   resolveGenerationProviderConfig,
   scoreTweetQuality,
+  stripThinking,
   buildSourceTweetInput,
   renderSourceContext,
   type FetchLike
@@ -20,12 +21,30 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+describe("stripThinking", () => {
+  it("removes think tag blocks", () => {
+    expect(stripThinking('<think>Compare several approaches first.</think>\n{"candidates":[]}')).toBe(
+      '{"candidates":[]}'
+    );
+  });
+
+  it("removes a leading Thinking section", () => {
+    expect(
+      stripThinking(
+        "Thinking...\nI should identify the angle.\n\nThinking...\nI should make it concise.\n\nDraft 1:\nFirst clean draft."
+      )
+    ).toBe(
+      "Draft 1:\nFirst clean draft."
+    );
+  });
+});
+
 describe("ollama generation", () => {
   it("renders reply context without treating the URL as browsed content", async () => {
     const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
     const fetchImpl: FetchLike = async (url, init) => {
       calls.push({ url: String(url), init });
-      return jsonResponse({ response: '{"candidates":[{"text":"Useful reply."}]}' });
+      return jsonResponse({ message: { content: '{"candidates":[{"text":"Useful reply."}]}' } });
     };
     const provider = createOllamaGenerationProvider({ fetch: fetchImpl });
 
@@ -39,11 +58,12 @@ describe("ollama generation", () => {
     });
 
     const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
-    expect(String(body.prompt)).toContain(
+    const messages = body.messages as Array<{ content: string; role: string }>;
+    expect(messages[1]?.content).toContain(
       "You are drafting a reply to @target_user's post at https://x.com/target_user/status/1898765432109876543."
     );
-    expect(String(body.prompt)).toContain("using the user's description of the target post");
-    expect(String(body.prompt)).toContain("Do not claim to have opened or read the linked post.");
+    expect(messages[1]?.content).toContain("using the user's description of the target post");
+    expect(messages[1]?.content).toContain("Do not claim to have opened or read the linked post.");
   });
 
   it("posts non-streaming JSON generation request", async () => {
@@ -51,9 +71,11 @@ describe("ollama generation", () => {
     const fetchImpl: FetchLike = async (url, init) => {
       calls.push({ url: String(url), init });
       return jsonResponse({
-        response: JSON.stringify({
-          candidates: [{ text: "First local draft." }, { text: "Second local draft." }]
-        })
+        message: {
+          content: JSON.stringify({
+            candidates: [{ text: "First local draft." }, { text: "Second local draft." }]
+          })
+        }
       });
     };
     const provider = createOllamaGenerationProvider({
@@ -65,14 +87,16 @@ describe("ollama generation", () => {
     const candidates = await provider.generateDraftCandidates({ idea: "Make it local.", count: 2, tweetType: "hiring" });
     const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
 
-    expect(calls[0]?.url).toBe("http://127.0.0.1:11434/api/generate");
+    expect(calls[0]?.url).toBe("http://127.0.0.1:11434/api/chat");
     expect(body).toMatchObject({
       model: "llama3.1:8b",
       stream: false,
-      format: "json"
+      format: "json",
+      think: false
     });
-    expect(String(body.system)).toContain("Never use em or en dashes (— or –)");
-    expect(String(body.system)).toContain("not affiliated");
+    const messages = body.messages as Array<{ content: string; role: string }>;
+    expect(messages[0]?.content).toContain("Never use em or en dashes (— or –)");
+    expect(messages[0]?.content).toContain("not affiliated");
     expect(candidates).toEqual([
       { text: "first local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 1, quality: -1 } },
       { text: "second local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 2, quality: -1 } }
@@ -84,10 +108,12 @@ describe("ollama generation", () => {
     const fetchImpl: FetchLike = async (url, init) => {
       calls.push({ url: String(url), init });
       if (calls.length === 1) {
-        return jsonResponse({ response: '{"candidates":[],"status":"Draft"}' });
+        return jsonResponse({ message: { content: '{"candidates":[],"status":"Draft"}' } });
       }
       return jsonResponse({
-        response: "Draft 1:\nKeep the automation path auditable before it touches a public account.\n\nDraft 2:\nLocal-first tools should make every browser action inspectable."
+        message: {
+          content: "Draft 1:\nKeep the automation path auditable before it touches a public account.\n\nDraft 2:\nLocal-first tools should make every browser action inspectable."
+        }
       });
     };
     const provider = createOllamaGenerationProvider({
@@ -101,7 +127,9 @@ describe("ollama generation", () => {
     expect(JSON.parse(String(calls[0]?.init?.body))).toMatchObject({ format: "json" });
     const retryBody = JSON.parse(String(calls[1]?.init?.body)) as Record<string, unknown>;
     expect(retryBody).not.toHaveProperty("format");
-    expect(String(retryBody.prompt)).toContain("Never use em or en dashes (— or –)");
+    expect(retryBody).toMatchObject({ think: false });
+    const retryMessages = retryBody.messages as Array<{ content: string; role: string }>;
+    expect(retryMessages[0]?.content).toContain("Never use em or en dashes (— or –)");
     expect(candidates).toEqual([
       {
         text: "keep the automation path auditable before it touches a public account.",
@@ -118,7 +146,7 @@ describe("ollama generation", () => {
     const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
     const fetchImpl: FetchLike = async (url, init) => {
       calls.push({ url: String(url), init });
-      return jsonResponse({ response: '{"candidates":[{"text":"sqlite serves this workload from one small node."}]}' });
+      return jsonResponse({ message: { content: '{"candidates":[{"text":"sqlite serves this workload from one small node."}]}' } });
     };
     const provider = createOllamaGenerationProvider({ fetch: fetchImpl });
 
@@ -139,7 +167,8 @@ describe("ollama generation", () => {
     });
 
     const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
-    const prompt = String(body.system);
+    const messages = body.messages as Array<{ content: string; role: string }>;
+    const prompt = messages[0]?.content ?? "";
     const headings = ["Role", "Non-negotiable rules", "Voice", "Tweet type", "Calibration examples", "User style", "Output format"];
 
     expect(prompt.length).toBeLessThan(4000);
@@ -156,7 +185,8 @@ describe("ollama generation", () => {
     });
 
     const overrideBody = JSON.parse(String(calls[1]?.init?.body)) as Record<string, unknown>;
-    const overridePrompt = String(overrideBody.system);
+    const overrideMessages = overrideBody.messages as Array<{ content: string; role: string }>;
+    const overridePrompt = overrideMessages[0]?.content ?? "";
     expect(overridePrompt).toContain("Account voice notes (example tweets below override the generic calibration pairs):");
     expect(overridePrompt).not.toContain("Weak:");
   });
@@ -171,7 +201,7 @@ describe("openrouter generation", () => {
         return jsonResponse({
           data: [
             {
-              id: "moonshotai/kimi-k2.6:free",
+              id: "cohere/north-mini-code:free",
               pricing: { prompt: "0", completion: "0", request: "0" }
             }
           ]
@@ -191,7 +221,7 @@ describe("openrouter generation", () => {
     };
     const provider = createOpenRouterGenerationProvider({
       apiKey: "test-key",
-      model: "moonshotai/kimi-k2.6:free",
+      model: "cohere/north-mini-code:free",
       fetch: fetchImpl
     });
 
@@ -202,10 +232,10 @@ describe("openrouter generation", () => {
     expect(calls[0]?.url).toBe("https://openrouter.ai/api/v1/models");
     expect(calls[1]?.url).toBe("https://openrouter.ai/api/v1/chat/completions");
     expect(headers.authorization).toBe("Bearer test-key");
-    expect(body).toMatchObject({ model: "moonshotai/kimi-k2.6:free", response_format: { type: "json_object" } });
+    expect(body).toMatchObject({ model: "cohere/north-mini-code:free", response_format: { type: "json_object" } });
     expect(candidates).toEqual([
-      { text: "a clean openrouter draft.", score: { provider: "openrouter", model: "moonshotai/kimi-k2.6:free", rank: 1, quality: -1 } },
-      { text: "another clean openrouter draft.", score: { provider: "openrouter", model: "moonshotai/kimi-k2.6:free", rank: 2, quality: -1 } }
+      { text: "a clean openrouter draft.", score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 1, quality: -1 } },
+      { text: "another clean openrouter draft.", score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 2, quality: -1 } }
     ]);
   });
 
@@ -217,7 +247,7 @@ describe("openrouter generation", () => {
         return jsonResponse({
           data: [
             {
-              id: "moonshotai/kimi-k2.6:free",
+              id: "cohere/north-mini-code:free",
               pricing: { prompt: "0", completion: "0", request: "0" }
             }
           ]
@@ -247,7 +277,7 @@ describe("openrouter generation", () => {
     };
     const provider = createOpenRouterGenerationProvider({
       apiKey: "test-key",
-      model: "moonshotai/kimi-k2.6:free",
+      model: "cohere/north-mini-code:free",
       fetch: fetchImpl
     });
 
@@ -265,11 +295,11 @@ describe("openrouter generation", () => {
     expect(candidates).toEqual([
       {
         text: "keep zyquor ingest drafts human-reviewed before anything reaches x.",
-        score: { provider: "openrouter", model: "moonshotai/kimi-k2.6:free", rank: 1, quality: 0 }
+        score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 1, quality: 0 }
       },
       {
         text: "make local posting automation auditable enough that every account action has a trail.",
-        score: { provider: "openrouter", model: "moonshotai/kimi-k2.6:free", rank: 2, quality: 0 }
+        score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 2, quality: 0 }
       }
     ]);
   });
@@ -281,7 +311,7 @@ describe("openrouter generation", () => {
       return jsonResponse({
         data: [
           {
-            id: "moonshotai/kimi-k2.6:free",
+            id: "cohere/north-mini-code:free",
             pricing: { prompt: "0.000001", completion: "0", request: "0" }
           }
         ]
@@ -289,12 +319,12 @@ describe("openrouter generation", () => {
     };
     const provider = createOpenRouterGenerationProvider({
       apiKey: "test-key",
-      model: "moonshotai/kimi-k2.6:free",
+      model: "cohere/north-mini-code:free",
       fetch: fetchImpl
     });
 
     await expect(provider.generateDraftCandidates({ idea: "Make it safe.", count: 1 })).rejects.toThrow(
-      "OpenRouter model is not confirmed free: moonshotai/kimi-k2.6:free"
+      "OpenRouter model is not confirmed free: cohere/north-mini-code:free"
     );
     expect(calls.map((call) => call.url)).toEqual(["https://openrouter.ai/api/v1/models"]);
   });
@@ -381,24 +411,26 @@ describe("tweet quality harness", () => {
 
     const fetchImpl: FetchLike = async () =>
       jsonResponse({
-        response: JSON.stringify({
-          candidates: [
-            { text: "AI infra — not model demos — is where the bottleneck moved." },
-            { text: "AI infra, not model demos, is where the bottleneck moved." },
-            { text: "Compute supply now decides which AI products can scale." }
-          ]
-        })
+        message: {
+          content: JSON.stringify({
+            candidates: [
+              { text: "AI infra — not model demos — is where the bottleneck moved." },
+              { text: "AI infra, not model demos, is where the bottleneck moved." },
+              { text: "Compute supply now decides which AI products can scale." }
+            ]
+          })
+        }
       });
     const provider = createOllamaGenerationProvider({ fetch: fetchImpl });
 
     await expect(provider.generateDraftCandidates({ idea: "AI infra bottleneck", count: 3 })).resolves.toEqual([
       {
         text: "ai infra, not model demos, is where the bottleneck moved.",
-        score: { provider: "ollama", model: "llama3.1", rank: 1, quality: 1 }
+        score: { provider: "ollama", model: "gemma4:e4b", rank: 1, quality: 1 }
       },
       {
         text: "compute supply now decides which ai products can scale.",
-        score: { provider: "ollama", model: "llama3.1", rank: 2, quality: -1 }
+        score: { provider: "ollama", model: "gemma4:e4b", rank: 2, quality: -1 }
       }
     ]);
   });
@@ -431,11 +463,21 @@ describe("generation config", () => {
     expect(
       resolveGenerationProviderConfig({
         ZYQUOR_OPENROUTER_API_KEY: "test-key",
-        ZYQUOR_OPENROUTER_MODEL: "nvidia/nemotron-3-super-120b-a12b:free"
+        ZYQUOR_OPENROUTER_MODEL: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
       })
     ).toMatchObject({
       provider: "openrouter",
-      model: "nvidia/nemotron-3-super-120b-a12b:free",
+      model: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      configured: true
+    });
+
+    expect(
+      resolveGenerationProviderConfig({
+        ZYQUOR_LLM_PROVIDER: "auto",
+        ZYQUOR_GEMINI_API_KEY: "gemini-key"
+      })
+    ).toMatchObject({
+      provider: "gemini",
       configured: true
     });
 
@@ -447,6 +489,8 @@ describe("generation config", () => {
 
     expect(resolveGenerationProviderConfig({})).toMatchObject({
       provider: "ollama",
+      model: "gemma4:e4b",
+      baseUrl: "http://127.0.0.1:11434",
       configured: true
     });
   });
@@ -460,6 +504,7 @@ describe("generation config", () => {
   });
 
   it("forces OpenRouter onto the free model allowlist", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     expect(
       resolveGenerationProviderConfig({
         ZYQUOR_LLM_PROVIDER: "openrouter",
@@ -468,7 +513,22 @@ describe("generation config", () => {
       })
     ).toMatchObject({
       provider: "openrouter",
-      model: "openrouter/owl-alpha",
+      model: "google/gemma-4-26b-a4b-it:free",
+      configured: true
+    });
+    expect(warn).toHaveBeenCalledWith(
+      'generation: OpenRouter model "openai/gpt-4.1-mini" is not in the free allowlist; using "google/gemma-4-26b-a4b-it:free"'
+    );
+
+    expect(
+      resolveGenerationProviderConfig({
+        ZYQUOR_LLM_PROVIDER: "openrouter",
+        ZYQUOR_OPENROUTER_API_KEY: "test-key",
+        ZYQUOR_OPENROUTER_MODEL: "cohere/north-mini-code:free"
+      })
+    ).toMatchObject({
+      provider: "openrouter",
+      model: "cohere/north-mini-code:free",
       configured: true
     });
 
@@ -476,11 +536,11 @@ describe("generation config", () => {
       resolveGenerationProviderConfig({
         ZYQUOR_LLM_PROVIDER: "openrouter",
         ZYQUOR_OPENROUTER_API_KEY: "test-key",
-        ZYQUOR_OPENROUTER_MODEL: "moonshotai/kimi-k2.6:free"
+        ZYQUOR_OPENROUTER_MODEL: "tencent/hy3:free"
       })
     ).toMatchObject({
       provider: "openrouter",
-      model: "moonshotai/kimi-k2.6:free",
+      model: "tencent/hy3:free",
       configured: true
     });
 
@@ -488,31 +548,26 @@ describe("generation config", () => {
       resolveGenerationProviderConfig({
         ZYQUOR_LLM_PROVIDER: "openrouter",
         ZYQUOR_OPENROUTER_API_KEY: "test-key",
-        ZYQUOR_OPENROUTER_MODEL: "z-ai/glm-4.5-air:free"
+        ZYQUOR_OPENROUTER_MODEL: "poolside/laguna-xs-2.1:free"
       })
     ).toMatchObject({
       provider: "openrouter",
-      model: "z-ai/glm-4.5-air:free",
+      model: "poolside/laguna-xs-2.1:free",
       configured: true
     });
-
-    expect(
-      resolveGenerationProviderConfig({
-        ZYQUOR_LLM_PROVIDER: "openrouter",
-        ZYQUOR_OPENROUTER_API_KEY: "test-key",
-        ZYQUOR_OPENROUTER_MODEL: "qwen/qwen3-next-80b-a3b-instruct:free"
-      })
-    ).toMatchObject({
-      provider: "openrouter",
-      model: "qwen/qwen3-next-80b-a3b-instruct:free",
-      configured: true
-    });
+    warn.mockRestore();
   });
 
   it("exposes provider-specific model dropdown options", () => {
-    expect(GENERATION_MODEL_OPTIONS.openrouter).toContain("moonshotai/kimi-k2.6:free");
-    expect(GENERATION_MODEL_OPTIONS.openrouter).toContain("openrouter/owl-alpha");
+    expect(GENERATION_MODEL_OPTIONS.openrouter).toEqual([
+      "google/gemma-4-26b-a4b-it:free",
+      "google/gemma-4-31b-it:free",
+      "tencent/hy3:free",
+      "poolside/laguna-xs-2.1:free",
+      "cohere/north-mini-code:free",
+      "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+    ]);
     expect(GENERATION_MODEL_OPTIONS.gemini).toContain("gemini-2.0-flash");
-    expect(GENERATION_MODEL_OPTIONS.ollama).toContain("llama3.1");
+    expect(GENERATION_MODEL_OPTIONS.ollama).toContain("gemma4:e4b");
   });
 });

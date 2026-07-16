@@ -66,4 +66,5 @@ export function applySettingsToEnv(settings: DesktopSettings): void {
 export function applyDesktopEnvDefaults(settings: DesktopSettings): void {
   process.env.ZYQUOR_BROWSER_CHANNEL ??= 'chrome';
   process.env.ZYQUOR_BROWSER_CDP_URL ??= 'http://127.0.0.1:' + (settings.cdpPort ?? 9222);
+  process.env.ZYQUOR_OLLAMA_BASE_URL ??= 'http://127.0.0.1:11434';
 }
