@@ -1,5 +1,7 @@
 # Plan 007 — Product next steps (post-desktop)
 
+Status: completed
+
 Executor: codex CLI (`codex exec`), models: `gpt-5.6-sol` medium reasoning for
 scoped tasks, `gpt-5.6-terra` high reasoning for design-heavy tasks.
 Orchestrated the same way as plan 006: dispatch → diff review → gates → commit.

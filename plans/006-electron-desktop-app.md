@@ -1,6 +1,7 @@
 # Plan 006 — Zyquor Electron Desktop App (Windows, background-first)
 
-**Status:** approved, not started
+Status: completed
+
 **Decision (2026-07-07):** Electron over Tauri. Rationale: backend is 100% TypeScript/Node (Fastify, Playwright, node:sqlite); Electron runs it in-process with no sidecar packaging, no Rust toolchain, no child-process lifecycle management. App is tray-resident with window closed by default, so idle RAM difference vs Tauri is ~30–50 MB (renderer destroyed when window closed). Real Chrome spawned for posting dwarfs both. Tauri migration stays possible later — Phases 0/2 work transfers unchanged.
 
 **Executor:** tasks below are written as self-contained prompts for command-code CLI (DeepSeek v4 pro). Each task lists files, exact changes, and verification. Orchestrator (Claude) dispatches tasks in order, reviews diffs between tasks, and runs the gate commands.
