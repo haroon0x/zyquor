@@ -43,9 +43,9 @@ export function GenerationPanel({ panel, state }: { panel: PanelProps; state: Ge
   return (
     <section className="panel settings">
       <div className="panel-head">
-        <h2 className="panel-title"><PanelIcon name="settings" />Model</h2>
+        <h2 className="panel-title"><PanelIcon name="settings" />Generation</h2>
         {generation ? (
-          <span className={generation.configured ? "provider-pill" : "provider-pill failed"}>
+          <span className={generation.configured ? "pill pill--succeeded" : "pill pill--failed"}>
             {generation.configured ? `Live: ${liveModelLabel(generation)}` : `${providerLabel(generation.provider)} key missing`}
           </span>
         ) : null}

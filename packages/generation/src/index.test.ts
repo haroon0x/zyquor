@@ -71,7 +71,7 @@ describe("ollama generation", () => {
       stream: false,
       format: "json"
     });
-    expect(String(body.system)).toContain("Forbidden characters: — and –");
+    expect(String(body.system)).toContain("Never use em or en dashes (— or –)");
     expect(String(body.system)).toContain("not affiliated");
     expect(candidates).toEqual([
       { text: "first local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 1, quality: -1 } },
@@ -101,7 +101,7 @@ describe("ollama generation", () => {
     expect(JSON.parse(String(calls[0]?.init?.body))).toMatchObject({ format: "json" });
     const retryBody = JSON.parse(String(calls[1]?.init?.body)) as Record<string, unknown>;
     expect(retryBody).not.toHaveProperty("format");
-    expect(String(retryBody.prompt)).toContain("Forbidden characters: — and –");
+    expect(String(retryBody.prompt)).toContain("Never use em or en dashes (— or –)");
     expect(candidates).toEqual([
       {
         text: "keep the automation path auditable before it touches a public account.",
@@ -112,6 +112,53 @@ describe("ollama generation", () => {
         score: { provider: "ollama", model: "qwen2.5:0.5b", rank: 2, quality: 0 }
       }
     ]);
+  });
+
+  it("keeps a representative account prompt ordered and under 4000 characters", async () => {
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const fetchImpl: FetchLike = async (url, init) => {
+      calls.push({ url: String(url), init });
+      return jsonResponse({ response: '{"candidates":[{"text":"sqlite serves this workload from one small node."}]}' });
+    };
+    const provider = createOllamaGenerationProvider({ fetch: fetchImpl });
+
+    await provider.generateDraftCandidates({
+      bannedPhrases: ["thought-provoking"],
+      context: { facts: ["SQLite serves 8 million rows from one $20 node."] },
+      count: 3,
+      idea: "An article explains why SQLite was enough for 8 million rows on one $20 node. https://example.com/sqlite",
+      objective: "help working developers choose simpler infrastructure",
+      recentPostHistory: [
+        "postgres is great, but most side projects need fewer moving parts.",
+        "a $10 queue can be enough when the workload is predictable.",
+        "three boring cron jobs beat one workflow nobody can debug."
+      ],
+      systemPromptExtra: "Prefer lessons grounded in hands-on experience.",
+      tone: "practical, candid, concise",
+      tweetType: "article_summary"
+    });
+
+    const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
+    const prompt = String(body.system);
+    const headings = ["Role", "Non-negotiable rules", "Voice", "Tweet type", "Calibration examples", "User style", "Output format"];
+
+    expect(prompt.length).toBeLessThan(4000);
+    expect(headings.map((heading) => prompt.indexOf(heading))).toEqual(
+      [...headings].map((heading) => prompt.indexOf(heading)).sort((left, right) => left - right)
+    );
+    expect(prompt).toContain("Voice calibration. These pairs show tone and shape only. Never reuse their facts, topics, or wording.");
+    expect(prompt).toContain("Account voice notes:\nPrefer lessons grounded in hands-on experience.");
+
+    await provider.generateDraftCandidates({
+      idea: "SQLite serves 8 million rows from one $20 node.",
+      systemPromptExtra: "Voice examples:\n1. sqlite is boring right up until boring saves a weekend.",
+      tweetType: "feed_observation"
+    });
+
+    const overrideBody = JSON.parse(String(calls[1]?.init?.body)) as Record<string, unknown>;
+    const overridePrompt = String(overrideBody.system);
+    expect(overridePrompt).toContain("Account voice notes (example tweets below override the generic calibration pairs):");
+    expect(overridePrompt).not.toContain("Weak:");
   });
 });
 

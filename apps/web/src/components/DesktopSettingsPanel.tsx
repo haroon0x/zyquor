@@ -55,7 +55,7 @@ export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
     <section className="panel settings">
       <div className="panel-head">
         <h2 className="panel-title"><PanelIcon name="settings" />Desktop Settings</h2>
-        {desktopRestartRequired ? <span className="provider-pill failed">Restart required</span> : null}
+        {desktopRestartRequired ? <span className="pill pill--failed">Restart required</span> : null}
       </div>
       <InlineError message={loadError} />
       {desktopRestartRequired ? <p className="empty">Changes to browser, provider, or API keys require an app restart.</p> : null}

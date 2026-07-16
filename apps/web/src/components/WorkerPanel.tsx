@@ -26,9 +26,12 @@ export function WorkerPanel({ panel }: { panel: PanelProps }) {
   return (
     <section className="panel worker-panel">
       <div className="panel-head">
-        <h2 className="panel-title"><PanelIcon name="activity" />Worker</h2>
+        <div>
+          <h2 className="panel-title"><PanelIcon name="activity" />Ingest runs</h2>
+          <p className="empty">Recent automatic source processing and worker health.</p>
+        </div>
         <div className="panel-head-actions">
-          <span className={workerStatus?.workerRunning ? "provider-pill" : "session-pill failed"}>
+          <span className={workerStatus?.workerRunning ? "pill pill--succeeded" : "pill pill--failed"}>
             {workerStatus?.workerRunning ? "running" : "offline"}
           </span>
           <button className="secondary compact-button" disabled={busy} onClick={() => run(panel.refresh)}>

@@ -97,7 +97,7 @@ export function AutomationPanel({ panel }: { panel: PanelProps }) {
           <h2 className="panel-title"><PanelIcon name="zap" />Automatic Poster</h2>
           <p className="empty">Live sources create clean autopost jobs. Disable anytime.</p>
         </div>
-        <span className={automationDraft.enabled ? "provider-pill" : "session-pill unknown"}>
+        <span className={automationDraft.enabled ? "pill pill--succeeded" : "pill pill--pending"}>
           {automationDraft.enabled ? "enabled" : "disabled"}
         </span>
       </div>

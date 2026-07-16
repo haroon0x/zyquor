@@ -1,7 +1,7 @@
 import { api } from "../api.js";
 import type { Candidate, Draft, DraftResponse, Job, PanelProps } from "../types.js";
 import { X_FREE_POST_CHARACTER_LIMIT } from "../types.js";
-import { Busy, PanelIcon, StatusBadge } from "./Feedback.js";
+import { Busy, StatusBadge } from "./Feedback.js";
 
 export interface CandidatesState {
   autoPost: boolean;
@@ -53,7 +53,7 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
         method: "POST",
         body: JSON.stringify({
           editedText,
-          mode: scheduledFor ? "scheduled" : "prepare_only",
+          mode: autoPost ? "autopost" : scheduledFor ? "scheduled" : "prepare_only",
           scheduledFor: scheduledFor ? new Date(scheduledFor).toISOString() : null
         })
       });
@@ -65,70 +65,93 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
   }
 
   return (
-    <>
-      <section className="panel candidates">
-        <div className="panel-head">
-          <h2 className="panel-title"><PanelIcon name="layers" />Candidates</h2>
-          {draft ? <StatusBadge status={draft.draft.status} /> : null}
-        </div>
-        <div className={draft?.candidates.length ? "candidate-list data-content" : "candidate-list empty-state"}>
-          {draft?.candidates.length ? draft.candidates.map((candidate) => (
-            <button
-              aria-pressed={candidate.selected}
-              className={candidate.selected ? "candidate secondary selected" : "candidate secondary"}
-              disabled={busy}
-              key={candidate.id}
-              onClick={() => selectCandidate(candidate)}
-            >
-              <Busy active={busy} />{candidate.text}
-            </button>
-          )) : <p className="empty">Generate drafts to review options.</p>}
-        </div>
-      </section>
-
-      {selectedCandidate ? <section className="panel editor">
-        <div className="panel-head">
-          <h2 className="panel-title"><PanelIcon name="edit" />Editor</h2>
-          <span>{editedText.length}/{X_FREE_POST_CHARACTER_LIMIT}</span>
-        </div>
-        <textarea aria-label="Edited draft" value={editedText} onChange={(event) => setEditedText(event.target.value)} rows={12} />
-        <div className="schedule-grid">
-          <label className="checkbox-row switch-row">
-            <input checked={autoPost} type="checkbox" onChange={(event) => setAutoPost(event.target.checked)} />
-            <span aria-hidden="true" className="switch" />
-            Autopost
-          </label>
-          <label>
-            Schedule
-            <input type="datetime-local" value={scheduledFor} onChange={(event) => setScheduledFor(event.target.value)} />
-          </label>
-          {postPlan === "batch" ? (
-            <label>
-              Batch spacing
-              <input
-                max="480"
-                min="15"
-                step="15"
-                type="number"
-                value={scheduleSpacingMinutes}
-                onChange={(event) => setScheduleSpacingMinutes(Number(event.target.value))}
-              />
-            </label>
-          ) : null}
-        </div>
-        <button
-          disabled={
-            !draft ||
-            !editedText.trim() ||
-            editedText.length > X_FREE_POST_CHARACTER_LIMIT ||
-            draft.draft.status === "approved" ||
-            busy
-          }
-          onClick={approveDraft}
-        >
-          <Busy active={busy} />Approve job
-        </button>
-      </section> : null}
-    </>
+    <section className="candidate-results" aria-label="Draft candidates">
+      {draft?.candidates.length ? (
+        <>
+          <div className="candidate-results-head">
+            <div>
+              <h2>Candidates</h2>
+              <p>Choose a direction, edit it, then approve.</p>
+            </div>
+            <StatusBadge status={draft.draft.status} />
+          </div>
+          <div className="candidate-list data-content">
+            {draft.candidates.map((candidate) => {
+              const selected = candidate.id === selectedCandidate?.id;
+              return (
+                <article
+                  aria-pressed={selected}
+                  className={selected ? "candidate-card selected" : "candidate-card"}
+                  key={candidate.id}
+                  onClick={() => {
+                    if (!selected && !busy) selectCandidate(candidate);
+                  }}
+                  onKeyDown={(event) => {
+                    if (!selected && !busy && (event.key === "Enter" || event.key === " ")) {
+                      event.preventDefault();
+                      selectCandidate(candidate);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                >
+                  <div className="candidate-copy">
+                    <p>{candidate.text}</p>
+                    <span><Busy active={busy && !selected} />{candidate.text.length} characters</span>
+                  </div>
+                  {selected ? (
+                    <div className="candidate-editor" onClick={(event) => event.stopPropagation()}>
+                      <div className="editor-meta">
+                        <span>Inline editor</span>
+                        <span className={editedText.length > X_FREE_POST_CHARACTER_LIMIT ? "character-count over-limit" : "character-count"}>
+                          {editedText.length}/{X_FREE_POST_CHARACTER_LIMIT}
+                        </span>
+                      </div>
+                      <textarea aria-label="Edited draft" value={editedText} onChange={(event) => setEditedText(event.target.value)} rows={8} />
+                      <div className="approve-row">
+                        <label>
+                          Schedule
+                          <input type="datetime-local" value={scheduledFor} onChange={(event) => setScheduledFor(event.target.value)} />
+                        </label>
+                        {postPlan === "batch" ? (
+                          <label>
+                            Batch spacing
+                            <input
+                              max="480"
+                              min="15"
+                              step="15"
+                              type="number"
+                              value={scheduleSpacingMinutes}
+                              onChange={(event) => setScheduleSpacingMinutes(Number(event.target.value))}
+                            />
+                          </label>
+                        ) : null}
+                        <label className={autoPost ? "checkbox-row switch-row autopost-control warning" : "checkbox-row switch-row autopost-control"}>
+                          <input checked={autoPost} type="checkbox" onChange={(event) => setAutoPost(event.target.checked)} />
+                          <span aria-hidden="true" className="switch" />
+                          <span>Autopost{autoPost ? <small>Posts without review</small> : null}</span>
+                        </label>
+                        <button
+                          disabled={
+                            !draft ||
+                            !editedText.trim() ||
+                            editedText.length > X_FREE_POST_CHARACTER_LIMIT ||
+                            draft.draft.status === "approved" ||
+                            busy
+                          }
+                          onClick={approveDraft}
+                        >
+                          <Busy active={busy} />Approve
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
+    </section>
   );
 }

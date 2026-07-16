@@ -46,7 +46,7 @@ export function StylePanel({ panel, styleProfileId }: { panel: PanelProps; style
   return (
     <section className="panel settings">
       <div className="panel-head">
-        <h2 className="panel-title"><PanelIcon name="edit" />Prompt</h2>
+        <h2 className="panel-title"><PanelIcon name="edit" />Style</h2>
         {styleProfile ? <span>{styleProfile.name}</span> : null}
       </div>
       <InlineError message={loadError} />

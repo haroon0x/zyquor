@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { api } from "../api.js";
 import type { Draft, DraftResponse, Job, PanelProps } from "../types.js";
 import { tweetTypeOptions } from "../types.js";
@@ -12,10 +13,13 @@ export interface ComposerState {
   scheduledFor: string;
   tweetType: string;
   setDraft: (draft: DraftResponse | null) => void;
+  setAutoPost: (value: boolean) => void;
   setEditedText: (text: string) => void;
   setIdea: (idea: string) => void;
   setPostPlan: (plan: string) => void;
   setReplyToUrl: (url: string) => void;
+  setScheduleSpacingMinutes: (minutes: number) => void;
+  setScheduledFor: (value: string) => void;
   setTweetType: (tweetType: string) => void;
 }
 
@@ -30,12 +34,16 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
     scheduledFor,
     tweetType,
     setDraft,
+    setAutoPost,
     setEditedText,
     setIdea,
     setPostPlan,
     setReplyToUrl,
+    setScheduleSpacingMinutes,
+    setScheduledFor,
     setTweetType
   } = state;
+  const [showReplyTarget, setShowReplyTarget] = useState(Boolean(replyToUrl));
 
   function generateDrafts() {
     run(async () => {
@@ -108,28 +116,28 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
       }}
     >
       <div className="panel-head">
-        <h2 className="panel-title"><PanelIcon name="pencil" />Composer</h2>
+        <div>
+          <h2 className="panel-title"><PanelIcon name="pencil" />New post</h2>
+          <p className="empty">Start with the rough thought. Zyquor will shape the final copy.</p>
+        </div>
       </div>
-      <label htmlFor="idea">Idea</label>
-      <textarea
-        id="idea"
-        value={idea}
-        onChange={(event) => setIdea(event.target.value)}
-        placeholder={postPlan === "batch" ? "One tweet idea per line..." : "Write rough idea..."}
-        rows={8}
-      />
-      {postPlan === "single" ? (
-        <label>
-          Reply to URL
-          <input
-            type="url"
-            value={replyToUrl}
-            onChange={(event) => setReplyToUrl(event.target.value)}
-            placeholder="https://x.com/handle/status/123..."
-          />
-        </label>
-      ) : null}
-      <div className="schedule-grid">
+      <label className="idea-field" htmlFor="idea">
+        Idea
+        <textarea
+          id="idea"
+          value={idea}
+          onChange={(event) => setIdea(event.target.value)}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && idea.trim() && !busy) {
+              event.preventDefault();
+              generateDrafts();
+            }
+          }}
+          placeholder={postPlan === "batch" ? "One post idea per line…" : "What do you want to say?"}
+          rows={8}
+        />
+      </label>
+      <div className="compose-options">
         <label>
           Plan
           <select value={postPlan} onChange={(event) => setPostPlan(event.target.value)}>
@@ -151,8 +159,49 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
             ))}
           </select>
         </label>
+        <label>
+          Schedule
+          <input type="datetime-local" value={scheduledFor} onChange={(event) => setScheduledFor(event.target.value)} />
+        </label>
+        {postPlan === "batch" ? (
+          <label>
+            Spacing
+            <input
+              max="480"
+              min="15"
+              step="15"
+              type="number"
+              value={scheduleSpacingMinutes}
+              onChange={(event) => setScheduleSpacingMinutes(Number(event.target.value))}
+            />
+          </label>
+        ) : null}
+        {postPlan === "single" && (showReplyTarget || replyToUrl.trim()) ? (
+          <label className="reply-target-field">
+            Reply target
+            <input
+              type="url"
+              value={replyToUrl}
+              onChange={(event) => setReplyToUrl(event.target.value)}
+              onBlur={() => {
+                if (!replyToUrl.trim()) setShowReplyTarget(false);
+              }}
+              placeholder="https://x.com/handle/status/123…"
+            />
+          </label>
+        ) : postPlan === "single" ? (
+          <button className="ghost reply-target-toggle" type="button" onClick={() => setShowReplyTarget(true)}>+ Reply target</button>
+        ) : null}
+        <label className={autoPost ? "checkbox-row switch-row autopost-control warning" : "checkbox-row switch-row autopost-control"}>
+          <input checked={autoPost} type="checkbox" onChange={(event) => setAutoPost(event.target.checked)} />
+          <span aria-hidden="true" className="switch" />
+          <span>
+            Autopost
+            {autoPost ? <small>Posts without review</small> : null}
+          </span>
+        </label>
       </div>
-      <button disabled={!idea.trim() || busy}>
+      <button className="composer-submit" disabled={!idea.trim() || busy}>
         <Busy active={busy} />
         {postPlan === "batch" ? "Create batch jobs" : autoPost ? "Autopost" : "Generate drafts"}
       </button>

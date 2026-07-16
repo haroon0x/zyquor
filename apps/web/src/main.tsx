@@ -1,27 +1,40 @@
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { api, liveModelLabel, loadAppData } from "./api.js";
-import { AutomationPanel } from "./components/AutomationPanel.js";
-import { CandidatesPanel } from "./components/CandidatesPanel.js";
-import { Composer } from "./components/Composer.js";
-import { DesktopSettingsPanel } from "./components/DesktopSettingsPanel.js";
-import { GenerationPanel } from "./components/GenerationPanel.js";
-import { JobsPanel } from "./components/JobsPanel.js";
-import { SourcePacketsPanel } from "./components/SourcePacketsPanel.js";
-import { StylePanel } from "./components/StylePanel.js";
-import { WorkerPanel } from "./components/WorkerPanel.js";
-import { Busy } from "./components/Feedback.js";
+import { api, loadAppData } from "./api.js";
+import { Busy, PanelIcon, type PanelIconName } from "./components/Feedback.js";
 import type {
   Account,
   BrowserSession,
   DraftResponse,
   GenerationConfig,
   GenerationModelOptions,
-  PanelProps
+  PanelProps,
+  WorkerStatus
 } from "./types.js";
+import { AutomationView } from "./views/Automation.js";
+import { ComposeView } from "./views/Compose.js";
+import { HistoryView } from "./views/History.js";
+import { QueueView } from "./views/Queue.js";
+import { SettingsView } from "./views/Settings.js";
 import "./styles.css";
 
+type ViewId = "compose" | "queue" | "automation" | "history" | "settings";
+
+const views: Array<{ description: string; icon: PanelIconName; id: ViewId; title: string }> = [
+  { id: "compose", icon: "pencil", title: "Compose", description: "Turn a rough idea into a polished, reviewable post." },
+  { id: "queue", icon: "list-checks", title: "Queue", description: "Prepare, schedule, post, and inspect every job." },
+  { id: "automation", icon: "zap", title: "Automation", description: "Control source ingestion and the automatic posting pipeline." },
+  { id: "history", icon: "clock", title: "History", description: "Review recently posted content and its sources." },
+  { id: "settings", icon: "settings", title: "Settings", description: "Tune generation, writing style, and desktop behavior." }
+];
+
+function viewFromHash(): ViewId {
+  const value = window.location.hash.slice(1);
+  return views.some((view) => view.id === value) ? value as ViewId : "compose";
+}
+
 function App() {
+  const [activeView, setActiveView] = useState<ViewId>(viewFromHash);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [activeAccountId, setActiveAccountId] = useState("account_personal");
   const [draft, setDraft] = useState<DraftResponse | null>(null);
@@ -34,6 +47,7 @@ function App() {
   const [scheduledFor, setScheduledFor] = useState("");
   const [scheduleSpacingMinutes, setScheduleSpacingMinutes] = useState(90);
   const [browserSession, setBrowserSession] = useState<BrowserSession | null>(null);
+  const [workerStatus, setWorkerStatus] = useState<WorkerStatus | null>(null);
   const [generation, setGeneration] = useState<GenerationConfig | null>(null);
   const [generationModelOptions, setGenerationModelOptions] = useState<GenerationModelOptions>({});
   const [error, setError] = useState<string | null>(null);
@@ -60,8 +74,22 @@ function App() {
   }
 
   useEffect(() => {
+    if (!window.location.hash || !views.some((view) => `#${view.id}` === window.location.hash)) {
+      window.history.replaceState(null, "", "#compose");
+    }
+    const syncHash = () => setActiveView(viewFromHash());
+    syncHash();
+    window.addEventListener("hashchange", syncHash);
+    return () => window.removeEventListener("hashchange", syncHash);
+  }, []);
+
+  useEffect(() => {
     void loadRootData().catch((caught) => reportError(caught, "API unavailable"));
   }, []);
+
+  useEffect(() => {
+    void api<WorkerStatus>("/worker/status").then(setWorkerStatus).catch(() => setWorkerStatus(null));
+  }, [refreshToken]);
 
   useEffect(() => {
     setAutoPost(false);
@@ -87,7 +115,13 @@ function App() {
     }, "header");
   }
 
+  function navigate(view: ViewId) {
+    setActiveView(view);
+    window.location.hash = view;
+  }
+
   const activeAccount = accounts.find((account) => account.id === activeAccountId);
+  const activeViewMeta = views.find((view) => view.id === activeView) ?? views[0]!;
   const panelFor = (scope: string): PanelProps => ({
     accountId: activeAccountId,
     busy: busyScopes.includes(scope),
@@ -98,69 +132,107 @@ function App() {
   });
   const composerState = {
     autoPost, idea, postPlan, replyToUrl, scheduleSpacingMinutes, scheduledFor, tweetType,
-    setDraft, setEditedText, setIdea, setPostPlan, setReplyToUrl, setTweetType
+    setAutoPost, setDraft, setEditedText, setIdea, setPostPlan, setReplyToUrl,
+    setScheduleSpacingMinutes, setScheduledFor, setTweetType
   };
   const candidatesState = {
     autoPost, draft, editedText, postPlan, scheduleSpacingMinutes, scheduledFor,
     setAutoPost, setDraft, setEditedText, setScheduleSpacingMinutes, setScheduledFor
   };
 
-  return (
-    <main className="shell">
-      <header className="topbar">
-        <div className="product-lockup">
-          <p className="wordmark">Zyquor</p>
-          <p className="tagline">Draft, review, prepare.</p>
-        </div>
-        <div className="product-controls">
-          {activeAccount ? <span className="account-pill">@{activeAccount.handle}</span> : null}
-          {generation ? (
-            <span className={generation.configured ? "provider-pill" : "provider-pill failed"}>
-              {liveModelLabel(generation)}
-            </span>
-          ) : null}
-          {browserSession ? (
-            <span className={browserSession.loggedIn ? "session-pill" : "session-pill failed"}>
-              X {browserSession.loggedIn ? "logged in" : "logged out"}
-            </span>
-          ) : <span className="session-pill unknown">X unchecked</span>}
-          <select
-            aria-label="Active account"
-            value={activeAccountId}
-            onChange={(event) => {
-              setActiveAccountId(event.target.value);
-              setBrowserSession(null);
-            }}
-          >
-            {accounts.map((account) => <option key={account.id} value={account.id}>{account.displayName}</option>)}
-          </select>
-          <button className="secondary compact-button" disabled={busyScopes.includes("header")} onClick={checkBrowserSession}>
-            <Busy active={busyScopes.includes("header")} />Check X
-          </button>
-        </div>
-      </header>
+  let viewContent;
+  if (activeView === "compose") {
+    viewContent = <ComposeView candidatesPanel={panelFor("candidates")} candidatesState={candidatesState} composerPanel={panelFor("composer")} composerState={composerState} />;
+  } else if (activeView === "queue") {
+    viewContent = <QueueView panel={panelFor("jobs")} />;
+  } else if (activeView === "automation") {
+    viewContent = (
+      <AutomationView
+        automationPanel={panelFor("automation")}
+        sourcePanel={panelFor("sources")}
+        sourceState={{ setDraft, setEditedText }}
+        workerPanel={panelFor("worker")}
+      />
+    );
+  } else if (activeView === "history") {
+    viewContent = <HistoryView panel={panelFor("history")} />;
+  } else {
+    viewContent = (
+      <SettingsView
+        desktopPanel={panelFor("desktop-settings")}
+        generationPanel={panelFor("generation")}
+        generationState={{ generation, generationModelOptions, setGeneration, setGenerationModelOptions }}
+        isElectron={isElectron}
+        stylePanel={panelFor("style")}
+        styleProfileId={activeAccount?.styleProfileId ?? null}
+      />
+    );
+  }
 
-      {error ? <p className="notice error" role="alert">{error}</p> : null}
-      <section className="app-layout">
-        <div className="primary-flow">
-          <Composer panel={panelFor("composer")} state={composerState} />
-          <CandidatesPanel panel={panelFor("candidates")} state={candidatesState} />
-          <JobsPanel panel={panelFor("jobs")} />
-        </div>
-        <aside className="utility-flow">
-          <AutomationPanel panel={panelFor("automation")} />
-          <WorkerPanel panel={panelFor("worker")} />
-          <SourcePacketsPanel panel={panelFor("sources")} state={{ setDraft, setEditedText }} />
-          {activeAccount ? <StylePanel panel={panelFor("style")} styleProfileId={activeAccount.styleProfileId} /> : null}
-          <GenerationPanel
-            panel={panelFor("generation")}
-            state={{ generation, generationModelOptions, setGeneration, setGenerationModelOptions }}
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <button aria-label="Go to Compose" className="brand-mark" onClick={() => navigate("compose")}>Z</button>
+        <nav className="sidebar-nav" aria-label="Primary navigation">
+          {views.map((view) => (
+            <a
+              aria-current={activeView === view.id ? "page" : undefined}
+              className={activeView === view.id ? "nav-item active" : "nav-item"}
+              data-label={view.title}
+              href={`#${view.id}`}
+              key={view.id}
+              onClick={() => setActiveView(view.id)}
+              title={view.title}
+            >
+              <PanelIcon name={view.icon} />
+            </a>
+          ))}
+        </nav>
+        <div className="sidebar-status">
+          <span
+            aria-label={workerStatus?.workerRunning ? "Worker online" : "Worker offline"}
+            className={workerStatus?.workerRunning ? "dot-chip worker-chip online" : "dot-chip worker-chip offline"}
+            role="status"
+            title={workerStatus?.workerRunning ? "Worker online" : "Worker offline"}
           />
-          {isElectron ? <DesktopSettingsPanel panel={panelFor("desktop-settings")} /> : null}
-        </aside>
-      </section>
-      {appVersion ? <footer className="version-footer">v{appVersion}</footer> : null}
-    </main>
+          {isElectron ? <span className="sidebar-version">v{appVersion || "—"}</span> : null}
+        </div>
+      </aside>
+      <div className="app-main">
+        <div className="account-bar">
+          <div className="account-bar-inner">
+            <div className="account-cluster">
+              <select
+                aria-label="Active account"
+                value={activeAccountId}
+                onChange={(event) => {
+                  setActiveAccountId(event.target.value);
+                  setBrowserSession(null);
+                }}
+              >
+                {accounts.map((account) => <option key={account.id} value={account.id}>{account.displayName} · @{account.handle}</option>)}
+              </select>
+              {browserSession ? (
+                <span className={browserSession.loggedIn ? "dot-chip online" : "dot-chip offline"}>X {browserSession.loggedIn ? "active" : "logged out"}</span>
+              ) : <span className="dot-chip unknown">X unchecked</span>}
+              <button className="secondary compact-button" disabled={busyScopes.includes("header")} onClick={checkBrowserSession}>
+                <Busy active={busyScopes.includes("header")} />Check X
+              </button>
+            </div>
+          </div>
+        </div>
+        <main className="content-area">
+          {error ? <p className="notice error" role="alert">{error}</p> : null}
+          <header className="view-header">
+            <div>
+              <h1>{activeViewMeta.title}</h1>
+              <p>{activeViewMeta.description}</p>
+            </div>
+          </header>
+          <div className="view-frame" key={activeView}>{viewContent}</div>
+        </main>
+      </div>
+    </div>
   );
 }
 

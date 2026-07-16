@@ -13,8 +13,11 @@ export interface Account {
 
 export interface Draft {
   id: string;
+  accountId?: string;
   sourceInput: string;
   editedText: string | null;
+  metadata?: Record<string, unknown>;
+  replyTo?: ReplyTarget;
   status: string;
 }
 
@@ -54,6 +57,23 @@ export interface Attempt {
   errorMessage: string | null;
   screenshotPath: string | null;
   tracePath: string | null;
+  startedAt?: string;
+  finishedAt?: string | null;
+}
+
+export interface PostHistory {
+  id: string;
+  accountId: string;
+  draftId: string;
+  postedText: string;
+  postUrl: string | null;
+  sourcePacketId: string | null;
+  sourceType: string | null;
+  sourceTitle: string | null;
+  sourceUrl: string | null;
+  tweetType: string | null;
+  metadata: Record<string, unknown>;
+  postedAt: string;
 }
 
 export interface GenerationConfig {

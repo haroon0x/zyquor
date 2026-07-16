@@ -1,13 +1,39 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
-import type { Attempt, Job, PanelProps } from "../types.js";
-import { Busy, InlineError, PanelIcon, StatusBadge, errorMessage } from "./Feedback.js";
+import type { Attempt, DraftResponse, Job, PanelProps } from "../types.js";
+import { Busy, InlineError, StatusBadge, errorMessage } from "./Feedback.js";
+
+type QueueFilter = "ready" | "scheduled" | "failed" | "posted";
+
+interface JobDraftDetails {
+  text: string;
+  type: string;
+}
+
+function ActionIcon({ name }: { name: "prepare" | "post" | "delete" }) {
+  const paths = {
+    prepare: <><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 20h14" /></>,
+    post: <><path d="m4 12 16-8-5 16-3-6-8-2Z" /><path d="m12 14 8-10" /></>,
+    delete: <><path d="M4 7h16" /><path d="M9 7V4h6v3" /><path d="m7 7 1 13h8l1-13" /></>
+  };
+  return <svg aria-hidden="true" className="action-icon" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" viewBox="0 0 24 24">{paths[name]}</svg>;
+}
+
+function jobFilter(job: Job, now: number): QueueFilter {
+  if (job.status === "failed") return "failed";
+  if (job.status === "posted") return "posted";
+  if (job.scheduledFor && Date.parse(job.scheduledFor) > now) return "scheduled";
+  return "ready";
+}
 
 export function JobsPanel({ panel }: { panel: PanelProps }) {
   const { accountId, busy, refresh, refreshToken, run } = panel;
   const [jobs, setJobs] = useState<Job[]>([]);
   const [attemptsByJob, setAttemptsByJob] = useState<Record<string, Attempt[]>>({});
+  const [draftsByJob, setDraftsByJob] = useState<Record<string, JobDraftDetails>>({});
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<QueueFilter>("ready");
   const [loadError, setLoadError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
 
@@ -16,15 +42,24 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     const { jobs: loadedJobs } = await api<{ jobs: Job[] }>(`/jobs?accountId=${encodeURIComponent(accountId)}`);
-    const attemptsEntries = await Promise.all(loadedJobs.map(async (job) => {
-      const { attempts } = await api<{ attempts: Attempt[] }>(`/jobs/${job.id}/attempts`);
-      return [job.id, attempts] as const;
+    const details = await Promise.all(loadedJobs.map(async (job) => {
+      const [{ attempts }, draftResponse] = await Promise.all([
+        api<{ attempts: Attempt[] }>(`/jobs/${job.id}/attempts`),
+        api<DraftResponse>(`/drafts/${job.draftId}`)
+      ]);
+      const selectedCandidate = draftResponse.candidates.find((candidate) => candidate.selected);
+      const text = draftResponse.draft.editedText ?? selectedCandidate?.text ?? draftResponse.candidates[0]?.text ?? draftResponse.draft.sourceInput;
+      const metadataType = draftResponse.draft.metadata?.tweetType;
+      const type = draftResponse.draft.replyTo ? "reply" : typeof metadataType === "string" ? metadataType : "—";
+      return { jobId: job.id, attempts, draft: { text, type } };
     }));
     if (requestId !== requestIdRef.current) return;
     const availableJobIds = new Set(loadedJobs.map((job) => job.id));
     setJobs(loadedJobs);
-    setAttemptsByJob(Object.fromEntries(attemptsEntries));
+    setAttemptsByJob(Object.fromEntries(details.map((detail) => [detail.jobId, detail.attempts])));
+    setDraftsByJob(Object.fromEntries(details.map((detail) => [detail.jobId, detail.draft])));
     setSelectedJobIds((current) => current.filter((id) => availableJobIds.has(id)));
+    setExpandedJobId((current) => current && availableJobIds.has(current) ? current : null);
   }
 
   useEffect(() => {
@@ -55,9 +90,9 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
   function prepareAllReadyJobs() {
     run(async () => {
       const now = Date.now();
-      const readyJobs = jobs.filter((job) => job.accountId === accountId &&
-        (job.status === "approved" || job.status === "failed") &&
-        (!job.scheduledFor || Date.parse(job.scheduledFor) <= now));
+      const readyJobs = jobs.filter((job) =>
+        (job.status === "approved" || job.status === "failed") && (!job.scheduledFor || Date.parse(job.scheduledFor) <= now)
+      );
       for (const job of readyJobs) await api(`/jobs/${job.id}/prepare`, { method: "POST" });
       await refresh();
     });
@@ -67,7 +102,7 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
   }
   function deleteSelectedJobs() {
     run(async () => {
-      const selected = jobs.filter((job) => selectedJobIds.includes(job.id) && job.accountId === accountId);
+      const selected = jobs.filter((job) => selectedJobIds.includes(job.id));
       for (const job of selected) {
         if (job.status === "failed" || job.status === "prepared") await api(`/jobs/${job.id}`, { method: "DELETE" });
       }
@@ -76,71 +111,111 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
     });
   }
 
-  const accountJobs = jobs.filter((job) => job.accountId === accountId);
-  const nowMs = Date.now();
-  const scheduledLaterJobs = accountJobs.filter((job) => Boolean(job.scheduledFor) && Date.parse(job.scheduledFor ?? "") > nowMs);
-  const failedJobs = accountJobs.filter((job) => job.status === "failed");
-  const postedJobs = accountJobs.filter((job) => job.status === "posted");
-  const readyNowJobs = accountJobs.filter((job) => (job.status === "approved" || job.status === "prepared") &&
-    (!job.scheduledFor || Date.parse(job.scheduledFor) <= nowMs));
-  const otherJobs = accountJobs.filter((job) =>
-    !readyNowJobs.some((item) => item.id === job.id) && !scheduledLaterJobs.some((item) => item.id === job.id) &&
-    !failedJobs.some((item) => item.id === job.id) && !postedJobs.some((item) => item.id === job.id));
-  const selectedDeletableJobs = accountJobs.filter((job) => selectedJobIds.includes(job.id) && (job.status === "failed" || job.status === "prepared"));
-  const readyForBulkPrepare = accountJobs.filter((job) => (job.status === "approved" || job.status === "failed") &&
-    (!job.scheduledFor || Date.parse(job.scheduledFor) <= nowMs));
+  const now = Date.now();
+  const filterCounts = jobs.reduce<Record<QueueFilter, number>>((counts, job) => {
+    counts[jobFilter(job, now)] += 1;
+    return counts;
+  }, { ready: 0, scheduled: 0, failed: 0, posted: 0 });
+  const filteredJobs = jobs.filter((job) => jobFilter(job, now) === filter);
+  const postableJobs = jobs.filter((job) =>
+    (job.status === "approved" || job.status === "prepared") && (!job.scheduledFor || Date.parse(job.scheduledFor) <= now)
+  );
+  const readyForBulkPrepare = jobs.filter((job) =>
+    (job.status === "approved" || job.status === "failed") && (!job.scheduledFor || Date.parse(job.scheduledFor) <= now)
+  );
+  const selectedDeletableJobs = jobs.filter((job) => selectedJobIds.includes(job.id) && (job.status === "failed" || job.status === "prepared"));
+  const hasCleanupJobs = jobs.some((job) => job.status === "posted" || job.status === "failed");
 
   return (
-    <section className="panel queue">
-      <div className="panel-head"><h2 className="panel-title"><PanelIcon name="list-checks" />Jobs</h2><span>{jobs.length}</span></div>
+    <section className="queue-panel">
       <InlineError message={loadError} />
-      <div className="job-dashboard">
-        <span>ready now <span className="segment-count">{readyNowJobs.length}</span></span><span>scheduled later <span className="segment-count">{scheduledLaterJobs.length}</span></span>
-        <span>failed <span className="segment-count">{failedJobs.length}</span></span><span>posted <span className="segment-count">{postedJobs.length}</span></span>
-      </div>
-      {readyNowJobs.length || failedJobs.length ? <button className="queue-action" disabled={busy} onClick={postAllReadyJobs}><Busy active={busy} />Post all ready</button> : null}
-      {readyForBulkPrepare.length ? <button className="secondary queue-action" disabled={busy} onClick={prepareAllReadyJobs}><Busy active={busy} />Prepare all ready</button> : null}
-      {postedJobs.length || failedJobs.length ? <button className="secondary queue-action" disabled={busy} onClick={deleteCleanupJobs}><Busy active={busy} />Cleanup</button> : null}
-      {accountJobs.length ? <button className="secondary danger queue-action" disabled={busy} onClick={deleteAllJobs}><Busy active={busy} />Delete all</button> : null}
-      {selectedDeletableJobs.length ? <button className="secondary danger queue-action" disabled={busy} onClick={deleteSelectedJobs}><Busy active={busy} />Delete selected failed/prepared ({selectedDeletableJobs.length})</button> : null}
-      {selectedJobIds.length ? <button className="ghost queue-action" disabled={busy} onClick={() => setSelectedJobIds([])}>Clear selection ({selectedJobIds.length})</button> : null}
-      {accountJobs.length ? (
-        <div className="job-buckets">
-          {[
-            { title: "Ready now", jobs: readyNowJobs }, { title: "Scheduled later", jobs: scheduledLaterJobs },
-            { title: "Failed", jobs: failedJobs }, { title: "Posted", jobs: postedJobs }, { title: "Other", jobs: otherJobs }
-          ].map((bucket) => (
-            <section className="job-bucket" key={bucket.title}>
-              <div className="panel-head"><h3 className="panel-title"><PanelIcon name="clock" />{bucket.title}</h3><span>{bucket.jobs.length}</span></div>
-              {bucket.jobs.length ? (
-                <div className="job-list">
-                  {bucket.jobs.map((job) => (
-                    <article className="job" key={job.id}>
-                      <div>
-                        <strong>{job.id}</strong>
-                        <span>{job.scheduledFor ? `${job.mode} · ${new Date(job.scheduledFor).toLocaleString()}` : job.mode}</span>
-                        {job.replyTo ? <span className="reply-tag">reply → @{job.replyTo.authorHandle}</span> : null}
-                      </div>
-                      <StatusBadge status={job.status} />
-                      <label className="checkbox-row job-select">
-                        <input checked={selectedJobIds.includes(job.id)} type="checkbox" onChange={() => toggleJobSelection(job.id)} />Select
-                      </label>
-                      <div className="job-actions">
-                        <button className="secondary" disabled={(job.status !== "approved" && job.status !== "failed") || busy} onClick={() => prepareJob(job)}><Busy active={busy} />Prepare</button>
-                        <button className="secondary" disabled={(job.status !== "approved" && job.status !== "prepared" && job.status !== "failed") || busy} onClick={() => postJob(job)}><Busy active={busy} />Post</button>
-                        <button className="secondary danger" disabled={job.status === "running" || busy} onClick={() => deleteJob(job)}><Busy active={busy} />Delete</button>
-                      </div>
-                      {attemptsByJob[job.id]?.length ? <div className="attempts">{attemptsByJob[job.id]?.map((attempt) => (
-                        <p key={attempt.id}><strong>{attempt.status}</strong>{attempt.errorMessage ? `: ${attempt.errorMessage}` : ""}{attempt.screenshotPath ? ` Screenshot: ${attempt.screenshotPath}` : ""}{attempt.tracePath ? ` Trace: ${attempt.tracePath}` : ""}</p>
-                      ))}</div> : <p className="empty attempts-empty">No run history.</p>}
-                    </article>
-                  ))}
-                </div>
-              ) : <p className="empty">No jobs.</p>}
-            </section>
+      <div className="queue-toolbar">
+        <div className="segmented-control" aria-label="Queue filter">
+          {(["ready", "scheduled", "failed", "posted"] as QueueFilter[]).map((option) => (
+            <button aria-pressed={filter === option} className={filter === option ? "active" : ""} key={option} onClick={() => setFilter(option)}>
+              {option}<span>{filterCounts[option]}</span>
+            </button>
           ))}
         </div>
-      ) : <p className="empty">No jobs for selected account.</p>}
+        {postableJobs.length ? (
+          <button className="secondary" disabled={busy} onClick={postAllReadyJobs}><Busy active={busy} />Post all ready</button>
+        ) : null}
+      </div>
+      {jobs.length ? (
+        <div className="queue-secondary-actions">
+          {readyForBulkPrepare.length ? <button className="ghost" disabled={busy} onClick={prepareAllReadyJobs}><Busy active={busy} />Prepare all ready</button> : null}
+          {hasCleanupJobs ? <button className="ghost" disabled={busy} onClick={deleteCleanupJobs}><Busy active={busy} />Cleanup posted / failed</button> : null}
+          {selectedDeletableJobs.length ? <button className="ghost danger" disabled={busy} onClick={deleteSelectedJobs}><Busy active={busy} />Delete selected ({selectedDeletableJobs.length})</button> : null}
+          {selectedJobIds.length ? <button className="ghost" disabled={busy} onClick={() => setSelectedJobIds([])}>Clear selection ({selectedJobIds.length})</button> : null}
+          <button className="ghost danger" disabled={busy} onClick={deleteAllJobs}><Busy active={busy} />Delete all</button>
+        </div>
+      ) : null}
+      {jobs.length ? (
+        <div className="queue-table">
+          <div className="queue-table-head" aria-hidden="true">
+            <span>Status</span><span>Text</span><span>Type</span><span>Scheduled</span><span>Actions</span>
+          </div>
+          {filteredJobs.length ? filteredJobs.map((job) => {
+            const draft = draftsByJob[job.id];
+            const expanded = expandedJobId === job.id;
+            const attempts = attemptsByJob[job.id] ?? [];
+            const canPrepare = (job.status === "approved" || job.status === "failed") && (!job.scheduledFor || Date.parse(job.scheduledFor) <= now);
+            const canPost = (job.status === "approved" || job.status === "prepared") && (!job.scheduledFor || Date.parse(job.scheduledFor) <= now);
+            return (
+              <article className={expanded ? "queue-row expanded" : "queue-row"} key={job.id}>
+                <div
+                  aria-expanded={expanded}
+                  className="queue-row-summary"
+                  onClick={() => setExpandedJobId(expanded ? null : job.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setExpandedJobId(expanded ? null : job.id);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                >
+                  <div className="queue-status-cell">
+                    <label className="queue-select" title="Select job" onClick={(event) => event.stopPropagation()}>
+                      <input checked={selectedJobIds.includes(job.id)} type="checkbox" onChange={() => toggleJobSelection(job.id)} />
+                    </label>
+                    <StatusBadge status={job.status} />
+                  </div>
+                  <span className="queue-text" title={draft?.text}>{draft?.text ?? "Loading draft…"}</span>
+                  <span className="queue-type">{draft?.type ?? "—"}</span>
+                  <span className="queue-scheduled">{job.scheduledFor ? new Date(job.scheduledFor).toLocaleString() : "Now"}</span>
+                  <div className="queue-row-actions" onClick={(event) => event.stopPropagation()}>
+                    <button aria-label="Prepare job" className="ghost icon-button" disabled={!canPrepare || busy} title="Prepare" onClick={() => prepareJob(job)}><Busy active={busy} /><ActionIcon name="prepare" /></button>
+                    {canPost ? <button aria-label="Post job" className="ghost icon-button" disabled={busy} title="Post" onClick={() => postJob(job)}><Busy active={busy} /><ActionIcon name="post" /></button> : null}
+                    <button aria-label="Delete job" className="ghost danger icon-button" disabled={job.status === "running" || busy} title="Delete" onClick={() => deleteJob(job)}><Busy active={busy} /><ActionIcon name="delete" /></button>
+                  </div>
+                </div>
+                {expanded ? (
+                  <div className="queue-detail">
+                    <p>{draft?.text ?? "Draft text unavailable."}</p>
+                    <dl>
+                      <div><dt>Job</dt><dd>{job.id}</dd></div>
+                      <div><dt>Mode</dt><dd>{job.mode}</dd></div>
+                      {job.replyTo ? <div><dt>Reply</dt><dd>@{job.replyTo.authorHandle}</dd></div> : null}
+                    </dl>
+                    <div className="attempt-list">
+                      {attempts.length ? attempts.map((attempt) => (
+                        <div className="attempt-row" key={attempt.id}>
+                          <StatusBadge status={attempt.status} />
+                          <span>{attempt.errorMessage ?? attempt.errorCode ?? "Attempt completed without a reported error."}</span>
+                          {attempt.screenshotPath ? <a href={attempt.screenshotPath} rel="noreferrer" target="_blank">Screenshot</a> : null}
+                          {attempt.tracePath ? <a href={attempt.tracePath} rel="noreferrer" target="_blank">Trace</a> : null}
+                        </div>
+                      )) : <p className="empty">No attempts yet.</p>}
+                    </div>
+                  </div>
+                ) : null}
+              </article>
+            );
+          }) : <div className="queue-filter-empty">No {filter} jobs.</div>}
+        </div>
+      ) : <div className="view-empty-state"><p>No jobs yet — approve a draft to queue it</p></div>}
     </section>
   );
 }

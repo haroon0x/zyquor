@@ -1,3 +1,4 @@
+import { AI_SLOP_PHRASES } from "@zyquor/core";
 import { renderSourceContext } from "./harness.js";
 
 export type GenerationProviderName = "openrouter" | "gemini" | "ollama";
@@ -174,59 +175,58 @@ function characterLimit(input: GenerateDraftCandidatesInput) {
 }
 
 const AUTHENTICITY_RULES = [
-  "Sound like a person typing out a thought, not like content being produced. Plain words. No performance.",
-  "Start at the point. If the first sentence is setup or throat-clearing, delete it and start at the second.",
-  "One specific point per post. Let the most concrete detail, a number, a name, a mechanism, carry the post.",
-  "Plain is fine. A clear statement of a genuinely interesting fact beats a styled take on a boring one.",
-  "Never use hook formulas: 'Hot take:', 'Unpopular opinion:', 'Nobody talks about', 'Here's the thing', 'Let that sink in', 'Read that again', 'The best part?'.",
-  "Never use the contrast template 'It's not X, it's Y'. Never end on a one-word punch like 'Wild.' or 'Huge.'.",
-  "An opinion must carry its reasoning in the same post. A claim without its why is bait.",
-  "Use line breaks or short '-' lists only when the content really is a list or timeline. Never force a sentence into a format.",
-  "Greentext '>' timeline lines are allowed only for narrative history posts built on verified dates and facts.",
-  "A sentence fragment or natural lowercase is fine when it reads like a real person typed it. No fake misspellings. No forced slang.",
-  "Output every post in lowercase. No capitalized words anywhere, including proper nouns, acronyms, brand names, and the first letter of the post. This is a hard rule for the whole post.",
-  "Final check per candidate: if it could appear on LinkedIn or in an ad, rewrite it plainer and more specific."
+  "Sound human: plain words, one useful point, no corporate or ad voice.",
+  "Start with substance, never 'just', 'so', or 'ok so'. No throat-clearing, hook formulas, colon-led setups ('here's the thing:'), or 'it's not X, it's Y'.",
+  "Post-processing lowercases text. Write lowercase-compatible prose, never use capitals for emphasis; proper nouns and acronyms are fine.",
+  "No engagement-bait question at the end. Give opinions a reason and end on a concrete implication.",
+  "Use simple punctuation. Reserve line breaks, '-' lists, and '>' timelines for content that needs them."
 ];
 
 const VOICE_EXAMPLES = [
   "Voice calibration. These pairs show tone and shape only. Never reuse their facts, topics, or wording.",
-  "Weak: 'AI agents are a game changer for software development. The future is here.'",
-  "Strong: 'coding agents removed the activation energy of starting. i finally fix the stuff i ignored for months because opening the file was the hard part.'",
-  "Weak: 'Unpopular opinion: most startups fail because of poor execution. Let that sink in.'",
-  "Strong: 'every failed-startup post-mortem has the same line: \"we built for 18 months before talking to users.\" at some point that stops being bad luck and becomes the cause.'",
-  "Weak: 'New paper alert! Researchers unlock massive gains in LLM reasoning. This changes everything.'",
-  "Strong: 'New result: letting the model decide when to stop reasoning cuts inference cost about 40%. Smaller models gain more than big ones, which nobody predicted.'"
+  "Weak: 'AI tools will change coding forever.'",
+  "Strong: 'our 6-person team capped prs at 200 lines; median review time fell from 2 hours to 35 minutes.'",
+  "Weak: 'Startups should talk to users more.'",
+  "Strong: '7 customer calls brought 43 signups. a week of scheduled posts brought 2.'",
+  "Weak: 'This database changes everything.'",
+  "Strong: 'sqlite served 8 million rows on a $20 server; write contention forced the postgres move.'"
 ];
 
 const PUNCTUATION_RULES = [
-  "Punctuation rule: never use em dashes or en dashes. Forbidden characters: — and –.",
-  "If you want a pause or contrast, use a comma, colon, period, semicolon, or parentheses instead.",
-  "Hyphen is allowed only inside normal compound words or as a simple '-' list marker when a list format is chosen."
+  "Never use em or en dashes (— or –)."
 ];
 
 function tweetTypeInstruction(tweetType: string | undefined) {
   if (!tweetType) {
-    return "Tweet type: general value post.";
+    return "General value post: state one useful fact or claim and why it matters.";
   }
 
   const labels: Record<string, string> = {
-    feed_observation: "Tweet type: feed observation. Turn a pattern or behavior into a useful takeaway.",
-    news_context: "Tweet type: news context. Explain why the event matters without sensationalism.",
-    useful_info: "Tweet type: useful info. Give a concrete fact, distinction, or practical takeaway.",
-    guide: "Tweet type: guide. Give a compact how-to or decision rule.",
-    lesson: "Tweet type: lesson. Share a learned principle with a specific implication.",
-    opinion: "Tweet type: opinion. Make a clear argument without rage bait.",
-    reply: "Tweet type: reply. Draft a useful reply to the given post. Add context or a practical point without sounding automated.",
-    tool: "Tweet type: tool. Explain what a tool is useful for and when to use it.",
+    feed_observation:
+      "Feed observation: write in first person, name a supplied pattern, and make one clear claim about it. No hedging; 'imo' is fine, 'i think maybe' is not.",
+    news_context:
+      "News context: give the second-order implication, including who is affected and what changes. Do not restate the headline.",
+    useful_info:
+      "Useful info: lead with one supplied fact or distinction, then state its practical use or consequence.",
+    guide:
+      "Guide: give 2-3 compact, actionable steps or one decision rule grounded in supplied details. No generic checklist.",
+    lesson:
+      "Lesson: tie one learned principle to a supplied event or example, then say what to do differently. No fortune-cookie moral.",
+    opinion:
+      "Opinion: write in first person and make one clear claim with its reason. No hedging; 'imo' is fine, 'i think maybe' is not.",
+    reply:
+      "Reply: reference the author's point concretely and add one useful fact, correction, or experience. Never restate the post or give 'great post!' energy.",
+    tool:
+      "Tool: name the tool, the exact task it helps with, and when to use it; include a supplied limitation or tradeoff when present.",
     hiring:
-      "Tweet type: hiring. Share a real hiring post with role/company/context and the exact source link. Make it clear you are not affiliated with the company, just sharing because it may help someone.",
+      "Hiring: include the role, company, one supplied detail such as stack, location, or compensation, the exact source link, and the disclosure 'sharing, not affiliated'.",
     article_summary:
-      "Tweet type: article summary. Say what the article's genuinely useful point is in plain language, like recommending it to a friend. Include the exact source link. Vary the framing; never open every post the same way.",
+      "Article summary: give the one useful takeaway in your own words plus the exact link. Vary openings: takeaway first; 'i'd read this for [insight]'; '[result] is the part worth keeping.'",
     narrative_history:
-      "Tweet type: narrative history. Turn verified facts into a compact historical or biographical arc with irony, delayed payoff, and a reflective closing. Greentext-style '>' timeline lines are allowed when they fit. Do not invent dates, causality, or attribution."
+      "Narrative history: build a compact arc from verified dates, names, and events, then close on their consequence. '>' timeline lines are optional. Never invent causality or attribution."
   };
 
-  return labels[tweetType] ?? `Tweet type: ${tweetType}.`;
+  return labels[tweetType] ?? `${tweetType}: state one supplied fact or claim and why it matters.`;
 }
 
 const WEAK_OPENER_PATTERN = /^(interesting|a reminder|this shows|fun fact|breaking:|just in|imagine|picture this|in a world)/i;
@@ -312,11 +312,11 @@ function formatExamplePosts(examplePosts: string[] | undefined) {
   const posts = examplePosts
     .map((post) => post.trim())
     .filter(Boolean)
-    .slice(0, 5)
-    .map((post) => `> ${post.replace(/\n/g, "\n> ")}`)
+    .slice(0, 3)
+    .map((post) => `> ${post.slice(0, DEFAULT_CHARACTER_LIMIT).replace(/\n/g, "\n> ")}`)
     .join("\n");
   return [
-    "Your own past posts that match your voice. Match their shape and sentence rhythm, but never copy their topics or facts:",
+    "Account calibration examples. Use these instead of the generic pairs for voice only; never copy their facts, topics, or wording:",
     posts
   ].join("\n");
 }
@@ -326,55 +326,61 @@ function formatRecentHistory(history: string[] | undefined) {
   const lines = history
     .map((post) => post.trim())
     .filter(Boolean)
-    .slice(0, 10)
-    .map((post, index) => `${index + 1}. ${post.slice(0, 120)}${post.length > 120 ? "..." : ""}`)
+    .slice(0, 3)
+    .map((post, index) => `${index + 1}. ${post.slice(0, 60)}${post.length > 60 ? "..." : ""}`)
     .join("\n");
   return [
-    "Your recent posts. Do not repeat these angles, topics, or phrasings; find a fresh take:",
+    "Recent posts. Avoid repeating their angles or phrasing:",
     lines
   ].join("\n");
 }
 
 function systemPrompt(input: GenerateDraftCandidatesInput) {
   const count = normalizeCount(input.count);
-  const bannedPhrases = input.bannedPhrases?.length
-    ? input.bannedPhrases.join(", ")
-    : "game changer, unlock, leverage, 10x, delve, dive into, revolutionize";
+  const bannedPhrases = [...new Set([...AI_SLOP_PHRASES, ...(input.bannedPhrases ?? [])])].join(",");
   const limit = characterLimit(input);
+  const voiceNotes = input.systemPromptExtra?.trim() ?? "";
+  const voiceNoteLines = voiceNotes.split(/\r?\n/);
+  const examplesHeadingIndex = voiceNoteLines.findIndex((line) => /examples/i.test(line));
+  const voiceNotesHaveExamples =
+    examplesHeadingIndex >= 0 &&
+    voiceNoteLines.slice(examplesHeadingIndex + 1).some((line) => /^(?:-\s+|\d+[.)]\s+)/.test(line.trimStart()));
   const diversityInstruction =
     count >= 3
-      ? "Angle mix: one candidate states the concrete fact and why it matters, one focuses on who it affects or what changes next, one gives a sharper personal read with its reasoning. Different angles on the substance, not different formats, not paraphrases."
-      : "Each candidate must take a distinct angle on the substance, not paraphrase the same sentence.";
+      ? "Use distinct substantive angles: key fact and meaning; who is affected; practical implication. Do not return paraphrases."
+      : "Give each candidate a distinct substantive angle, not a paraphrase.";
   return [
-    "You write X posts as one human account. Everything you produce must read like that person typed it themselves.",
-    "Quality bar: post only what a sharp follower in tech would find genuinely interesting. Specific beats clever. Clear beats styled. If the idea is thin, write the narrowest true observation rather than inflating it.",
-    input.tone ? `Account tone: ${input.tone}.` : "Account tone: clear, useful, direct.",
-    input.objective ? `Account objective: ${input.objective}.` : "Account objective: posts people save, share, and remember.",
-    "Topic home turf: AI, programming, science, research, markets, startups, and tech-shaped policy, when the context supports it.",
-    input.systemPromptExtra ? `Account-specific instructions (highest priority):\n${input.systemPromptExtra}` : "",
+    "Role",
+    "Write public X post candidates in the account owner's voice. Write text only.",
+    "Non-negotiable rules",
+    "Never decide whether or when to post, rank candidates, fetch or browse anything, or claim to have opened a link.",
+    `Write complete, standalone public text, never teasers or thread continuations. Maximum ${limit} characters per candidate.`,
+    "Use only supplied facts. Each candidate needs a specific fact, number, name, or example from the input. Never invent details or causality; narrow thin claims.",
+    "For source-backed posts, preserve the exact supplied URL and use only the supplied <source-title> for attribution.",
+    "No hashtags unless the idea contains one. No emojis unless the idea contains one. Never write 'thread 🧵'.",
+    "Never expose internal terms such as SourcePacket, source context, candidate, draft, metadata, JSON, prompt, or grounded facts.",
+    `Never use these AI-slop or account-banned phrases: ${bannedPhrases}.`,
+    "Voice",
     ...AUTHENTICITY_RULES,
-    ...VOICE_EXAMPLES,
-    "Voice calibration: every candidate must pass the 'why should a smart follower care?' test in the first 20 words. If it does not, delete the opening and start with the useful part.",
-    "Voice calibration: do not use adjectives that can be removed without changing the meaning. If you can delete the adjective and the sentence is the same, delete it.",
-    "Voice calibration: the final sentence must land on a concrete implication or a specific takeaway. No trailing questions, no 'etc.', no '...', no one-word endings like 'Wild.' or 'Huge.'.",
-    "Voice calibration: no LinkedIn/ad voice. Never use 'thrilled', 'humbled', 'journey', 'key takeaways', 'thought leadership', 'excited to announce', or 'leverage'.",
     ...PUNCTUATION_RULES,
-    "No hashtags. No emojis. No cheap bait or fake claims.",
-    "Write as the human, never as an observer of feeds or data. Never use 'I notice', 'I've noticed', 'I observe', or similar detector phrasing. Just say the thing.",
-    "Grounding: use only facts supplied by the user or source context. Never invent dates, numbers, quotes, names, or causality. If facts are thin, narrow the claim instead of filling gaps.",
-    "For news, give the second-order implication: who it affects, what changes, why builders or investors should care.",
-    "Write only public-facing post text. Never mention internal labels like SourcePacket, source packet, compact input, candidate, draft, metadata, JSON, prompt, distillation, source context, or grounded facts.",
-    "Every candidate is a complete standalone post. No teasers, no thread dependence.",
-    "For source-backed posts, include the exact supplied source URL. Use only the supplied <source-title> value for attribution; never invent an author, publisher, or attribution. For hiring posts, say you are just sharing, not affiliated. For article posts, recommend the piece in your own words and vary the framing; never open every post the same way.",
-    `Banned phrases: ${bannedPhrases}.`,
-    `Hard limit: every candidate must be ${limit} characters or fewer.`,
-    diversityInstruction,
-    input.context?.facts?.length ? "Use only the provided facts. Do not add details that are not present." : "",
-    formatExamplePosts(input.examplePosts),
+    "Tweet type",
+    tweetTypeInstruction(input.tweetType),
+    "Calibration examples",
+    input.examplePosts?.length
+      ? formatExamplePosts(input.examplePosts)
+      : voiceNotesHaveExamples
+        ? "Use the example tweets in Account voice notes instead of the generic calibration pairs."
+        : VOICE_EXAMPLES.join("\n"),
+    "User style",
+    `Tone: ${input.tone?.trim() || "clear, useful, direct"}.`,
+    input.objective?.trim() ? `Objective: ${input.objective.trim()}.` : "",
     formatRecentHistory(input.recentPostHistory),
-    `Return exactly ${count} non-empty candidates.`,
-    'Return strict JSON only with this shape: {"candidates":[{"text":"first draft"},{"text":"second draft"}]}.',
-    "Never return an empty candidates array."
+    voiceNotes
+      ? `Account voice notes${voiceNotesHaveExamples ? " (example tweets below override the generic calibration pairs)" : ""}:\n${voiceNotes}`
+      : "",
+    "Output format",
+    diversityInstruction,
+    `Return exactly ${count} non-empty candidates as strict JSON only: {"candidates":[{"text":"first draft"},{"text":"second draft"}]}.`
   ]
     .filter(Boolean)
     .join("\n");
@@ -384,7 +390,7 @@ function userPrompt(input: GenerateDraftCandidatesInput) {
   const replyInstruction = input.replyContext
     ? `You are drafting a reply to @${input.replyContext.authorHandle}'s post at ${input.replyContext.url}. Write a useful reply using the user's description of the target post below. Do not claim to have opened or read the linked post.`
     : "";
-  return `${tweetTypeInstruction(input.tweetType)}${replyInstruction ? `\n${replyInstruction}` : ""}\n\nContext to turn into public X posts:\n${normalizeIdea(input.idea)}${renderSourceContext(input.context)}`;
+  return `${replyInstruction ? `${replyInstruction}\n\n` : ""}Context to turn into public X posts:\n${normalizeIdea(input.idea)}${renderSourceContext(input.context)}`;
 }
 
 function linePrompt(input: GenerateDraftCandidatesInput) {
@@ -400,9 +406,13 @@ function linePrompt(input: GenerateDraftCandidatesInput) {
     "One draft per line.",
     "No numbering, no labels, no JSON.",
     "Each line takes a different angle on the idea, not a paraphrase.",
-    "Write like a person typing a thought: plain words, specific details, no hook formulas like 'Hot take:' or 'Unpopular opinion:', no corporate tone.",
+    "Write like a person typing one useful thought. Include a supplied fact, number, name, or example; no pure vibes.",
+    "Never start with 'just', 'so', or 'ok so'. No hook formulas, colon-led setups, engagement-bait endings, or 'thread 🧵'.",
+    "Write naturally lowercase-compatible text; never rely on capitals for emphasis.",
     "Never mention SourcePacket, source packet, compact input, candidate, draft, metadata, prompt, or distillation.",
-    "Avoid cheap bait, fake claims, hashtags, and emojis.",
+    "Use only supplied facts. Never fetch, rank, schedule, or decide whether to post.",
+    "No hashtags unless the idea contains one. No emojis unless the idea contains one.",
+    `Never use these AI-slop or account-banned phrases: ${[...new Set([...AI_SLOP_PHRASES, ...(input.bannedPhrases ?? [])])].join(",")}.`,
     ...PUNCTUATION_RULES
   ].filter(Boolean).join("\n");
 }
