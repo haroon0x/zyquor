@@ -1,0 +1,77 @@
+import { DEFAULT_OLLAMA_BASE_URL, DEFAULT_OLLAMA_MODEL } from "../config.js";
+import { linePrompt, systemPrompt, userPrompt } from "../prompts.js";
+import { asText, candidatesFromText, isNoCandidatesError } from "../quality.js";
+import type { DraftGenerationProvider, FetchLike } from "../types.js";
+import { postJson } from "./http.js";
+
+export function stripThinking(text: string): string {
+  let stripped = text.replace(/<think\b[^>]*>[\s\S]*?<\/think\s*>/gi, "").trim();
+  while (/^Thinking(?:\.\.\.|…|:)/i.test(stripped)) {
+    const contentStart = stripped.search(/(?:^|\r?\n)\s*(?:(?:```(?:json)?\s*)?[\[{]|(?:Draft|Candidate)\s*1\s*:)/i);
+    if (contentStart > 0) return stripped.slice(contentStart).trim();
+
+    const withoutSection = stripped.replace(
+      /^Thinking(?:\.\.\.|…|:)[^\r\n]*(?:\r?\n(?!\s*$)[^\r\n]*)*\r?\n\s*\r?\n/i,
+      ""
+    ).trim();
+    if (withoutSection === stripped) {
+      return stripped.replace(/^Thinking(?:\.\.\.|…|:)[^\r\n]*(?:\r?\n)?/i, "").trim();
+    }
+    stripped = withoutSection;
+  }
+
+  return stripped;
+}
+
+export function createOllamaGenerationProvider(options: {
+  baseUrl?: string;
+  model?: string;
+  fetch?: FetchLike;
+} = {}): DraftGenerationProvider {
+  const baseUrl = (options.baseUrl ?? DEFAULT_OLLAMA_BASE_URL).replace(/\/+$/, "");
+  const model = options.model ?? DEFAULT_OLLAMA_MODEL;
+  const fetchImpl = options.fetch ?? fetch;
+
+  return {
+    name: "ollama",
+    model,
+    async generateDraftCandidates(input) {
+      const count = Math.min(Math.max(input.count ?? 3, 1), 5);
+      try {
+        const body = await postJson<{ message?: { content?: unknown } }>(fetchImpl, `${baseUrl}/api/chat`, {
+          model,
+          messages: [
+            { role: "system", content: systemPrompt(input) },
+            { role: "user", content: userPrompt(input) }
+          ],
+          stream: false,
+          format: "json",
+          think: false,
+          options: {
+            temperature: 0.6,
+            num_predict: 900
+          }
+        });
+
+        return candidatesFromText(stripThinking(asText(body.message?.content)), input, "ollama", model);
+      } catch (error) {
+        if (!isNoCandidatesError(error, "ollama")) {
+          throw error;
+        }
+
+        const retryBody = await postJson<{ message?: { content?: unknown } }>(fetchImpl, `${baseUrl}/api/chat`, {
+          model,
+          messages: [{ role: "user", content: linePrompt(input) }],
+          stream: false,
+          think: false,
+          options: {
+            temperature: 0.5,
+            num_predict: 500
+          }
+        });
+
+        return candidatesFromText(stripThinking(asText(retryBody.message?.content)), input, "ollama", model);
+      }
+    }
+  };
+}
