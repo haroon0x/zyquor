@@ -13,6 +13,7 @@ const INTERNAL_LEAK_PATTERNS = [
   /\bmetadata\b/i,
   /\bgrounded facts?\b/i,
   /\bsource context\b/i,
+  /<\/?source-(?:title|url)/i,
   /\bI distilled\b/i,
   /\bdistill(ed|ing)?\b.*\b(article|announcement|content)\b/i
 ];
@@ -77,8 +78,9 @@ export function characterLimit(input: GenerateDraftCandidatesInput) {
 }
 
 export function postProcessTweetText(text: string) {
+  const untagged = text.replace(/<\/?source-(?:title|url)\s*>/gi, "");
   const urls: string[] = [];
-  const protectedText = text.replace(/https?:\/\/[^\s]+/gi, (url) => {
+  const protectedText = untagged.replace(/https?:\/\/[^\s]+/gi, (url) => {
     const token = `\uE000${urls.length}\uE001`;
     urls.push(url);
     return token;
