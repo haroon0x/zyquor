@@ -17,6 +17,18 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
     return { drafts: await repository.listPendingDrafts() };
   });
 
+  app.get("/drafts/quality-gate-failures", async () => {
+    const repository = await deps.repository;
+    const drafts = await repository.listQualityGateFailedDrafts();
+    return {
+      drafts: drafts.map(({ draft, candidates }) => ({
+        draft,
+        candidates,
+        qualityGate: draft.metadata.qualityGate
+      }))
+    };
+  });
+
   app.post("/drafts/:id/generate", async (request, reply) => {
     const { id } = request.params as { id: string };
     const repository = await deps.repository;

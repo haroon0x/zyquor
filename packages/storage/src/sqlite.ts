@@ -644,6 +644,20 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
       return rows(db.prepare("SELECT * FROM drafts WHERE status = 'created' ORDER BY created_at ASC").all()).map(toDraft);
     },
 
+    async listQualityGateFailedDrafts() {
+      return rows(
+        db.prepare(
+          `SELECT * FROM drafts
+           WHERE status IN ('created', 'generated', 'selected')
+             AND json_type(metadata_json, '$.qualityGate') = 'object'
+           ORDER BY created_at ASC`
+        ).all()
+      ).map((draftRow) => {
+        const draft = toDraft(draftRow);
+        return { draft, candidates: candidatesForDraft(draft.id) };
+      });
+    },
+
     async getDraft(draftId) {
       const draft = row(db.prepare("SELECT * FROM drafts WHERE id = ?").get(draftId));
       return draft ? { draft: toDraft(draft), candidates: candidatesForDraft(draftId) } : null;

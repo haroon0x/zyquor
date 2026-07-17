@@ -38,6 +38,18 @@ export interface DraftResponse {
   candidates: Candidate[];
 }
 
+export interface QualityGateMetadata {
+  bestQuality: number | null;
+  threshold: number;
+  slopPhrase: string | null;
+  reason: string;
+  rejectedAt: string;
+}
+
+export interface QualityGateFailure extends DraftResponse {
+  qualityGate: QualityGateMetadata;
+}
+
 export interface Job {
   id: string;
   accountId: string;

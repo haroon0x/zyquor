@@ -467,6 +467,56 @@ describe.each(["memory", "sqlite"] as const)("%s account repository", (backend) 
   });
 });
 
+describe.each(["memory", "sqlite"] as const)("%s quality gate failures", (backend) => {
+  it("lists rejected drafts with candidates while excluding approved drafts", async () => {
+    const directory = backend === "sqlite" ? mkdtempSync(join(tmpdir(), "zyquor-quality-gate-")) : null;
+    try {
+      const repository = backend === "sqlite"
+        ? await createSqliteRepository(join(directory!, "app.sqlite"))
+        : createMemoryRepository({ now: () => "2026-07-17T09:00:00.000Z" });
+      const qualityGate = {
+        bestQuality: 2,
+        threshold: 3,
+        slopPhrase: null,
+        reason: "all_below_quality_floor",
+        rejectedAt: "2026-07-17T09:01:00.000Z"
+      };
+      const rejected = await repository.createDraft({
+        accountId: "account_personal",
+        sourceInput: "Rejected idea",
+        candidates: [
+          { text: "Rejected candidate one", score: { quality: 2 } },
+          { text: "Rejected candidate two", score: { quality: 1 } }
+        ],
+        metadata: { qualityGate }
+      });
+      const approved = await repository.createDraft({
+        accountId: "account_personal",
+        sourceInput: "Previously rejected idea",
+        candidates: [{ text: "Approved after review", score: { quality: 2 } }],
+        metadata: { qualityGate }
+      });
+      await repository.approveDraft({ draftId: approved.draft.id, editedText: "Approved after review" });
+      await repository.createDraft({
+        accountId: "account_personal",
+        sourceInput: "Ordinary selected draft",
+        candidates: [{ text: "Ordinary candidate", score: { quality: 5 } }]
+      });
+
+      const failures = await repository.listQualityGateFailedDrafts();
+      expect(failures).toEqual([
+        {
+          draft: expect.objectContaining({ id: rejected.draft.id, metadata: { qualityGate }, status: "selected" }),
+          candidates: expect.arrayContaining(rejected.candidates)
+        }
+      ]);
+      expect(failures[0]?.candidates).toHaveLength(2);
+    } finally {
+      if (directory) rmSync(directory, { force: true, recursive: true });
+    }
+  });
+});
+
 describe("detectSqliteSupport", () => {
   it("returns available on Node >= 22.5", async () => {
     const nodeVersion = process.versions.node;

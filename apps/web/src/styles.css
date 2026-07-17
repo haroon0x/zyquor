@@ -686,6 +686,100 @@ label {
   display: none;
 }
 
+.quality-gate-rejections {
+  display: grid;
+  gap: 10px;
+  margin-top: 22px;
+  border: 1px solid color-mix(in srgb, var(--pending) 22%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--pending) 3%, var(--panel));
+  padding: 16px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.quality-gate-head,
+.quality-gate-row,
+.quality-gate-actions,
+.quality-gate-details > div {
+  display: flex;
+  align-items: center;
+}
+
+.quality-gate-head {
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.quality-gate-head h2 {
+  margin: 0 0 3px;
+  font-size: 14px;
+}
+
+.quality-gate-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.quality-gate-head > span {
+  border: 1px solid color-mix(in srgb, var(--pending) 30%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pending) 10%, transparent);
+  color: var(--pending);
+  padding: 2px 8px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.quality-gate-list {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--input);
+  overflow: hidden;
+}
+
+.quality-gate-row {
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 12px;
+}
+
+.quality-gate-row + .quality-gate-row {
+  border-top: 1px solid var(--line);
+}
+
+.quality-gate-details {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.quality-gate-details strong {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.quality-gate-details > div {
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.quality-gate-actions {
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.quality-gate-actions button {
+  height: 30px;
+  padding: 0 9px;
+  font-size: 11px;
+}
+
 .candidate-results-head {
   display: flex;
   align-items: flex-end;
@@ -1841,6 +1935,15 @@ label {
 
   .history-meta {
     justify-items: start;
+  }
+
+  .quality-gate-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .quality-gate-actions {
+    justify-content: flex-end;
   }
 }
 

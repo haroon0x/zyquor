@@ -61,6 +61,7 @@ export interface ZyquorRepository {
   markSourcePacketDrafted(id: string): Promise<SourcePacket>;
   resetSourcePacket(id: string): Promise<SourcePacket>;
   listPendingDrafts(): Promise<Draft[]>;
+  listQualityGateFailedDrafts(): Promise<DraftWithCandidates[]>;
   getDraft(id: string): Promise<DraftWithCandidates | null>;
   getDraftBySourcePacketId(sourcePacketId: string): Promise<DraftWithCandidates | null>;
   deleteDraft(id: string): Promise<DraftWithCandidates>;

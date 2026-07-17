@@ -422,6 +422,18 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     },
 
+    async listQualityGateFailedDrafts() {
+      return [...drafts.values()]
+        .filter((draft) =>
+          ["created", "generated", "selected"].includes(draft.status) &&
+          typeof draft.metadata.qualityGate === "object" &&
+          draft.metadata.qualityGate !== null &&
+          !Array.isArray(draft.metadata.qualityGate)
+        )
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        .map((draft) => ({ draft, candidates: candidatesForDraft(draft.id) }));
+    },
+
     async saveDraftCandidates(draftId, inputCandidates) {
       const draft = requireDraft(draftId);
       if (draft.status !== "created") {
