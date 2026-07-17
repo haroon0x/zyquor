@@ -66,6 +66,7 @@ export interface ZyquorRepository {
   getDraftBySourcePacketId(sourcePacketId: string): Promise<DraftWithCandidates | null>;
   deleteDraft(id: string): Promise<DraftWithCandidates>;
   saveDraftCandidates(draftId: string, candidates: Array<{ text: string; score: Record<string, unknown> }>): Promise<DraftWithCandidates>;
+  updateCandidateScore(candidateId: string, score: Record<string, unknown>): Promise<DraftCandidate>;
   updateDraftMetadata(draftId: string, metadata: Record<string, unknown>): Promise<Draft>;
   selectCandidate(input: { draftId: string; candidateId: string; editedText?: string }): Promise<DraftWithCandidates>;
   approveDraft(input: {

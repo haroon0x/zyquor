@@ -1,6 +1,6 @@
 import cors from "@fastify/cors";
 import { createAggregatedNewsAdapter, createCrawl4AiService, createRssAdapter, type SourceAdapter } from "@zyquor/adapters";
-import { createGenerationProviderFromEnv } from "@zyquor/generation";
+import { createGenerationProviderFromEnv, evaluateTweetQuality } from "@zyquor/generation";
 import { createLocalRepository } from "@zyquor/storage";
 import Fastify from "fastify";
 import { ZodError } from "zod";
@@ -56,6 +56,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       ...baseGenerationEnv,
       ...readSavedGenerationEnv(generationConfigPath)
     }),
+    tweetQualityEvaluator: options.tweetQualityEvaluator ?? evaluateTweetQuality,
     generationConfigPath,
     launchPostingChrome: options.launchPostingChrome,
     desktopSettings: options.desktopSettings,

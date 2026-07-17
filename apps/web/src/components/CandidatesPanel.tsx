@@ -64,6 +64,16 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
     });
   }
 
+  function evaluateDraft() {
+    if (!draft) return;
+    run(async () => {
+      const response = await api<DraftResponse>(`/drafts/${draft.draft.id}/evaluate`, {
+        method: "POST"
+      });
+      setDraft(response);
+    });
+  }
+
   return (
     <section className="candidate-results" aria-label="Draft candidates">
       {draft?.candidates.length ? (
@@ -73,7 +83,12 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
               <h2>Candidates</h2>
               <p>Choose a direction, edit it, then approve.</p>
             </div>
-            <StatusBadge status={draft.draft.status} />
+            <div className="candidate-results-actions">
+              <button className="secondary compact-button" disabled={busy} onClick={evaluateDraft}>
+                <Busy active={busy} />Evaluate (local)
+              </button>
+              <StatusBadge status={draft.draft.status} />
+            </div>
           </div>
           <div className="candidate-list data-content">
             {draft.candidates.map((candidate) => {
@@ -97,7 +112,19 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
                 >
                   <div className="candidate-copy">
                     <p>{candidate.text}</p>
-                    <span><Busy active={busy && !selected} />{candidate.text.length} characters</span>
+                    <div className="candidate-meta">
+                      <span><Busy active={busy && !selected} />{candidate.text.length} characters</span>
+                      {candidate.score.judgeVerdict && candidate.score.judgeScore !== undefined ? (
+                        <span
+                          aria-label={`${candidate.score.judgeVerdict}, ${candidate.score.judgeScore} out of 10`}
+                          className={`judge-badge judge-badge--${candidate.score.judgeVerdict}`}
+                          title={candidate.score.judgeReasons?.join("; ")}
+                        >
+                          <strong>{candidate.score.judgeVerdict}</strong>
+                          <span>{candidate.score.judgeScore}/10</span>
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                   {selected ? (
                     <div className="candidate-editor" onClick={(event) => event.stopPropagation()}>

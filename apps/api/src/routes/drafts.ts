@@ -8,6 +8,8 @@ import {
   parseReplyTargetUrl
 } from "@zyquor/core";
 import { accountGenerationContext } from "@zyquor/automation";
+import { resolveGenerationProviderConfig } from "@zyquor/generation";
+import { asError, HttpError } from "../lib/errors.js";
 import { tracePostProcessTweetText } from "../lib/post-process.js";
 import { isPostingMode } from "../lib/posting.js";
 
@@ -27,6 +29,57 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
         qualityGate: draft.metadata.qualityGate
       }))
     };
+  });
+
+  app.post("/drafts/:id/evaluate", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const repository = await deps.repository;
+    const existing = await repository.getDraft(id);
+    if (!existing) {
+      return reply.code(404).send({ error: "Draft not found" });
+    }
+
+    const metadata = existing.draft.metadata as Record<string, unknown>;
+    const tweetType = typeof metadata.tweetType === "string" ? metadata.tweetType : undefined;
+    const judgeConfig = resolveGenerationProviderConfig({
+      ...deps.generationEnv,
+      ZYQUOR_LLM_PROVIDER: "ollama"
+    });
+    const evaluations = [];
+
+    try {
+      for (const candidate of existing.candidates) {
+        evaluations.push(await deps.tweetQualityEvaluator(
+          {
+            text: candidate.text,
+            ...(tweetType ? { tweetType } : {}),
+            idea: existing.draft.sourceInput
+          },
+          {
+            ...(judgeConfig.baseUrl ? { baseUrl: judgeConfig.baseUrl } : {}),
+            model: judgeConfig.model
+          }
+        ));
+      }
+    } catch (error) {
+      throw new HttpError(503, `Local Ollama quality judge failed: ${asError(error).message}`);
+    }
+
+    const judgedAt = new Date().toISOString();
+    const candidates = [];
+    for (const [index, candidate] of existing.candidates.entries()) {
+      const evaluation = evaluations[index]!;
+      candidates.push(await repository.updateCandidateScore(candidate.id, {
+        ...candidate.score,
+        judgeScore: evaluation.score,
+        judgeVerdict: evaluation.verdict,
+        judgeReasons: evaluation.reasons,
+        judgedAt,
+        judgeModel: judgeConfig.model
+      }));
+    }
+
+    return { draft: existing.draft, candidates };
   });
 
   app.post("/drafts/:id/generate", async (request, reply) => {

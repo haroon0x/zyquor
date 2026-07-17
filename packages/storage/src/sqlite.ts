@@ -764,6 +764,15 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
       });
     },
 
+    async updateCandidateScore(candidateId, score) {
+      const candidate = row(db.prepare("SELECT * FROM draft_candidates WHERE id = ?").get(candidateId));
+      if (!candidate) {
+        throw new Error(`Candidate not found: ${candidateId}`);
+      }
+      db.prepare("UPDATE draft_candidates SET score_json = ? WHERE id = ?").run(JSON.stringify(score), candidateId);
+      return toCandidate(row(db.prepare("SELECT * FROM draft_candidates WHERE id = ?").get(candidateId))!);
+    },
+
     async updateDraftMetadata(draftId, metadata) {
       const timestamp = now();
       db.prepare("UPDATE drafts SET metadata_json = ?, updated_at = ? WHERE id = ?").run(

@@ -4,6 +4,7 @@ import {
   createGeminiGenerationProvider,
   createOllamaGenerationProvider,
   createOpenRouterGenerationProvider,
+  evaluateTweetQuality,
   GENERATION_MODEL_OPTIONS,
   isCleanTweetText,
   postProcessTweetText,
@@ -37,6 +38,53 @@ describe("stripThinking", () => {
       )
     ).toBe(
       "Draft 1:\nFirst clean draft."
+    );
+  });
+});
+
+describe("tweet quality evaluator", () => {
+  it("posts a zero-temperature Ollama judge request and normalizes its result", async () => {
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const fetchImpl: FetchLike = async (url, init) => {
+      calls.push({ url: String(url), init });
+      return jsonResponse({
+        message: {
+          content: '<think>Check the criteria.</think>\n```json\n{"score":"12","verdict":"excellent","reasons":["Concrete number","Natural phrasing","Strong opening","extra"]}\n```'
+        }
+      });
+    };
+
+    await expect(evaluateTweetQuality(
+      { text: "SQLite handled 8 million rows on one $20 node.", tweetType: "useful_info", idea: "SQLite scale" },
+      { baseUrl: "http://localhost:11434/", model: "judge-model", fetchImpl }
+    )).resolves.toEqual({
+      score: 10,
+      verdict: "strong",
+      reasons: ["Concrete number", "Natural phrasing", "Strong opening"]
+    });
+
+    const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
+    expect(calls[0]?.url).toBe("http://localhost:11434/api/chat");
+    expect(body).toMatchObject({
+      model: "judge-model",
+      stream: false,
+      format: "json",
+      think: false,
+      options: { temperature: 0 }
+    });
+    const messages = body.messages as Array<{ content: string; role: string }>;
+    expect(messages[0]?.content).toContain("specificity, hook strength, natural voice, and absence of AI slop");
+    expect(JSON.parse(messages[1]?.content ?? "{}")).toEqual({
+      text: "SQLite handled 8 million rows on one $20 node.",
+      tweetType: "useful_info",
+      idea: "SQLite scale"
+    });
+  });
+
+  it("rejects malformed judge output", async () => {
+    const fetchImpl: FetchLike = async () => jsonResponse({ message: { content: "null" } });
+    await expect(evaluateTweetQuality({ text: "A tweet." }, { fetchImpl })).rejects.toThrow(
+      "Ollama quality judge returned invalid JSON"
     );
   });
 });

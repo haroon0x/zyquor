@@ -31,6 +31,13 @@ export interface Candidate {
   id: string;
   text: string;
   selected: boolean;
+  score: Record<string, unknown> & {
+    judgeScore?: number;
+    judgeVerdict?: "strong" | "ok" | "weak";
+    judgeReasons?: string[];
+    judgedAt?: string;
+    judgeModel?: string;
+  };
 }
 
 export interface DraftResponse {

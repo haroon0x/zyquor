@@ -16,6 +16,7 @@ export {
 export { createGeminiGenerationProvider } from "./providers/gemini.js";
 export { createOllamaGenerationProvider, stripThinking } from "./providers/ollama.js";
 export { createOpenRouterGenerationProvider } from "./providers/openrouter.js";
+export { evaluateTweetQuality } from "./evaluator.js";
 export { isCleanTweetText, postProcessTweetText, scoreTweetQuality } from "./quality.js";
 export type {
   DraftGenerationProvider,
@@ -25,6 +26,12 @@ export type {
   GenerationProviderConfig,
   GenerationProviderName
 } from "./types.js";
+export type {
+  EvaluateTweetQualityInput,
+  EvaluateTweetQualityOptions,
+  TweetQualityEvaluation,
+  TweetQualityEvaluator
+} from "./evaluator.js";
 
 export function createGenerationProviderFromEnv(
   env: GenerationEnvironment = process.env,

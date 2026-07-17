@@ -468,6 +468,17 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       return { draft: updatedDraft, candidates: candidatesForDraft(draftId) };
     },
 
+    async updateCandidateScore(candidateId, score) {
+      const candidate = candidates.get(candidateId);
+      if (!candidate) {
+        throw new Error(`Candidate not found: ${candidateId}`);
+      }
+      const updated: DraftCandidate = { ...candidate, score };
+      candidates.set(candidateId, updated);
+      persist();
+      return updated;
+    },
+
     async updateDraftMetadata(draftId, metadata) {
       const draft = requireDraft(draftId);
       const updated: Draft = { ...draft, metadata, updatedAt: now() };

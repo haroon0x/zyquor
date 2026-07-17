@@ -799,6 +799,17 @@ label {
   font-size: 12px;
 }
 
+.candidate-results-actions,
+.candidate-meta,
+.judge-badge {
+  display: flex;
+  align-items: center;
+}
+
+.candidate-results-actions {
+  gap: 8px;
+}
+
 .candidate-list {
   display: grid;
   gap: 12px;
@@ -833,13 +844,45 @@ label {
   white-space: pre-wrap;
 }
 
-.candidate-copy > span {
-  display: flex;
+.candidate-meta {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.candidate-meta > span:first-child {
+  display: inline-flex;
   align-items: center;
   gap: 5px;
   color: var(--muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+}
+
+.judge-badge {
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  padding: 2px 7px;
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.judge-badge strong {
+  font-size: inherit;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.judge-badge--strong {
+  color: var(--ok);
+}
+
+.judge-badge--weak {
+  color: var(--warn);
 }
 
 .candidate-editor {
