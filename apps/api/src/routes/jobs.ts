@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { z } from "zod";
 import type { AppDeps } from "../deps.js";
 import { validateSourcePostQuality } from "@zyquor/automation";
 import { prepareJobRequestSchema } from "@zyquor/core";
@@ -20,6 +21,18 @@ import { postBrowserJob } from "../lib/post-browser-job.js";
 
 function isScheduledForFuture(job: { scheduledFor: string | null }) {
   return job.scheduledFor ? Date.parse(job.scheduledFor) > Date.now() : false;
+}
+
+const updateJobScheduleRequestSchema = z.object({
+  scheduledFor: z.string().datetime({ offset: true }).nullable()
+}).strict();
+
+function shuffle<T>(items: T[]) {
+  for (let index = items.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [items[index], items[swapIndex]] = [items[swapIndex]!, items[index]!];
+  }
+  return items;
 }
 
 function browserArtifacts(error: unknown) {
@@ -64,8 +77,8 @@ export function registerJobsRoutes(app: FastifyInstance, deps: AppDeps): void {
     }
     const repository = await deps.repository;
     const now = Date.now();
-    const readyJobs = (await repository.listJobs())
-      .filter((job) => {
+    const readyJobs = shuffle(
+      (await repository.listJobs()).filter((job) => {
         if (job.accountId !== accountId) {
           return false;
         }
@@ -77,11 +90,7 @@ export function registerJobsRoutes(app: FastifyInstance, deps: AppDeps): void {
         }
         return Date.parse(job.scheduledFor) <= now;
       })
-      .sort((a, b) => {
-        const timeA = Date.parse(a.scheduledFor || a.createdAt);
-        const timeB = Date.parse(b.scheduledFor || b.createdAt);
-        return timeA - timeB;
-      });
+    );
     const results = [];
 
     for (const job of readyJobs) {
@@ -159,26 +168,16 @@ export function registerJobsRoutes(app: FastifyInstance, deps: AppDeps): void {
 
   app.patch("/jobs/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const body = (request.body ?? {}) as { scheduledFor?: string | null };
+    const input = updateJobScheduleRequestSchema.parse(request.body);
     const repository = await deps.repository;
     const job = await repository.getJob(id);
     if (!job) {
       return reply.code(404).send({ error: "Job not found" });
     }
-    if (job.status !== "approved" && job.status !== "queued") {
+    if (["running", "posted", "failed", "cancelled"].includes(job.status)) {
       return reply.code(409).send({ error: `Cannot reschedule a job in status: ${job.status}` });
     }
-    if (body.scheduledFor === undefined) {
-      return reply.code(400).send({ error: "scheduledFor is required" });
-    }
-    const scheduledFor = body.scheduledFor === null ? null : body.scheduledFor;
-    if (scheduledFor !== null && Number.isNaN(Date.parse(scheduledFor))) {
-      return reply.code(400).send({ error: "scheduledFor must be a valid ISO timestamp" });
-    }
-    const updated = scheduledFor === null
-      ? await repository.updateJobStatus(id, job.status)
-      : await repository.assignJobSchedule(id, scheduledFor);
-    return { job: updated };
+    return { job: await repository.assignJobSchedule(id, input.scheduledFor) };
   });
 
   app.post("/jobs/:id/prepare", async (request, reply) => {

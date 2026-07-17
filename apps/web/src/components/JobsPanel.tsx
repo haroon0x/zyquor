@@ -26,12 +26,23 @@ function jobFilter(job: Job, now: number): QueueFilter {
   return "ready";
 }
 
+function canRescheduleJob(job: Job) {
+  return !["running", "posted", "failed", "cancelled"].includes(job.status);
+}
+
+function toDateTimeLocal(timestamp: string | null) {
+  if (!timestamp) return "";
+  const date = new Date(timestamp);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
 export function JobsPanel({ panel }: { panel: PanelProps }) {
   const { accountId, busy, refresh, refreshToken, run } = panel;
   const [jobs, setJobs] = useState<Job[]>([]);
   const [attemptsByJob, setAttemptsByJob] = useState<Record<string, Attempt[]>>({});
   const [draftsByJob, setDraftsByJob] = useState<Record<string, JobDraftDetails>>({});
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
+  const [scheduleEdits, setScheduleEdits] = useState<Record<string, string>>({});
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [filter, setFilter] = useState<QueueFilter>("ready");
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -58,6 +69,7 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
     setJobs(loadedJobs);
     setAttemptsByJob(Object.fromEntries(details.map((detail) => [detail.jobId, detail.attempts])));
     setDraftsByJob(Object.fromEntries(details.map((detail) => [detail.jobId, detail.draft])));
+    setScheduleEdits(Object.fromEntries(loadedJobs.map((job) => [job.id, toDateTimeLocal(job.scheduledFor)])));
     setSelectedJobIds((current) => current.filter((id) => availableJobIds.has(id)));
     setExpandedJobId((current) => current && availableJobIds.has(current) ? current : null);
   }
@@ -69,6 +81,26 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
   function prepareJob(job: Job) { run(async () => { await api(`/jobs/${job.id}/prepare`, { method: "POST" }); await refresh(); }); }
   function postJob(job: Job) { run(async () => { await api(`/jobs/${job.id}/post`, { method: "POST" }); await refresh(); }); }
   function deleteJob(job: Job) { run(async () => { await api(`/jobs/${job.id}`, { method: "DELETE" }); await refresh(); }); }
+  function rescheduleJob(job: Job) {
+    const scheduledFor = scheduleEdits[job.id];
+    if (!scheduledFor) return;
+    run(async () => {
+      await api(`/jobs/${job.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ scheduledFor: new Date(scheduledFor).toISOString() })
+      });
+      await refresh();
+    });
+  }
+  function clearJobSchedule(job: Job) {
+    run(async () => {
+      await api(`/jobs/${job.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ scheduledFor: null })
+      });
+      await refresh();
+    });
+  }
   function postAllReadyJobs() {
     run(async () => {
       const result = await api<{ failed: number; posted: number; total: number }>("/jobs/post-ready", {
@@ -199,6 +231,29 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
                       <div><dt>Mode</dt><dd>{job.mode}</dd></div>
                       {job.replyTo ? <div><dt>Reply</dt><dd>@{job.replyTo.authorHandle}</dd></div> : null}
                     </dl>
+                    {canRescheduleJob(job) ? (
+                      <form
+                        className="queue-reschedule"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          rescheduleJob(job);
+                        }}
+                      >
+                        <label>
+                          Schedule
+                          <input
+                            aria-label={`Schedule job ${job.id}`}
+                            type="datetime-local"
+                            value={scheduleEdits[job.id] ?? ""}
+                            onChange={(event) => setScheduleEdits((current) => ({ ...current, [job.id]: event.target.value }))}
+                          />
+                        </label>
+                        <button className="secondary compact-button" disabled={!scheduleEdits[job.id] || busy}>Save</button>
+                        {job.scheduledFor ? (
+                          <button className="ghost compact-button" disabled={busy} type="button" onClick={() => clearJobSchedule(job)}>Clear schedule</button>
+                        ) : null}
+                      </form>
+                    ) : null}
                     <div className="attempt-list">
                       {attempts.length ? attempts.map((attempt) => (
                         <div className="attempt-row" key={attempt.id}>
