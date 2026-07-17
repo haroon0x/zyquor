@@ -1,3 +1,4 @@
+import { AI_SLOP_PHRASES } from "@zyquor/core";
 import type { GenerateDraftCandidatesInput, GenerationProviderName } from "./types.js";
 
 export const DEFAULT_CHARACTER_LIMIT = 280;
@@ -21,8 +22,11 @@ const INCOMPLETE_PATTERNS = [
   /\b(read more|continue reading|more below)\b/i,
   /[:;,]\s*$/
 ];
+const AI_SLOP_PATTERNS = AI_SLOP_PHRASES.map(
+  (phrase) => new RegExp(`\\b${phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i")
+);
 const GENERIC_SLOP_PATTERNS = [
-  /\bgame.chang(er|ing)\b/i,
+  /\bgame[- ]chang(er|ing)\b/i,
   /\bunlock\b/i,
   /\bleverage\b/i,
   /\bsynergy\b/i,
@@ -40,14 +44,17 @@ const GENERIC_SLOP_PATTERNS = [
   /\bmind.blowing\b/i,
   /\bthis changes everything\b/i,
   /\bthe future is here\b/i,
+  /\bhere'?s why\b/i,
+  /\bwhy this matters\b/i,
   /\bit'?s not [^.!?\n]{1,60}, it'?s\b/i,
+  /\b(?:is|are|was|were)n'?t just [^.!?\n]{1,60}, (?:it|they)'?(?:s|re)\b/i,
   /\b(wild|huge|insane)\.$/i
 ];
 
-const WEAK_OPENER_PATTERN = /^(interesting|a reminder|this shows|fun fact|breaking:|just in|imagine|picture this|in a world)/i;
+const WEAK_OPENER_PATTERN = /^(interesting|(?:a|quick|friendly) reminder|this shows|fun fact|breaking\b|just in|did you know|imagine|picture this|in a world)/i;
 
 const ADJECTIVE_BLOAT_PATTERNS = [
-  /\b(exciting|thrilling|groundbreaking|revolutionary|disruptive|innovative|cutting-edge|state-of-the-art|powerful|robust|seamless|effortless|comprehensive|holistic|impactful|strategic|dynamic|scalable)\b/gi
+  /\b(exciting|thrilling|groundbreaking|revolutionary|disruptive|innovative|cutting-edge|state-of-the-art|powerful|robust|seamless|effortless|comprehensive|holistic|impactful|strategic|dynamic|scalable)\b/i
 ];
 
 const LINKEDIN_VOICE_PATTERNS = [
@@ -58,7 +65,8 @@ const LINKEDIN_VOICE_PATTERNS = [
   /\bkey takeaways\b/i
 ];
 
-const WEAK_ENDING_PATTERN = /\b(etc\.?|\.\.\.|…|\bso\b|and\b|but\b|or\b)\s*$/i;
+const WEAK_ENDING_PATTERN = /(?:\b(?:etc\.?|so|and|but|or|thoughts\??|agree\??|what do you think\??|does this resonate\??|let me know(?: what you think)?[.!?]?)|\.\.\.|…)\s*$/i;
+const EM_DASH_OVERUSE_PATTERN = /(?:[—–][^—–]*){2,}/;
 
 export function normalizeCount(count: number | undefined) {
   return Math.min(Math.max(count ?? 3, 1), 5);
@@ -106,6 +114,10 @@ function hasWeakEnding(text: string) {
   return WEAK_ENDING_PATTERN.test(text.trim());
 }
 
+function containsGenericSlop(text: string) {
+  return AI_SLOP_PATTERNS.some((pattern) => pattern.test(text)) || GENERIC_SLOP_PATTERNS.some((pattern) => pattern.test(text));
+}
+
 function scoreReadability(text: string) {
   let score = 0;
   if (text.length >= 90 && text.length <= 260) score += 1;
@@ -137,7 +149,8 @@ export function scoreTweetQuality(text: string) {
   if (hasWeakEnding(trimmed)) score -= 1;
   if (containsAdjectiveBloat(trimmed)) score -= 2;
   if (containsLinkedInVoice(trimmed)) score -= 3;
-  if (GENERIC_SLOP_PATTERNS.some((pattern) => pattern.test(trimmed))) score -= 2;
+  if (containsGenericSlop(trimmed)) score -= 2;
+  if (EM_DASH_OVERUSE_PATTERN.test(trimmed)) score -= 2;
   return score;
 }
 
@@ -148,9 +161,10 @@ export function isCleanTweetText(text: string) {
     trimmed.length <= DEFAULT_CHARACTER_LIMIT &&
     !INTERNAL_LEAK_PATTERNS.some((pattern) => pattern.test(trimmed)) &&
     !INCOMPLETE_PATTERNS.some((pattern) => pattern.test(trimmed)) &&
-    !GENERIC_SLOP_PATTERNS.some((pattern) => pattern.test(trimmed)) &&
+    !containsGenericSlop(trimmed) &&
     !LINKEDIN_VOICE_PATTERNS.some((pattern) => pattern.test(trimmed)) &&
     !WEAK_ENDING_PATTERN.test(trimmed) &&
+    !EM_DASH_OVERUSE_PATTERN.test(trimmed) &&
     !/^[-*[{]/.test(trimmed) &&
     !trimmed.includes("\uFFFD")
   );

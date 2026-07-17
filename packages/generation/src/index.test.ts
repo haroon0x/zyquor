@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { TWEET_TYPES } from "@zyquor/core";
 import {
   createGeminiGenerationProvider,
   createOllamaGenerationProvider,
@@ -13,6 +14,7 @@ import {
   renderSourceContext,
   type FetchLike
 } from "./index.js";
+import { tweetTypeInstruction } from "./prompts.js";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -36,6 +38,16 @@ describe("stripThinking", () => {
     ).toBe(
       "Draft 1:\nFirst clean draft."
     );
+  });
+});
+
+describe("tweet type prompt guidance", () => {
+  it("includes a non-copying style exemplar for every tweet type", () => {
+    for (const tweetType of TWEET_TYPES) {
+      const instruction = tweetTypeInstruction(tweetType);
+      expect(instruction).toContain("Style reference only; never copy facts/wording:");
+      expect(instruction).not.toContain("#");
+    }
   });
 });
 
@@ -175,7 +187,7 @@ describe("ollama generation", () => {
     expect(headings.map((heading) => prompt.indexOf(heading))).toEqual(
       [...headings].map((heading) => prompt.indexOf(heading)).sort((left, right) => left - right)
     );
-    expect(prompt).toContain("Voice calibration. These pairs show tone and shape only. Never reuse their facts, topics, or wording.");
+    expect(prompt).toContain("Use the tweet-type style reference above.");
     expect(prompt).toContain("Account voice notes:\nPrefer lessons grounded in hands-on experience.");
 
     await provider.generateDraftCandidates({
@@ -389,6 +401,8 @@ describe("tweet quality harness", () => {
     expect(isCleanTweetText("It's not the model, it's the data pipeline that decides quality.")).toBe(false);
     expect(isCleanTweetText("Nobody talks about how expensive vector databases get at scale.")).toBe(false);
     expect(isCleanTweetText("OpenAI just shipped a 10M token context window. Wild.")).toBe(false);
+    expect(isCleanTweetText("This robust solution helps teams navigate the complexities of scaling.")).toBe(false);
+    expect(isCleanTweetText("One queue — three workers — endless possibilities.")).toBe(false);
     expect(isCleanTweetText("Serverless billing punishes steady workloads: you pay for elasticity you never use.")).toBe(true);
   });
 
