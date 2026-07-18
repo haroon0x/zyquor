@@ -3,7 +3,12 @@
 ## Done
 
 - V1 core: idea → candidates → review/edit → approve → prepare/post
-- `mock`, `ollama`, `gemini` providers with runtime switching
+- `command-code`, `openrouter`, `ollama`, `gemini` providers with runtime switching
+- Command Code defaults to DeepSeek v4 Pro with default reasoning in read-only headless mode
+- Desktop startup launches or reconnects dedicated posting Chrome
+- Windows installer creates desktop and Start menu shortcuts with the Zyquor icon
+- Style settings expose account-specific example posts for voice calibration
+- Command Code candidates reject missing source URLs and invented numeric details before review or autopost
 - Web/API model config for provider and model string
 - Browser prepare/post with dedicated Chrome profiles
 - Schedule support (mode: `scheduled`, `prepare_only`, `autopost`)

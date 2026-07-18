@@ -56,7 +56,7 @@ Only `@zyquor/generation` knows provider wire formats. API selects provider from
 
 Supported providers:
 
+- `command-code`: authenticated local Command Code CLI in non-interactive plan mode; default model `deepseek/deepseek-v4-pro`.
 - `openrouter`: OpenRouter chat completions.
 - `gemini`: Google Gemini `models/{model}:generateContent`.
 - `ollama`: local `/api/generate`.
-- `mock`: deterministic offline provider for tests and local smoke.

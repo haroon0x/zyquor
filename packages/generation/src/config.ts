@@ -2,6 +2,8 @@ import type { GenerationProviderConfig, GenerationProviderName } from "./types.j
 
 export interface GenerationEnvironment {
   ZYQUOR_LLM_PROVIDER?: string;
+  ZYQUOR_COMMAND_CODE_MODEL?: string;
+  ZYQUOR_COMMAND_CODE_PATH?: string;
   ZYQUOR_GEMINI_API_KEY?: string;
   ZYQUOR_GEMINI_BASE_URL?: string;
   ZYQUOR_GEMINI_MODEL?: string;
@@ -10,6 +12,15 @@ export interface GenerationEnvironment {
   ZYQUOR_OPENROUTER_MODEL?: string;
   ZYQUOR_OLLAMA_BASE_URL?: string;
   ZYQUOR_OLLAMA_MODEL?: string;
+}
+
+export const DEFAULT_COMMAND_CODE_MODEL = "deepseek/deepseek-v4-pro";
+export const COMMAND_CODE_MODELS = [DEFAULT_COMMAND_CODE_MODEL] as const;
+
+export function safeCommandCodeModel(model: string | undefined) {
+  if (!model || model === DEFAULT_COMMAND_CODE_MODEL) return DEFAULT_COMMAND_CODE_MODEL;
+  console.warn(`generation: Command Code model "${model}" is not supported; using "${DEFAULT_COMMAND_CODE_MODEL}"`);
+  return DEFAULT_COMMAND_CODE_MODEL;
 }
 
 export const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
@@ -42,6 +53,7 @@ export const OLLAMA_MODELS = [
   "mistral:7b"
 ] as const;
 export const GENERATION_MODEL_OPTIONS = {
+  "command-code": COMMAND_CODE_MODELS,
   openrouter: OPENROUTER_MODELS,
   gemini: GEMINI_MODELS,
   ollama: OLLAMA_MODELS
@@ -65,6 +77,14 @@ export function resolveGenerationProviderConfig(env: GenerationEnvironment = pro
           : "ollama"
       : requestedProvider
   ) as GenerationProviderName;
+
+  if (provider === "command-code") {
+    return {
+      provider,
+      model: safeCommandCodeModel(env.ZYQUOR_COMMAND_CODE_MODEL),
+      configured: true
+    };
+  }
 
   if (provider === "openrouter") {
     return {

@@ -146,7 +146,7 @@ export function systemPrompt(input: GenerateDraftCandidatesInput) {
     "Non-negotiable rules",
     "Never rank, schedule, fetch/browse, decide whether to post, or claim link access.",
     `Standalone posts only, no teasers/thread continuations. Maximum ${limit} characters each.`,
-    "Use supplied facts only. Each candidate needs a fact, number, name, or example. Never invent details/causality; narrow thin claims.",
+    "Use supplied facts only. Never add names, tools, dates, quantities, examples, comparisons, or causal claims absent from context; generalize unsupported detail.",
     "Source-backed posts: preserve the exact URL; attribute only with supplied <source-title>.",
     "No hashtags/emoji unless the idea contains them. Never write 'thread 🧵'.",
     "Never expose internal terms: SourcePacket, source context, candidate/draft, metadata, JSON, prompt, grounded facts.",
@@ -183,7 +183,7 @@ export function userPrompt(input: GenerateDraftCandidatesInput) {
   const replyInstruction = input.replyContext
     ? `You are drafting a reply to @${input.replyContext.authorHandle}'s post at ${input.replyContext.url}. Write a useful reply using the user's description of the target post below. Do not claim to have opened or read the linked post.`
     : "";
-  return `${replyInstruction ? `${replyInstruction}\n\n` : ""}Context to turn into public X posts:\n${normalizeIdea(input.idea)}${renderSourceContext(input.context)}`;
+  return `${replyInstruction ? `${replyInstruction}\n\n` : ""}Allowed factual context to turn into public X posts:\n<provided-context>\n${normalizeIdea(input.idea)}${renderSourceContext(input.context)}\n</provided-context>`;
 }
 
 export function linePrompt(input: GenerateDraftCandidatesInput) {
@@ -204,7 +204,7 @@ export function linePrompt(input: GenerateDraftCandidatesInput) {
     "No hook formulas, colon-led setups, promotional adjective piles, LinkedIn announcement voice, engagement-bait endings, weak trailing words, or 'thread 🧵'.",
     "Write naturally lowercase-compatible text; never rely on capitals for emphasis.",
     "Never mention SourcePacket, source packet, compact input, candidate, draft, metadata, prompt, or distillation.",
-    "Use only supplied facts. Never fetch, rank, schedule, or decide whether to post.",
+    "Use only supplied facts. Do not add named tools, dates, quantities, benchmarks, workflows, measurements, or examples absent from the idea. Never fetch, rank, schedule, or decide whether to post.",
     "No hashtags unless the idea contains one. No emojis unless the idea contains one.",
     `Banned AI/account phrases, never use: ${bannedPhraseList(input.bannedPhrases)}.`,
     ...PUNCTUATION_RULES

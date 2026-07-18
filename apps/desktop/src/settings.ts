@@ -7,6 +7,7 @@ export interface DesktopSettings {
   enableBrowserPrepare?: boolean;
   enableBrowserPost?: boolean;
   closeChromeAfterPost?: boolean;
+  commandCodePath?: string;
   llmProvider?: string;
   openrouterApiKey?: string;
   geminiApiKey?: string;
@@ -109,6 +110,7 @@ export function applySettingsToEnv(settings: DesktopSettings): void {
     ZYQUOR_ENABLE_BROWSER_PREPARE: settings.enableBrowserPrepare !== undefined ? String(Number(settings.enableBrowserPrepare)) : undefined,
     ZYQUOR_ENABLE_BROWSER_POST: settings.enableBrowserPost !== undefined ? String(Number(settings.enableBrowserPost)) : undefined,
     ZYQUOR_BROWSER_CLOSE_AFTER_POST: settings.closeChromeAfterPost !== undefined ? String(Number(settings.closeChromeAfterPost)) : undefined,
+    ZYQUOR_COMMAND_CODE_PATH: settings.commandCodePath,
     ZYQUOR_LLM_PROVIDER: settings.llmProvider,
     ZYQUOR_OPENROUTER_API_KEY: settings.openrouterApiKey,
     ZYQUOR_GEMINI_API_KEY: settings.geminiApiKey,
@@ -124,6 +126,9 @@ export function applySettingsToEnv(settings: DesktopSettings): void {
 }
 
 export function applyDesktopEnvDefaults(settings: DesktopSettings): void {
+  process.env.ZYQUOR_LLM_PROVIDER ??= "command-code";
+  process.env.ZYQUOR_COMMAND_CODE_MODEL ??= "deepseek/deepseek-v4-pro";
+  process.env.ZYQUOR_ENABLE_BROWSER_PREPARE ??= String(Number(settings.enableBrowserPrepare ?? true));
   process.env.ZYQUOR_BROWSER_CHANNEL ??= 'chrome';
   process.env.ZYQUOR_BROWSER_CDP_URL ??= 'http://127.0.0.1:' + (settings.cdpPort ?? 9222);
   process.env.ZYQUOR_OLLAMA_BASE_URL ??= 'http://127.0.0.1:11434';

@@ -10,6 +10,7 @@ export function StylePanel({ panel, styleProfileId }: { panel: PanelProps; style
   const [systemPromptExtra, setSystemPromptExtra] = useState("");
   const [objective, setObjective] = useState("Maximize useful reach, views, and reputation without cheap spam.");
   const [bannedPhrases, setBannedPhrases] = useState("game changer\nunlock\n10x");
+  const [examplePosts, setExamplePosts] = useState("");
 
   async function loadStyleProfile() {
     setLoadError(null);
@@ -22,6 +23,7 @@ export function StylePanel({ panel, styleProfileId }: { panel: PanelProps; style
         : "Maximize useful reach, views, and reputation without cheap spam."
     );
     setBannedPhrases(profile.bannedPhrases.join("\n"));
+    setExamplePosts(profile.examplePosts.join("\n\n"));
   }
 
   useEffect(() => {
@@ -35,6 +37,7 @@ export function StylePanel({ panel, styleProfileId }: { panel: PanelProps; style
         method: "PATCH",
         body: JSON.stringify({
           bannedPhrases: bannedPhrases.split(/\n+/).map((line) => line.trim()).filter(Boolean),
+          examplePosts: examplePosts.split(/\n{2,}/).map((post) => post.trim()).filter(Boolean),
           rules: { ...styleProfile.rules, objective, systemPromptExtra },
           tone: styleProfile.tone
         })
@@ -65,6 +68,10 @@ export function StylePanel({ panel, styleProfileId }: { panel: PanelProps; style
         <label>
           Banned phrases
           <textarea value={bannedPhrases} onChange={(event) => setBannedPhrases(event.target.value)} rows={5} />
+        </label>
+        <label>
+          Example posts, separated by a blank line
+          <textarea value={examplePosts} onChange={(event) => setExamplePosts(event.target.value)} rows={8} />
         </label>
         <label>
           Extra system prompt

@@ -15,11 +15,11 @@ export function GenerationPanel({ panel, state }: { panel: PanelProps; state: Ge
   const { generation, generationModelOptions, setGeneration, setGenerationModelOptions } = state;
   const [generationDraft, setGenerationDraft] = useState({
     model: generation?.model ?? "",
-    provider: generation?.provider ?? "openrouter"
+    provider: generation?.provider ?? "command-code"
   });
   const providerOptions = Object.keys(generationModelOptions).length
     ? Object.keys(generationModelOptions)
-    : ["openrouter", "gemini", "ollama"];
+    : ["command-code", "openrouter", "gemini", "ollama"];
   const selectedProviderModels = generationModelOptions[generationDraft.provider] ?? [];
   const selectedProviderHasModel = selectedProviderModels.includes(generationDraft.model);
 

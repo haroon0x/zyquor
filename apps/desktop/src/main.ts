@@ -94,7 +94,11 @@ async function main() {
   logLine("info", "app boot");
 
   // Load desktop settings and apply to env before packages read process.env.
-  const desktopSettings = loadSettings(process.env.ZYQUOR_DATA_ROOT);
+  const desktopSettings: DesktopSettings = {
+    enableBrowserPrepare: true,
+    llmProvider: "command-code",
+    ...loadSettings(process.env.ZYQUOR_DATA_ROOT),
+  };
   applySettingsToEnv(desktopSettings);
   applyDesktopEnvDefaults(desktopSettings);
 
@@ -373,6 +377,18 @@ async function main() {
   ]);
   tray.setToolTip("Zyquor");
   tray.setContextMenu(contextMenu);
+
+  void desktopLaunchPostingChrome({ accountId: "account_personal" })
+    .then((result) => {
+      const message = result.launched ? "Chrome connected" : result.reason === "already-running" ? "Chrome connected" : `Chrome unavailable: ${result.reason ?? "unknown"}`;
+      logLine(result.launched || result.reason === "already-running" ? "info" : "warn", `startup chrome: ${message}`);
+      tray.setToolTip(`Zyquor — ${message}`);
+    })
+    .catch((error) => {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      logLine("error", `startup chrome error: ${message}`);
+      tray.setToolTip(`Zyquor — Chrome error`);
+    });
 
   if (app.isPackaged) {
     const { autoUpdater } = electronUpdater;

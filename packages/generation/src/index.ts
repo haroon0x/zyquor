@@ -1,5 +1,6 @@
 import { resolveGenerationProviderConfig } from "./config.js";
 import { createGeminiGenerationProvider } from "./providers/gemini.js";
+import { createCommandCodeGenerationProvider } from "./providers/command-code.js";
 import { createOllamaGenerationProvider } from "./providers/ollama.js";
 import { createOpenRouterGenerationProvider } from "./providers/openrouter.js";
 import type { GenerationEnvironment } from "./config.js";
@@ -7,12 +8,14 @@ import type { DraftGenerationProvider, FetchLike } from "./types.js";
 
 export type { GenerationEnvironment } from "./config.js";
 export {
+  COMMAND_CODE_MODELS,
   GEMINI_MODELS,
   GENERATION_MODEL_OPTIONS,
   OLLAMA_MODELS,
   OPENROUTER_MODELS,
   resolveGenerationProviderConfig
 } from "./config.js";
+export { createCommandCodeGenerationProvider } from "./providers/command-code.js";
 export { createGeminiGenerationProvider } from "./providers/gemini.js";
 export { createOllamaGenerationProvider, stripThinking } from "./providers/ollama.js";
 export { createOpenRouterGenerationProvider } from "./providers/openrouter.js";
@@ -38,6 +41,13 @@ export function createGenerationProviderFromEnv(
   fetchImpl: FetchLike = fetch
 ): DraftGenerationProvider {
   const config = resolveGenerationProviderConfig(env);
+
+  if (config.provider === "command-code") {
+    return createCommandCodeGenerationProvider({
+      ...(env.ZYQUOR_COMMAND_CODE_PATH ? { command: env.ZYQUOR_COMMAND_CODE_PATH } : {}),
+      model: config.model
+    });
+  }
 
   if (config.provider === "ollama") {
     return createOllamaGenerationProvider({

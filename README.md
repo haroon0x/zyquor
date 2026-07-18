@@ -16,7 +16,7 @@ idea/source -> generated draft -> review/edit or autopost approval -> job -> ded
 - `packages/core`: shared domain types, Zod schemas, lifecycle transitions.
 - `packages/accounts`: account config helpers.
 - `packages/adapters`: source ingestion and crawl service adapters.
-- `packages/generation`: OpenRouter, Ollama, and Gemini draft generation providers.
+- `packages/generation`: Command Code, OpenRouter, Ollama, and Gemini draft generation providers.
 - `packages/storage`: SQLite/Drizzle persistence surface.
 - `packages/browser`: Playwright prepare/post flow.
 
@@ -92,7 +92,17 @@ If you want bare `zyquor` instead of `./zyquor`, install/link the repo command o
 
 ## Draft Generation
 
-Default provider selection is resolved from saved generation config and environment. OpenRouter, Gemini, Ollama, and deterministic mock are supported.
+Default provider selection is resolved from saved generation config and environment. Command Code with DeepSeek v4 Pro is the default; OpenRouter, Gemini, and Ollama providers remain available.
+
+Install and authenticate Command Code once before starting Zyquor:
+
+```bash
+npm install -g command-code@latest
+command-code login
+command-code status
+```
+
+Zyquor runs Command Code in non-interactive, read-only plan mode with `deepseek/deepseek-v4-pro`. Reasoning stays at the model's default. Candidates that drop or change supplied URLs or introduce unsupported numbers are rejected and regenerated once. On native Windows, install Command Code natively so the Electron app can launch it; a copy installed only inside WSL is not visible to a native Windows app. If it is not on the desktop app's `PATH`, set the full executable path in Settings.
 
 Create a local `.env` before running generation:
 
@@ -100,15 +110,14 @@ Create a local `.env` before running generation:
 cp .env.example .env
 ```
 
-Use OpenRouter for best tweet quality:
+Use a different provider if Command Code is unavailable:
 
 ```bash
 cp .env.example .env
 # edit .env:
 # ZYQUOR_LLM_PROVIDER=openrouter
 # ZYQUOR_OPENROUTER_API_KEY=...
-# Full free-model allowlist is in OPENROUTER_MODELS in packages/generation/src/index.ts.
-# Default: openrouter/owl-alpha
+# Full free-model allowlist is in OPENROUTER_MODELS in packages/generation/src/config.ts.
 pnpm dev:api
 ```
 
@@ -241,7 +250,7 @@ curl http://127.0.0.1:3001/ingest-sources
 
 ## Desktop app (Windows)
 
-Zyquor ships as a system-tray Electron desktop app for Windows. The API, worker, and web UI run in-process instead of separate terminals. The window can be closed to tray, keeping the worker alive in the background.
+Zyquor ships as a system-tray Electron desktop app for Windows. The API, worker, and web UI run in-process instead of separate terminals. Starting the app also starts or reconnects its dedicated posting Chrome profile. The window can be closed to tray, keeping the worker alive in the background.
 
 ```bash
 pnpm dev:desktop        # build and launch
@@ -249,7 +258,10 @@ pnpm smoke:desktop      # headless logic smoke (no GUI required)
 pnpm dist:desktop       # produce NSIS installer (CI: dist-desktop-win job)
 ```
 
+Run the generated NSIS installer from `apps/desktop/release`. The installer creates `Zyquor` shortcuts on the Windows desktop and Start menu using the packaged app icon. Launch Zyquor from that desktop shortcut, sign in to X once in the dedicated Chrome window, and leave final browser posting disabled until prepare-only insertion has been checked.
+
 - **Data root**: `%APPDATA%/Zyquor` (overridable via `ZYQUOR_DATA_ROOT`).
 - **Settings**: `settings.json` in the data root — edit from the Desktop Settings panel in the UI.
-- **Posting Chrome**: launch from the tray menu; it spawns a dedicated Chrome profile with CDP on port 9222.
-- **App icon and code signing** are not yet configured. Windows verification is manual for now.
+- **Posting Chrome**: starts with the desktop app and remains available from the tray menu; it uses a dedicated Chrome profile with CDP on port 9222.
+- **App icon**: generated from `apps/desktop/build/icon.svg` and used by the window, tray, installer, and shortcuts.
+- **Code signing**: signed release builds use Azure Artifact Signing; unsigned local installers still trigger normal Windows trust warnings.

@@ -176,25 +176,27 @@ ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
 
 - Resolution priority: saved `data/generation.json` > `.env` file > shell `process.env`.
 - Shell env vars take precedence over `.env` — the dotenv loader skips already-set vars.
+- The default provider is `command-code` with `deepseek/deepseek-v4-pro` and the model's default reasoning effort.
+- Command Code must be installed and authenticated on the same operating system that runs Zyquor. Set `ZYQUOR_COMMAND_CODE_PATH` when it is not available on `PATH`.
 - Setting `ZYQUOR_LLM_PROVIDER=openrouter` without `ZYQUOR_OPENROUTER_API_KEY` crashes the API on startup. Use `auto` when the key is not ready.
-- Preferred: OpenRouter. Default model is `openrouter/owl-alpha`. The full free-model allowlist lives in `OPENROUTER_MODELS` in `packages/generation/src/index.ts`. Setting a model not in the list silently coerces to the default.
+- The OpenRouter fallback is restricted to the free-model allowlist in `OPENROUTER_MODELS` in `packages/generation/src/config.ts`. Setting a model not in the list silently coerces to the default.
 
 ## LLM Providers
 
 Provider selection uses environment variables:
 
 ```bash
-ZYQUOR_LLM_PROVIDER=mock
+ZYQUOR_LLM_PROVIDER=command-code ZYQUOR_COMMAND_CODE_MODEL=deepseek/deepseek-v4-pro
 ZYQUOR_LLM_PROVIDER=openrouter ZYQUOR_OPENROUTER_API_KEY=... ZYQUOR_OPENROUTER_MODEL=nvidia/nemotron-3-super-120b-a12b:free
 ZYQUOR_LLM_PROVIDER=ollama ZYQUOR_OLLAMA_BASE_URL=http://127.0.0.1:11434 ZYQUOR_OLLAMA_MODEL=llama3.1
 ZYQUOR_LLM_PROVIDER=gemini ZYQUOR_GEMINI_API_KEY=... ZYQUOR_GEMINI_MODEL=gemini-2.5-flash
 ```
 
-`mock` is deterministic and offline. `openrouter` uses chat completions. `ollama` calls `/api/generate` with `stream: false` and JSON output. `gemini` calls Gemini `models/{model}:generateContent` with JSON response config.
+`command-code` pipes the generation prompt to the authenticated CLI in headless, read-only plan mode. `openrouter` uses chat completions. `ollama` calls `/api/generate` with `stream: false` and JSON output. `gemini` calls Gemini `models/{model}:generateContent` with JSON response config.
 
 ## Desktop app (Windows)
 
-Zyquor ships as a system-tray Electron desktop app (`apps/desktop`). The API, worker, and web UI run in-process.
+Zyquor ships as a system-tray Electron desktop app (`apps/desktop`). The API, worker, and web UI run in-process. Starting the app launches or reconnects the dedicated posting Chrome profile.
 
 ```bash
 pnpm dev:desktop        # build and launch
@@ -204,7 +206,7 @@ pnpm dist:desktop       # produce NSIS installer (CI: dist-desktop-win job)
 
 - **Data root**: `%APPDATA%/Zyquor` on Windows (overridable via `ZYQUOR_DATA_ROOT`).
 - **Settings**: `settings.json` in the data root instead of `.env`. UI panel gated on `window.zyquor`.
-- **Posting Chrome**: tray menu action spawns a dedicated Chrome profile with CDP on port 9222.
+- **Posting Chrome**: starts with the app and remains available as a tray action, using a dedicated Chrome profile with CDP on port 9222.
 - **Main-process logging**: `logs/main.log` under the data root (rotates at 5 MB).
 - **Windows releases** use the configured app icon and can be signed through Azure Trusted Signing. See [Windows code signing](code-signing.md).
 - **Entry points**: `src/main.ts` (main process), `src/preload.ts` (context bridge), `src/chrome.ts` (CDP launch), `src/settings.ts` (JSON config), `src/log.ts` (file logging).

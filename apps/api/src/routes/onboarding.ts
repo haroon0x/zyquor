@@ -6,6 +6,8 @@ function hasExplicitGenerationConfig(deps: AppDeps) {
   const env = deps.generationEnv;
   return Boolean(
     (env.ZYQUOR_LLM_PROVIDER && env.ZYQUOR_LLM_PROVIDER.toLowerCase() !== "auto") ||
+    env.ZYQUOR_COMMAND_CODE_MODEL ||
+    env.ZYQUOR_COMMAND_CODE_PATH ||
     env.ZYQUOR_OPENROUTER_API_KEY ||
     env.ZYQUOR_OPENROUTER_MODEL ||
     env.ZYQUOR_OPENROUTER_BASE_URL ||

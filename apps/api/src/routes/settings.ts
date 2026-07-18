@@ -6,6 +6,7 @@ const SENSITIVE_KEYS = new Set(["openrouterApiKey", "geminiApiKey"]);
 const RESTART_REQUIRED_KEYS = new Set([
   "enableBrowserPrepare",
   "enableBrowserPost",
+  "commandCodePath",
   "llmProvider",
   "openrouterApiKey",
   "geminiApiKey",

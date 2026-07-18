@@ -202,6 +202,35 @@ function cleanLineCandidate(line: string) {
     .trim();
 }
 
+function urlsIn(text: string) {
+  return (text.match(/https?:\/\/[^\s<>]+/gi) ?? []).map((url) => url.replace(/[),.;!?]+$/, ""));
+}
+
+function numberTokensIn(text: string) {
+  const withoutUrls = text.replace(/https?:\/\/[^\s<>]+/gi, "");
+  return (withoutUrls.match(/\b\d[\d,.]*(?:%|[a-z]+)?\b/gi) ?? []).map((token) => token.toLowerCase());
+}
+
+function suppliedText(input: GenerateDraftCandidatesInput) {
+  return [
+    input.idea,
+    input.context?.title,
+    input.context?.url,
+    input.context?.author,
+    input.context?.sourceName,
+    ...(input.context?.facts ?? [])
+  ].filter((value): value is string => typeof value === "string").join("\n");
+}
+
+function isGroundedCandidate(text: string, input: GenerateDraftCandidatesInput, provider: GenerationProviderName) {
+  if (provider !== "command-code") return true;
+  const supplied = suppliedText(input);
+  const requiredUrls = [...new Set(urlsIn(supplied))];
+  if (requiredUrls.some((url) => !text.includes(url))) return false;
+  const suppliedNumbers = new Set(numberTokensIn(supplied));
+  return numberTokensIn(text).every((token) => suppliedNumbers.has(token));
+}
+
 function parseCandidateTexts(raw: string, count: number) {
   try {
     const parsed = parseJsonCandidateTexts(raw, count);
@@ -233,6 +262,7 @@ export function candidatesFromText(
       return (
         text.length <= limit &&
         isCleanTweetText(text) &&
+        isGroundedCandidate(text, input, provider) &&
         all.findIndex((candidate) => candidate.toLowerCase().replace(/\s+/g, " ") === normalized) === index
       );
     });

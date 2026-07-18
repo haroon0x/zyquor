@@ -37,6 +37,7 @@ export const SOURCE_TYPES = [
 ] as const;
 
 export const LLM_PROVIDERS = [
+  "command-code",
   "openrouter",
   "gemini",
   "ollama"

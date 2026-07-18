@@ -7,6 +7,7 @@ export interface DesktopSettingsData {
   enableBrowserPrepare?: boolean;
   enableBrowserPost?: boolean;
   closeChromeAfterPost?: boolean;
+  commandCodePath?: string;
   llmProvider?: string;
   openrouterApiKey?: string;
   geminiApiKey?: string;
