@@ -172,6 +172,7 @@ const GENERIC_TOPIC_WORDS = new Set([
 ]);
 const DEFAULT_MAX_SAME_HOST_POSTS_PER_DAY = 100;
 const DEFAULT_MAX_GITHUB_POSTS_PER_DAY = 100;
+const MAX_SOURCE_AGE_MS = 48 * 60 * 60 * 1000;
 
 function envPositiveInt(name: string, fallback: number) {
   const raw = process.env[name];
@@ -251,6 +252,15 @@ function itemSourceKey(item: SourceItem) {
   }
 }
 
+function isFreshSourceItem(item: SourceItem, now: Date) {
+  const raw = item.metadata?.published ?? item.metadata?.pubDate;
+  if (typeof raw !== "string" || !raw.trim()) return false;
+  const publishedAt = Date.parse(raw);
+  if (!Number.isFinite(publishedAt)) return false;
+  const age = now.getTime() - publishedAt;
+  return age >= -5 * 60 * 1000 && age <= MAX_SOURCE_AGE_MS;
+}
+
 function prioritizeSourceItems(items: SourceItem[]) {
   const groups = new Map<string, SourceItem[]>();
   for (const item of [...items].sort((a, b) => sourceRelevanceScore(b) - sourceRelevanceScore(a))) {
@@ -309,7 +319,8 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
       }
 
       const remaining = config.maxPacketsPerDay - todayPackets.length;
-      const items = prioritizeSourceItems(await adapter.fetch(config.metadata));
+      const now = options.now ?? new Date();
+      const items = prioritizeSourceItems((await adapter.fetch(config.metadata)).filter((item) => isFreshSourceItem(item, now)));
       let createdForConfig = 0;
 
       for (const item of items) {

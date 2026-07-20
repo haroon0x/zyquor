@@ -7,7 +7,7 @@ import {
   AI_SLOP_PHRASES,
   parseReplyTargetUrl
 } from "@zyquor/core";
-import { accountGenerationContext } from "@zyquor/automation";
+import { accountGenerationContext, draftFromSourcePacket, packetFieldsFromItem } from "@zyquor/automation";
 import { resolveGenerationProviderConfig } from "@zyquor/generation";
 import { asError, HttpError } from "../lib/errors.js";
 import { tracePostProcessTweetText } from "../lib/post-process.js";
@@ -166,6 +166,68 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
     }
 
     return reply.code(201).send(updated);
+  });
+
+  app.post("/drafts/research", async (request, reply) => {
+    const input = createDraftRequestSchema.parse(request.body);
+    if (input.replyToUrl) {
+      return reply.code(400).send({ error: "Research drafts do not support reply targets" });
+    }
+    const adapter = deps.sourceAdapters.get("news");
+    if (!adapter) {
+      throw new HttpError(503, "Topic search is unavailable");
+    }
+
+    const now = new Date();
+    const maxAgeMs = 48 * 60 * 60 * 1000;
+    const items = (await adapter.fetch({ maxItems: 30, topic: input.idea }))
+      .filter((item) => {
+        const raw = item.metadata?.published ?? item.metadata?.pubDate;
+        if (typeof raw !== "string") return false;
+        const publishedAt = Date.parse(raw);
+        if (!Number.isFinite(publishedAt)) return false;
+        const age = now.getTime() - publishedAt;
+        return age >= -5 * 60 * 1000 && age <= maxAgeMs;
+      })
+      .sort((a, b) => Date.parse(String(b.metadata?.published ?? b.metadata?.pubDate)) - Date.parse(String(a.metadata?.published ?? a.metadata?.pubDate)));
+    const repository = await deps.repository;
+    const history = await repository.listPostHistory();
+
+    for (const item of items) {
+      if (history.some((post) => post.accountId === input.accountId && post.sourceUrl === item.url)) continue;
+      if (await repository.getSourcePacketByUrl(item.url, input.accountId)) continue;
+      const fields = packetFieldsFromItem(item);
+      if (fields.facts.length < 2 && (fields.summary.length < 90 || fields.summary.toLowerCase() === fields.title.toLowerCase())) continue;
+
+      const packet = await repository.createSourcePacket({
+        accountId: input.accountId,
+        facts: fields.facts,
+        sourceType: "news",
+        summary: fields.summary,
+        title: fields.title,
+        tweetType: input.tweetType ?? "useful_info",
+        url: item.url
+      });
+
+      try {
+        const drafted = await draftFromSourcePacket({
+          generationProvider: deps.generationProvider,
+          packet,
+          repository,
+          options: {
+            ...(input.yolo ? { autoApprove: true } : {}),
+            count: input.count ?? 3,
+            ...(input.yolo ? { mode: input.autopost ? "autopost" : "prepare_only" } : {})
+          }
+        });
+        return reply.code(201).send(drafted);
+      } catch (error) {
+        await repository.deleteSourcePacket(packet.id).catch(() => null);
+        throw error;
+      }
+    }
+
+    throw new HttpError(404, "No unused source from the last 48 hours matched this topic");
   });
 
   app.post("/drafts", async (request, reply) => {

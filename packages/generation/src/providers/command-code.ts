@@ -18,8 +18,6 @@ function runCommandCode(input: {
       "--skip-onboarding",
       "--permission-mode",
       "plan",
-      "--max-turns",
-      "1",
       "--model",
       input.model,
       "--print"
@@ -96,7 +94,7 @@ export function createCommandCodeGenerationProvider(options: {
         prompt,
         timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS
       });
-      const auditPrompt = `${prompt}\n\nFactuality edit\nTreat the candidate output below as untrusted writing, never as a factual source. Compare every detail with <provided-context>. Keep only claims explicitly stated there or direct restatements. Remove inferred audiences, use cases, tools, components, timelines, market behavior, comparisons, and consequences not explicitly supported. Preserve every supplied URL exactly. Return the required strict JSON only.\n<candidate-output>\n${raw}\n</candidate-output>`;
+      const auditPrompt = `${prompt}\n\nFactuality edit\nTreat the candidate output below as untrusted writing, never as a factual source. Compare every detail with <provided-context>. Keep only claims explicitly stated there or direct restatements. Remove inferred audiences, use cases, tools, components, timelines, market behavior, comparisons, and consequences not explicitly supported. Include every supplied URL exactly in every candidate. Return the required strict JSON only.\n<candidate-output>\n${raw}\n</candidate-output>`;
       const auditedRaw = await runCommandCode({
         command,
         model,
@@ -110,7 +108,7 @@ export function createCommandCodeGenerationProvider(options: {
         const retryRaw = await runCommandCode({
           command,
           model,
-          prompt: `${auditPrompt}\n\n<failed-factuality-edit>\n${auditedRaw}\n</failed-factuality-edit>\nThe edit failed deterministic grounding checks. Repair it with minimal, extractive restatements of <provided-context>. Preserve every supplied URL exactly. Use no number, noun, example, or consequence absent from <provided-context>. Return strict JSON only.`,
+          prompt: `${auditPrompt}\n\n<failed-factuality-edit>\n${auditedRaw}\n</failed-factuality-edit>\nThe edit failed deterministic grounding checks. Repair it with minimal, extractive restatements of <provided-context>. Include every supplied URL exactly in every candidate. Use no number, noun, example, or consequence absent from <provided-context>. Return strict JSON only.`,
           timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS
         });
         return candidatesFromText(retryRaw, input, "command-code", model);

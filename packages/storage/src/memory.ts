@@ -9,7 +9,7 @@ import type {
   StyleProfile,
   IngestConfig
 } from "@zyquor/core";
-import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor, dataPath, parseReplyTargetUrl } from "@zyquor/core";
+import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor, dataPath, parseReplyTargetUrl, xPostCharacterLength } from "@zyquor/core";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ZyquorRepository, RepositorySnapshot, ContentFingerprint, IngestRun } from "./types.js";
@@ -26,7 +26,7 @@ export interface MemoryRepositoryOptions {
 }
 
 function assertTweetTextFitsLimit(text: string) {
-  if (text.length > X_FREE_POST_CHARACTER_LIMIT) {
+  if (xPostCharacterLength(text) > X_FREE_POST_CHARACTER_LIMIT) {
     throw new Error(`Post text exceeds ${X_FREE_POST_CHARACTER_LIMIT} characters`);
   }
 }

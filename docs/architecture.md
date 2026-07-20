@@ -8,6 +8,12 @@ Core flow:
 idea/source -> generation -> review/edit or autopost approval -> durable job -> browser prepare/post -> post history
 ```
 
+Topic flow:
+
+```text
+topic or rough post -> fresh topic search -> source packet -> Command Code candidates -> review/edit or autopost approval
+```
+
 Automated source flow:
 
 ```text
@@ -36,6 +42,7 @@ ingest config -> source adapter -> source packet -> one final generated draft ->
 - Source packets can produce up to two posts per account.
 - Post history stores source metadata so posted text can be traced back to packet/source/tweet type.
 - Aggregated source health cools down upstreams that fail or return no items repeatedly.
+- Automated ingest and topic search reject undated sources and sources older than 48 hours.
 
 ## Source Health
 

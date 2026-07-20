@@ -8,7 +8,7 @@ import type {
   SourcePacket,
   StyleProfile
 } from "@zyquor/core";
-import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor, dataPath, parseReplyTargetUrl } from "@zyquor/core";
+import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor, dataPath, parseReplyTargetUrl, xPostCharacterLength } from "@zyquor/core";
 import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
@@ -201,7 +201,7 @@ CREATE INDEX IF NOT EXISTS idx_ingest_configs_account_id ON ingest_configs(accou
 `;
 
 function assertTweetTextFitsLimit(text: string) {
-  if (text.length > X_FREE_POST_CHARACTER_LIMIT) {
+  if (xPostCharacterLength(text) > X_FREE_POST_CHARACTER_LIMIT) {
     throw new Error(`Post text exceeds ${X_FREE_POST_CHARACTER_LIMIT} characters`);
   }
 }

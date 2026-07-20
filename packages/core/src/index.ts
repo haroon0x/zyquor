@@ -25,6 +25,12 @@ export const TWEET_TYPES = [
 ] as const;
 
 export const X_FREE_POST_CHARACTER_LIMIT = 280;
+export const X_URL_CHARACTER_LENGTH = 23;
+
+export function xPostCharacterLength(text: string) {
+  const urls = (text.match(/https?:\/\/[^\s<>]+/gi) ?? []).map((url) => url.replace(/[),.;!?]+$/, ""));
+  return urls.reduce((length, url) => length - url.length + X_URL_CHARACTER_LENGTH, text.length);
+}
 
 export const SOURCE_TYPES = [
   "manual",
@@ -157,13 +163,19 @@ export const styleProfileSchema = z.object({
   updatedAt: isoTimestampSchema
 });
 
+function postTextSchema(minLength = 0) {
+  return z.string().min(minLength).refine((text) => xPostCharacterLength(text) <= X_FREE_POST_CHARACTER_LIMIT, {
+    message: `Post text exceeds ${X_FREE_POST_CHARACTER_LIMIT} weighted characters`
+  });
+}
+
 export const draftSchema = z.object({
   id: idSchema,
   accountId: idSchema,
   sourceType: z.enum(["text"]),
   sourceInput: z.string().min(1).max(4000),
-  generatedText: z.string().max(X_FREE_POST_CHARACTER_LIMIT).nullable(),
-  editedText: z.string().max(X_FREE_POST_CHARACTER_LIMIT).nullable(),
+  generatedText: postTextSchema().nullable(),
+  editedText: postTextSchema().nullable(),
   replyTo: replyTargetSchema.optional(),
   replyToUrl: z.string().url().nullable().optional(),
   metadata: z.record(z.unknown()),
@@ -175,7 +187,7 @@ export const draftSchema = z.object({
 export const draftCandidateSchema = z.object({
   id: idSchema,
   draftId: idSchema,
-  text: z.string().min(1).max(X_FREE_POST_CHARACTER_LIMIT),
+  text: postTextSchema(1),
   score: z.record(z.unknown()),
   selected: z.boolean(),
   createdAt: isoTimestampSchema
@@ -211,7 +223,7 @@ export const postHistorySchema = z.object({
   id: idSchema,
   accountId: idSchema,
   draftId: idSchema,
-  postedText: z.string().min(1).max(X_FREE_POST_CHARACTER_LIMIT),
+  postedText: postTextSchema(1),
   postUrl: z.string().url().nullable(),
   sourcePacketId: idSchema.nullable(),
   sourceType: z.enum(SOURCE_TYPES).nullable(),
@@ -330,11 +342,11 @@ export const updateStyleProfileRequestSchema = z.object({
 
 export const selectDraftCandidateRequestSchema = z.object({
   candidateId: idSchema,
-  editedText: z.string().min(1).max(X_FREE_POST_CHARACTER_LIMIT).optional()
+  editedText: postTextSchema(1).optional()
 });
 
 export const approveDraftRequestSchema = z.object({
-  editedText: z.string().min(1).max(X_FREE_POST_CHARACTER_LIMIT),
+  editedText: postTextSchema(1),
   mode: z.enum(POSTING_MODES).optional(),
   scheduledFor: isoTimestampSchema.nullable().optional()
 });

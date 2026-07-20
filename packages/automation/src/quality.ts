@@ -1,5 +1,5 @@
 import type { PostHistory, SourcePacket } from "@zyquor/core";
-import { AI_SLOP_PHRASES, X_FREE_POST_CHARACTER_LIMIT } from "@zyquor/core";
+import { AI_SLOP_PHRASES, X_FREE_POST_CHARACTER_LIMIT, xPostCharacterLength } from "@zyquor/core";
 import { postProcessTweetText } from "@zyquor/generation";
 
 export interface PostQualityInput {
@@ -82,7 +82,7 @@ export function validateSourcePostQuality(input: PostQualityInput): PostQualityR
   const evidence = sourceEvidence(input.packet);
 
   if (text.length === 0) reasons.push("empty_post_text");
-  if (text.length > X_FREE_POST_CHARACTER_LIMIT) reasons.push("post_text_too_long_after_quality_repair");
+  if (xPostCharacterLength(text) > X_FREE_POST_CHARACTER_LIMIT) reasons.push("post_text_too_long_after_quality_repair");
   if (sourceNeedsLink(input.packet) && !containsUrl(text)) reasons.push("missing_required_source_url");
   if (LOW_SIGNAL_TITLE_PATTERNS.some((pattern) => pattern.test(input.packet.title))) reasons.push("low_signal_promotional_source");
   if (recentSamePacketPost(input)) reasons.push("same_source_packet_cooldown");

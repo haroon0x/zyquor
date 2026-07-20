@@ -1,5 +1,6 @@
 import type { SourceAdapter, SourceItem, CrawlService } from "./types.js";
 import { createHackerNewsAdapter } from "./hackernews.js";
+import { createHackerNewsSearchAdapter } from "./hackernews-search.js";
 import { createRedditAdapter } from "./reddit.js";
 import { createTechCrunchAdapter } from "./techcrunch.js";
 import { createArxivAdapter } from "./arxiv.js";
@@ -7,6 +8,7 @@ import { createGitHubTrendingAdapter } from "./github.js";
 import { createProductHuntAdapter } from "./producthunt.js";
 import { createCompanyRssAdapter } from "./company-rss.js";
 import { createHiringAdapter } from "./hiring.js";
+import { createGdeltAdapter } from "./gdelt.js";
 
 export interface AggregatedItem extends SourceItem {
   source: string;
@@ -30,6 +32,7 @@ export interface AggregatorOptions {
   includeHiring?: boolean;
   now?: Date;
   requireTopicMatch?: boolean;
+  topic?: string;
 }
 
 export interface SourceHealthSnapshot {
@@ -77,14 +80,23 @@ export async function aggregateSources(options: AggregatorOptions = {}): Promise
     includeHiring = true,
     healthCooldownMs = DEFAULT_HEALTH_COOLDOWN_MS,
     now = new Date(),
-    requireTopicMatch = false
+    requireTopicMatch = false,
+    topic
   } = options;
 
+  const query = topicQuery(topic);
+
   const adapters: Array<{ adapter: SourceAdapter; name: string }> = [
-    { adapter: createHackerNewsAdapter({ crawlService: crawlService!, maxItems: 10 }), name: "hackernews" }
+    query
+      ? { adapter: createHackerNewsSearchAdapter({ maxItems: 12, now, topic: query }), name: "hackernews" }
+      : { adapter: createHackerNewsAdapter({ crawlService: crawlService!, maxItems: 10 }), name: "hackernews" }
   ];
 
-  if (includeExpandedHackerNews) {
+  if (query) {
+    adapters.unshift({ adapter: createGdeltAdapter({ maxItems: 20, topic: query }), name: "gdelt" });
+  }
+
+  if (includeExpandedHackerNews && !query) {
     adapters.push(
       { adapter: createHackerNewsAdapter({ crawlService: crawlService!, feed: "beststories", maxItems: 8 }), name: "hackernews" },
       { adapter: createHackerNewsAdapter({ crawlService: crawlService!, feed: "newstories", maxItems: 8 }), name: "hackernews" },
@@ -93,7 +105,7 @@ export async function aggregateSources(options: AggregatorOptions = {}): Promise
     );
   }
 
-  if (includeReddit) {
+  if (includeReddit && !query) {
     adapters.push(
       { adapter: createRedditAdapter({ crawlService: crawlService!, subreddit: "programming", maxItems: 5, minScore: 20 }), name: "reddit" },
       { adapter: createRedditAdapter({ crawlService: crawlService!, subreddit: "technology", maxItems: 5, minScore: 20 }), name: "reddit" },
@@ -112,32 +124,41 @@ export async function aggregateSources(options: AggregatorOptions = {}): Promise
     );
   }
 
-  if (includeTechCrunch) {
+  if (includeTechCrunch && !query) {
     adapters.push({ adapter: createTechCrunchAdapter({ crawlService: crawlService!, sections: ["ai", "startups"], maxItems: 8 }), name: "techcrunch" });
   }
 
   if (includeArxiv) {
-    adapters.push({ adapter: createArxivAdapter({ categories: ["cs.AI", "cs.LG", "cs.CL", "cs.CV", "cs.RO", "cs.CR", "cs.DB", "cs.SE", "stat.ML", "econ.GN", "q-fin"], maxItems: 8 }), name: "arxiv" });
+    adapters.push({
+      adapter: query
+        ? createArxivAdapter({ searchQuery: `all:\"${query.replace(/\"/g, "")}\"`, maxItems: 12 })
+        : createArxivAdapter({ categories: ["cs.AI", "cs.LG", "cs.CL", "cs.CV", "cs.RO", "cs.CR", "cs.DB", "cs.SE", "stat.ML", "econ.GN", "q-fin"], maxItems: 8 }),
+      name: "arxiv"
+    });
   }
 
   if (includeGitHub) {
-    adapters.push(
-      { adapter: createGitHubTrendingAdapter({ topic: "ai", maxItems: 6 }), name: "github" },
-      { adapter: createGitHubTrendingAdapter({ topic: "llm", maxItems: 6 }), name: "github" },
-      { adapter: createGitHubTrendingAdapter({ topic: "agents", maxItems: 6 }), name: "github" },
-      { adapter: createGitHubTrendingAdapter({ topic: "developer-tools", maxItems: 6 }), name: "github" }
-    );
+    if (query) {
+      adapters.push({ adapter: createGitHubTrendingAdapter({ query, minStars: 0, maxItems: 12 }), name: "github" });
+    } else {
+      adapters.push(
+        { adapter: createGitHubTrendingAdapter({ topic: "ai", maxItems: 6 }), name: "github" },
+        { adapter: createGitHubTrendingAdapter({ topic: "llm", maxItems: 6 }), name: "github" },
+        { adapter: createGitHubTrendingAdapter({ topic: "agents", maxItems: 6 }), name: "github" },
+        { adapter: createGitHubTrendingAdapter({ topic: "developer-tools", maxItems: 6 }), name: "github" }
+      );
+    }
   }
 
-  if (includeProductHunt) {
+  if (includeProductHunt && !query) {
     adapters.push({ adapter: createProductHuntAdapter({ maxItems: 10 }), name: "producthunt" });
   }
 
-  if (includeCompanyRss) {
+  if (includeCompanyRss && !query) {
     adapters.push({ adapter: createCompanyRssAdapter({ maxItems: 12 }), name: "company-rss" });
   }
 
-  if (includeHiring) {
+  if (includeHiring && !query) {
     adapters.push({ adapter: createHiringAdapter({ maxItems: 8 }), name: "hiring" });
   }
 
@@ -167,10 +188,12 @@ export async function aggregateSources(options: AggregatorOptions = {}): Promise
       const text = `${item.title} ${item.content}`.toLowerCase();
       const hasPreferredTopic = PREFERRED_TOPIC_KEYWORDS.some(kw => text.includes(kw));
 
+      if (query && !isFreshTopicItem(item, now)) continue;
+      if (query && !matchesTopic(text, query)) continue;
       if (requireTopicMatch && !hasPreferredTopic && sourceName !== "hackernews") continue;
 
       const topicTags = extractTopicTags(text);
-      const freshness = calculateFreshness(item);
+      const freshness = calculateFreshness(item, now);
       const engagementScore = estimateEngagement(item, sourceName, topicTags, hasPreferredTopic);
 
       aggregated.push({
@@ -184,7 +207,9 @@ export async function aggregateSources(options: AggregatorOptions = {}): Promise
     }
   }
 
-  aggregated.sort((a, b) => b.engagementScore - a.engagementScore);
+  aggregated.sort((a, b) => query
+    ? b.freshness - a.freshness || b.engagementScore - a.engagementScore
+    : b.engagementScore - a.engagementScore);
   return aggregated.slice(0, maxItems);
 }
 
@@ -255,9 +280,11 @@ export function createAggregatedNewsAdapter(options: AggregatorOptions = {}): So
       const requireTopicMatch =
         typeof metadata.requireTopicMatch === "boolean" ? metadata.requireTopicMatch : options.requireTopicMatch;
       const maxItems = typeof metadata.maxItems === "number" ? metadata.maxItems : options.maxItems;
+      const topic = typeof metadata.topic === "string" ? metadata.topic : options.topic;
 
       return aggregateSources({
         ...options,
+        ...(topic ? { topic } : {}),
         ...(maxItems ? { maxItems } : {}),
         ...(includeReddit !== undefined ? { includeReddit } : {}),
         ...(includeTechCrunch !== undefined ? { includeTechCrunch } : {}),
@@ -271,6 +298,35 @@ export function createAggregatedNewsAdapter(options: AggregatorOptions = {}): So
       });
     }
   };
+}
+
+function topicQuery(value: string | undefined) {
+  if (!value?.trim()) return "";
+  const ignored = new Set(["about", "after", "before", "from", "have", "into", "just", "latest", "post", "that", "their", "then", "this", "tweet", "what", "when", "where", "which", "with", "write"]);
+  return value
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/[^a-z0-9+#.-]+/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length >= 3 && !ignored.has(word))
+    .slice(0, 8)
+    .join(" ");
+}
+
+function matchesTopic(text: string, query: string) {
+  const words = [...new Set(query.split(/\s+/).filter(Boolean))];
+  const textWords = new Set(text.match(/[a-z0-9+#.-]+/g) ?? []);
+  const matches = words.filter((word) => textWords.has(word)).length;
+  return matches >= Math.min(2, Math.ceil(words.length / 2));
+}
+
+function isFreshTopicItem(item: SourceItem, now: Date) {
+  const raw = item.metadata?.published ?? item.metadata?.pubDate;
+  if (typeof raw !== "string") return false;
+  const publishedAt = Date.parse(raw);
+  if (!Number.isFinite(publishedAt)) return false;
+  const age = now.getTime() - publishedAt;
+  return age >= -5 * 60 * 1000 && age <= 48 * 60 * 60 * 1000;
 }
 
 function extractTopicTags(text: string): string[] {
@@ -293,12 +349,12 @@ function extractTopicTags(text: string): string[] {
   return tags.length > 0 ? tags : ["general"];
 }
 
-function calculateFreshness(item: SourceItem): number {
+function calculateFreshness(item: SourceItem, now = new Date()): number {
   const dateStr = (item.metadata?.published as string) || (item.metadata?.pubDate as string);
   if (dateStr) {
     const date = new Date(dateStr);
     if (!isNaN(date.getTime())) {
-      const ageHours = (Date.now() - date.getTime()) / (1000 * 60 * 60);
+      const ageHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
       return Math.max(0, 1 - ageHours / 72);
     }
   }

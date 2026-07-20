@@ -88,14 +88,20 @@ export async function draftFromSourcePacket(input: {
         generatedScore: approvedCandidate.score
       }
     });
-    const packet = await input.repository.markSourcePacketDrafted(input.packet.id);
-    const approved = await input.repository.approveDraft({
-      draftId: draft.draft.id,
-      editedText: approvedCandidate.validation.text,
-      mode: input.options.mode ?? "autopost"
-    });
+    try {
+      const packet = await input.repository.markSourcePacketDrafted(input.packet.id);
+      const approved = await input.repository.approveDraft({
+        draftId: draft.draft.id,
+        editedText: approvedCandidate.validation.text,
+        mode: input.options.mode ?? "autopost"
+      });
 
-    return { ...draft, packet, approved };
+      return { ...draft, packet, approved };
+    } catch (error) {
+      await input.repository.deleteDraft(draft.draft.id).catch(() => null);
+      await input.repository.resetSourcePacket(input.packet.id).catch(() => null);
+      throw error;
+    }
   }
 
   const draft = await input.repository.createDraft({
@@ -128,7 +134,11 @@ export async function draftFromSourcePacket(input: {
       }
     }))
   });
-  const packet = await input.repository.markSourcePacketDrafted(input.packet.id);
-
-  return { ...draft, approved: null, packet };
+  try {
+    const packet = await input.repository.markSourcePacketDrafted(input.packet.id);
+    return { ...draft, approved: null, packet };
+  } catch (error) {
+    await input.repository.deleteDraft(draft.draft.id).catch(() => null);
+    throw error;
+  }
 }

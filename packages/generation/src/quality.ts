@@ -1,4 +1,4 @@
-import { AI_SLOP_PHRASES } from "@zyquor/core";
+import { AI_SLOP_PHRASES, xPostCharacterLength } from "@zyquor/core";
 import type { GenerateDraftCandidatesInput, GenerationProviderName } from "./types.js";
 
 export const DEFAULT_CHARACTER_LIMIT = 280;
@@ -13,6 +13,7 @@ const INTERNAL_LEAK_PATTERNS = [
   /\bmetadata\b/i,
   /\bgrounded facts?\b/i,
   /\bsource context\b/i,
+  /\bzyquor\b/i,
   /<\/?source-(?:title|url)/i,
   /\bI distilled\b/i,
   /\bdistill(ed|ing)?\b.*\b(article|announcement|content)\b/i
@@ -122,9 +123,10 @@ function containsGenericSlop(text: string) {
 
 function scoreReadability(text: string) {
   let score = 0;
-  if (text.length >= 90 && text.length <= 260) score += 1;
-  if (text.length < 60) score -= 1;
-  if (text.length > 270) score -= 1;
+  const characterLength = xPostCharacterLength(text);
+  if (characterLength >= 90 && characterLength <= 260) score += 1;
+  if (characterLength < 60) score -= 1;
+  if (characterLength > 270) score -= 1;
   return score;
 }
 
@@ -260,7 +262,7 @@ export function candidatesFromText(
     .filter((text, index, all) => {
       const normalized = text.toLowerCase().replace(/\s+/g, " ");
       return (
-        text.length <= limit &&
+        xPostCharacterLength(text) <= limit &&
         isCleanTweetText(text) &&
         isGroundedCandidate(text, input, provider) &&
         all.findIndex((candidate) => candidate.toLowerCase().replace(/\s+/g, " ") === normalized) === index

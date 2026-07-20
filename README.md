@@ -5,7 +5,7 @@ Local-first X posting assistant for drafting, source ingest, review, scheduling,
 Current core flow:
 
 ```text
-idea/source -> generated draft -> review/edit or autopost approval -> job -> dedicated Chrome profile -> X prepare/post -> history
+topic/rough post -> fresh source search -> grounded draft -> review/edit or autopost approval -> job -> dedicated Chrome profile -> X prepare/post -> history
 ```
 
 ## Repository Layout
@@ -237,7 +237,7 @@ pnpm smoke:adapters
 
 Required sources should return data. Product Hunt is optional unless `ZYQUOR_PRODUCTHUNT_API_TOKEN` is set.
 
-Ingest filters prevent repeats, thin context, and blocked payment links. Host caps default to `ZYQUOR_MAX_SAME_HOST_POSTS_PER_DAY=100` and `ZYQUOR_MAX_GITHUB_POSTS_PER_DAY=100`.
+Ingest filters reject undated or older-than-48-hour items before packet creation, then prevent repeats, thin context, and blocked payment links. Host caps default to `ZYQUOR_MAX_SAME_HOST_POSTS_PER_DAY=100` and `ZYQUOR_MAX_GITHUB_POSTS_PER_DAY=100`.
 The worker auto-seeds the default news source unless `ZYQUOR_WORKER_AUTO_SEED_DEFAULT_INGEST=0` is set.
 
 Useful diagnostics:

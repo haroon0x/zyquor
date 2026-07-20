@@ -64,6 +64,7 @@ export function createRedditAdapter(options: RedditAdapterOptions = {}): SourceA
             url: `https://reddit.com${post.permalink}`,
             content,
             metadata: {
+              published: new Date(post.created_utc * 1000).toISOString(),
               subreddit: post.subreddit,
               score: post.score,
               numComments: post.num_comments,
@@ -81,6 +82,7 @@ export function createRedditAdapter(options: RedditAdapterOptions = {}): SourceA
 
 interface RedditPost {
   title: string;
+  created_utc: number;
   selftext: string;
   url: string;
   permalink: string;

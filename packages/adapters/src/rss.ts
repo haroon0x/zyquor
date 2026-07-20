@@ -40,6 +40,7 @@ function parseRssItems(xml: string): SourceItem[] {
     const title = decodeXml(extractXmlTag(itemXml, "title"));
     const link = decodeXml(extractXmlTag(itemXml, "link") || extractXmlTag(itemXml, "guid"));
     const description = decodeXml(extractXmlTag(itemXml, "description") || extractXmlTag(itemXml, "content:encoded"));
+    const published = decodeXml(extractXmlTag(itemXml, "pubDate") || extractXmlTag(itemXml, "dc:date"));
     const imageUrl = extractRssImageUrl(itemXml);
 
     if (title && link) {
@@ -47,7 +48,8 @@ function parseRssItems(xml: string): SourceItem[] {
         title,
         url: link,
         content: description || title,
-        ...(imageUrl ? { imageUrl } : {})
+        ...(imageUrl ? { imageUrl } : {}),
+        ...(published ? { metadata: { published } } : {})
       });
     }
   }

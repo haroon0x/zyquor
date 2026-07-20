@@ -50,7 +50,7 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
       const mode = autoPost ? "autopost" : scheduledFor ? "scheduled" : "prepare_only";
 
       if (autoPost && postPlan === "single") {
-        await api<{ draft: Draft; job: Job }>("/drafts", {
+        const created = await api<DraftResponse & { job?: Job }>(replyToUrl.trim() ? "/drafts" : "/drafts/research", {
           method: "POST",
           body: JSON.stringify({
             accountId,
@@ -62,6 +62,12 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
             autopost: true
           })
         });
+        if (replyToUrl.trim()) {
+          await api<DraftResponse & { job?: Job }>(`/drafts/${created.draft.id}/generate`, {
+            method: "POST",
+            body: JSON.stringify({})
+          });
+        }
         setDraft(null);
         setEditedText("");
         await refresh();
@@ -92,7 +98,8 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
         return;
       }
 
-      const created = await api<DraftResponse>("/drafts", {
+      const research = !replyToUrl.trim();
+      const created = await api<DraftResponse>(research ? "/drafts/research" : "/drafts", {
         method: "POST",
         body: JSON.stringify({
           accountId,
@@ -104,10 +111,12 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
       });
       let response: DraftResponse;
       try {
-        response = await api<DraftResponse>(`/drafts/${created.draft.id}/generate`, {
-          method: "POST",
-          body: JSON.stringify({})
-        });
+        response = research
+          ? created
+          : await api<DraftResponse>(`/drafts/${created.draft.id}/generate`, {
+              method: "POST",
+              body: JSON.stringify({})
+            });
       } catch (error) {
         await api(`/drafts/${created.draft.id}`, { method: "DELETE" }).catch(() => undefined);
         throw error;
@@ -143,7 +152,7 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
               generateDrafts();
             }
           }}
-          placeholder={postPlan === "batch" ? "One post idea per line…" : "What do you want to say?"}
+          placeholder={postPlan === "batch" ? "One post idea per line…" : "Enter a topic or rough post…"}
           rows={8}
         />
       </label>

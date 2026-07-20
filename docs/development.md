@@ -40,7 +40,9 @@ These paths are ignored because they can contain session state and debug artifac
 ## API Routes
 
 Core workflow:
-- `POST /drafts` — generate candidates from idea
+- `POST /drafts` — create an ungrounded draft
+- `POST /drafts/research` — search fresh sources and generate grounded candidates from a topic or rough post
+- `POST /drafts/:id/generate` — generate candidates for an existing draft
 - `GET /drafts/:id` — get draft with candidates
 - `POST /drafts/:id/select` — select candidate, optionally edit text
 - `POST /drafts/:id/approve` — approve with optional mode/scheduledFor → creates job
