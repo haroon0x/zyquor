@@ -129,6 +129,7 @@ export function applyDesktopEnvDefaults(settings: DesktopSettings): void {
   process.env.ZYQUOR_LLM_PROVIDER ??= "command-code";
   process.env.ZYQUOR_COMMAND_CODE_MODEL ??= "deepseek/deepseek-v4-pro";
   process.env.ZYQUOR_ENABLE_BROWSER_PREPARE ??= String(Number(settings.enableBrowserPrepare ?? true));
+  process.env.ZYQUOR_ENABLE_BROWSER_POST ??= "0";
   process.env.ZYQUOR_BROWSER_CHANNEL ??= 'chrome';
   process.env.ZYQUOR_BROWSER_CDP_URL ??= 'http://127.0.0.1:' + (settings.cdpPort ?? 9222);
   process.env.ZYQUOR_OLLAMA_BASE_URL ??= 'http://127.0.0.1:11434';

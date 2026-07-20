@@ -12,7 +12,7 @@ function draftFromIngestConfig(config: IngestConfig | null) {
   return {
     enabled: config?.enabled ?? false,
     feedUrl: typeof config?.metadata.feedUrl === "string" ? config.metadata.feedUrl : "",
-    maxPacketsPerDay: config?.maxPacketsPerDay ?? 3,
+    maxPacketsPerDay: config?.maxPacketsPerDay ?? 10,
     scheduleWindowEnd: config?.scheduleWindowEnd ?? "23:59",
     scheduleWindowStart: config?.scheduleWindowStart ?? "00:00",
     sourceType: config?.sourceType ?? "news",
@@ -129,7 +129,7 @@ export function AutomationPanel({ panel }: { panel: PanelProps }) {
         </label>
         <label>
           Daily max
-          <input min="1" max="1000" type="number" value={automationDraft.maxPacketsPerDay} onChange={(event) => setAutomationDraft({ ...automationDraft, maxPacketsPerDay: Number(event.target.value) })} />
+          <input min="1" max="10" type="number" value={automationDraft.maxPacketsPerDay} onChange={(event) => setAutomationDraft({ ...automationDraft, maxPacketsPerDay: Math.min(10, Math.max(1, Number(event.target.value))) })} />
         </label>
         <div className="time-grid wide-field">
           <label>

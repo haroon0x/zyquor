@@ -133,7 +133,7 @@ export function describeWorker() {
   };
 }
 
-async function api<T>(apiUrl: string, path: string, init?: RequestInit): Promise<T> {
+async function api<T>(apiUrl: string, path: string, init?: RequestInit, timeoutMs?: number): Promise<T> {
   const headers = {
     ...(init?.body ? { "content-type": "application/json" } : {}),
     ...init?.headers
@@ -141,10 +141,12 @@ async function api<T>(apiUrl: string, path: string, init?: RequestInit): Promise
   const baseUrl = apiUrl.endsWith("/") ? apiUrl : `${apiUrl}/`;
   const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
   const url = `${baseUrl}${normalizedPath}`;
+  const signal = init?.signal ?? (timeoutMs ? AbortSignal.timeout(timeoutMs) : null);
 
   const response = await fetch(url, {
     ...init,
-    headers
+    headers,
+    ...(signal ? { signal } : {})
   });
 
   if (!response.ok) {
@@ -220,7 +222,9 @@ export async function checkWorkerStartup(options: WorkerOptions) {
       try {
         const session = await api<{ error: string | null; loggedIn: boolean }>(
           options.apiUrl,
-          `/browser/x-session?accountId=${encodeURIComponent(runnableAccount.id)}`
+          `/browser/x-session?accountId=${encodeURIComponent(runnableAccount.id)}`,
+          undefined,
+          15_000
         );
         if (!session.loggedIn) {
           warnings.push(`X login missing for ${runnableAccount.id}${session.error ? `: ${session.error}` : ""}`);
@@ -288,6 +292,9 @@ export async function processApprovedJobs(
     seenThisRun.add(job.id);
 
     const action = job.mode === "autopost" ? "post" : "prepare";
+    if (action === "post" && process.env.ZYQUOR_ENABLE_BROWSER_POST === "0") {
+      continue;
+    }
     if (action === "post" && state?.autopostJobIds.has(job.id)) {
       continue;
     }
@@ -377,6 +384,7 @@ export async function processPendingDrafts(options: WorkerOptions) {
 }
 
 export async function processNewSourcePackets(options: WorkerOptions) {
+  if (process.env.ZYQUOR_ENABLE_BROWSER_POST === "0") return 0;
   const { packets } = await api<{ packets?: SourcePacket[] }>(options.apiUrl, "/source-packets");
   const sourcePackets = packets ?? [];
   const newPackets = sourcePackets.filter((packet) => packet.status === "new");
@@ -407,6 +415,7 @@ export async function processNewSourcePackets(options: WorkerOptions) {
 }
 
 export async function processIngest(options: WorkerOptions) {
+  if (process.env.ZYQUOR_ENABLE_BROWSER_POST === "0") return 0;
   try {
     const result = await api<{ accepted: boolean; ingestRun: { processed: number; running: boolean } }>(
       options.apiUrl,

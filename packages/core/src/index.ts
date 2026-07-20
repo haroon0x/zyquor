@@ -290,7 +290,7 @@ export const ingestConfigSchema = z.object({
 export const createIngestConfigRequestSchema = z.object({
   accountId: idSchema,
   sourceType: z.enum(SOURCE_TYPES),
-  maxPacketsPerDay: z.number().int().min(1).max(1000).default(1000),
+  maxPacketsPerDay: z.number().int().min(1).max(1000).default(10),
   metadata: z.record(z.unknown()).default({}),
   tweetTypeMix: z.record(z.enum(TWEET_TYPES), z.number().int().min(0).max(100)).default({}),
   scheduleWindowStart: z.string().regex(/^\d{2}:\d{2}$/).default("09:00"),

@@ -73,7 +73,7 @@ export function registerIngestRoutes(app: FastifyInstance, deps: AppDeps): void 
     const config = await repository.createIngestConfig({
       accountId: account.id,
       enabled: true,
-      maxPacketsPerDay: 1000,
+      maxPacketsPerDay: 10,
       metadata: {
         includeArxiv: true,
         includeCompanyRss: true,
