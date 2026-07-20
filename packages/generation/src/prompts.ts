@@ -137,7 +137,9 @@ export function systemPrompt(input: GenerateDraftCandidatesInput) {
     examplesHeadingIndex >= 0 &&
     voiceNoteLines.slice(examplesHeadingIndex + 1).some((line) => /^(?:-\s+|\d+[.)]\s+)/.test(line.trimStart()));
   const diversityInstruction =
-    count >= 3
+    input.tweetType === "opinion" && count >= 3
+      ? "Use distinct forms supported by context. Possible forms include a direct claim, concrete mechanism or example, rejected approach and failure, or personal choice, tradeoff, or consequence. If context supports one form, anchor each candidate in a different supplied detail. Never invent a missing form or fact. Do not return paraphrases."
+      : count >= 3
       ? "Use distinct substantive angles: key fact and meaning; who is affected; practical implication. Do not return paraphrases."
       : "Give each candidate a distinct substantive angle, not a paraphrase.";
   return [

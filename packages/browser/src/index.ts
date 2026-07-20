@@ -158,6 +158,15 @@ export class BrowserPrepareError extends Error {
   }
 }
 
+async function stopTracing(context: BrowserContext, path?: string) {
+  const stop = path ? context.tracing.stop({ path }) : context.tracing.stop();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([stop, new Promise<void>((resolve) => {
+    timeout = setTimeout(resolve, 5_000);
+  })]).catch(() => undefined);
+  if (timeout) clearTimeout(timeout);
+}
+
 async function firstVisibleEditor(page: Page) {
   const editors = page.locator('[data-testid="tweetTextarea_0"], [aria-label*="Post text"], [aria-label*="Tweet text"]');
   if (!(await editors.first().isVisible({ timeout: 5_000 }).catch(() => false))) {
@@ -499,14 +508,14 @@ export async function preparePost(input: PreparePostInput): Promise<PreparePostR
       if (!postUrl) {
         throw new Error("Posted tweet permalink could not be verified after X Post click");
       }
-      await context.tracing.stop().catch(() => undefined);
+      await stopTracing(context);
       if (ownsContext) {
         await context.close();
       }
       return { status: "posted", insertedText, postUrl };
     }
 
-    await context.tracing.stop().catch(() => undefined);
+    await stopTracing(context);
     if (ownsContext && (input.closeAfterPrepare ?? true)) {
       await context.close();
     }
@@ -516,7 +525,7 @@ export async function preparePost(input: PreparePostInput): Promise<PreparePostR
     if (page) {
       await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined);
     }
-    await context.tracing.stop({ path: tracePath }).catch(() => undefined);
+    await stopTracing(context, tracePath);
 
     const message = error instanceof Error ? error.message : "Unknown browser prepare error";
     if (ownsContext) {

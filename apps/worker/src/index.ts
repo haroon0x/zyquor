@@ -204,7 +204,7 @@ export async function checkWorkerStartup(options: WorkerOptions) {
   const enabledConfigs = configs.filter((config) => config.enabled);
 
   if (enabledConfigs.length === 0) {
-    if (options.autoSeedDefaultIngest !== false && runnableAccount) {
+    if (configs.length === 0 && options.autoSeedDefaultIngest !== false && runnableAccount) {
       const seeded = await api<{ config: { id: string } }>(options.apiUrl, "/ingest-configs/default-news", { method: "POST" });
       seededConfigId = seeded.config.id;
     } else {

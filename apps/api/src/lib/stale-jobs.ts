@@ -1,6 +1,6 @@
 import type { ZyquorRepository } from "@zyquor/storage";
 
-const DEFAULT_STALE_RUNNING_JOB_MS = 2 * 60 * 1000;
+const DEFAULT_STALE_RUNNING_JOB_MS = 5 * 60 * 1000;
 
 function staleRunningJobMs() {
   const configured = Number(process.env.ZYQUOR_STALE_RUNNING_JOB_MS);
