@@ -185,13 +185,22 @@ async function firstVisibleEditor(page: Page) {
 
 async function assertNotLoginPage(page: Page) {
   const url = page.url();
+  const parsedUrl = new URL(url);
   const loginVisible = await page
     .locator('input[name="text"], input[name="password"], [data-testid="loginButton"], a[href="/login"]')
     .first()
     .isVisible({ timeout: 1_000 })
     .catch(() => false);
+  const authenticatedUiVisible = await page
+    .locator('[data-testid="SideNav_AccountSwitcher_Button"], [data-testid="AppTabBar_Home_Link"], a[data-testid="AppTabBar_Profile_Link"]')
+    .first()
+    .isVisible({ timeout: 5_000 })
+    .catch(() => false);
+  const loginOnboarding =
+    parsedUrl.pathname.startsWith("/i/jf/onboarding/") &&
+    (parsedUrl.searchParams.get("mode") === "login" || parsedUrl.searchParams.has("redirect_after_login"));
 
-  if (url.includes("/login") || url.includes("/i/flow/login") || loginVisible) {
+  if (url.includes("/login") || url.includes("/i/flow/login") || loginOnboarding || loginVisible || !authenticatedUiVisible) {
     throw new Error("X profile is not logged in. Run `pnpm profile:x:manual`, log into X, close that browser, then retry.");
   }
 }
@@ -438,7 +447,7 @@ export async function preparePost(input: PreparePostInput): Promise<PreparePostR
     throw new Error("Post text is empty");
   }
 
-  const artifactsDir = input.artifactsDir ?? "data/artifacts";
+  const artifactsDir = input.artifactsDir ?? dataPath("data", "artifacts");
   const actionDelayMs = input.actionDelayMs ?? 1_800;
   const typingDelayMs = input.typingDelayMs ?? 20;
   mkdirSync(artifactsDir, { recursive: true });

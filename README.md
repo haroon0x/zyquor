@@ -255,10 +255,13 @@ Zyquor ships as a system-tray Electron desktop app for Windows. The API, worker,
 ```bash
 pnpm dev:desktop        # build and launch
 pnpm smoke:desktop      # headless logic smoke (no GUI required)
+pnpm dist:desktop:dir   # produce unpacked Windows app (no Wine required)
 pnpm dist:desktop       # produce NSIS installer (CI: dist-desktop-win job)
 ```
 
 Run the generated NSIS installer from `apps/desktop/release`. The installer creates `Zyquor` shortcuts on the Windows desktop and Start menu using the packaged app icon. Launch Zyquor from that desktop shortcut, sign in to X once in the dedicated Chrome window, and leave final browser posting disabled until prepare-only insertion has been checked.
+
+On Linux or WSL, building the NSIS installer requires Wine. Use `pnpm dist:desktop:dir` for an unpacked Windows build at `apps/desktop/release/win-unpacked`, copy that folder to a local Windows path before launching `Zyquor.exe`, or run the `dist-desktop-win` GitHub Actions job for the installer. Electron can crash when launched directly from the WSL UNC path.
 
 - **Data root**: `%APPDATA%/Zyquor` (overridable via `ZYQUOR_DATA_ROOT`).
 - **Settings**: `settings.json` in the data root — edit from the Desktop Settings panel in the UI.

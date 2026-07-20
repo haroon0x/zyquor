@@ -101,6 +101,10 @@ async function main() {
   };
   applySettingsToEnv(desktopSettings);
   applyDesktopEnvDefaults(desktopSettings);
+  if (headlessSmoke) {
+    process.env.ZYQUOR_ENABLE_BROWSER_PREPARE = "0";
+    process.env.ZYQUOR_ENABLE_BROWSER_POST = "0";
+  }
 
   const { ensureFirstRun, detectSqliteSupport } = await import("@zyquor/storage");
   ensureFirstRun(process.env.ZYQUOR_DATA_ROOT);
@@ -390,7 +394,7 @@ async function main() {
       tray.setToolTip(`Zyquor — Chrome error`);
     });
 
-  if (app.isPackaged) {
+  if (app.isPackaged && existsSync(join(process.resourcesPath, "app-update.yml"))) {
     const { autoUpdater } = electronUpdater;
     updater = autoUpdater;
     autoUpdater.autoDownload = true;

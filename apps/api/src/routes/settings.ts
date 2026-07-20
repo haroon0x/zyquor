@@ -6,10 +6,13 @@ const SENSITIVE_KEYS = new Set(["openrouterApiKey", "geminiApiKey"]);
 const RESTART_REQUIRED_KEYS = new Set([
   "enableBrowserPrepare",
   "enableBrowserPost",
+  "closeChromeAfterPost",
   "commandCodePath",
   "llmProvider",
   "openrouterApiKey",
   "geminiApiKey",
+  "chromePath",
+  "cdpPort",
 ]);
 
 function maskSettings(settings: DesktopSettingsData): DesktopSettingsData {
@@ -35,12 +38,6 @@ export function registerSettingsRoutes(app: FastifyInstance, deps: AppDeps): voi
     const patch = (request.body ?? {}) as DesktopSettingsData;
     const current = deps.desktopSettings!.get();
     const maskedCurrent = maskSettings(current);
-
-    for (const key of Object.keys(patch) as (keyof DesktopSettingsData)[]) {
-      if (patch[key] === "") {
-        delete patch[key];
-      }
-    }
 
     for (const key of SENSITIVE_KEYS) {
       const incoming = patch[key as keyof DesktopSettingsData];

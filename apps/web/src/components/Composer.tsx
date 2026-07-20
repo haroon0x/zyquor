@@ -92,7 +92,7 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
         return;
       }
 
-      const response = await api<DraftResponse>("/drafts", {
+      const created = await api<DraftResponse>("/drafts", {
         method: "POST",
         body: JSON.stringify({
           accountId,
@@ -102,6 +102,16 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
           ...(replyToUrl.trim() ? { replyToUrl: replyToUrl.trim() } : {})
         })
       });
+      let response: DraftResponse;
+      try {
+        response = await api<DraftResponse>(`/drafts/${created.draft.id}/generate`, {
+          method: "POST",
+          body: JSON.stringify({})
+        });
+      } catch (error) {
+        await api(`/drafts/${created.draft.id}`, { method: "DELETE" }).catch(() => undefined);
+        throw error;
+      }
       setDraft(response);
       setEditedText(response.candidates[0]?.text ?? "");
     });

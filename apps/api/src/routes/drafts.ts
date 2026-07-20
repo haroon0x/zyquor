@@ -16,7 +16,10 @@ import { isPostingMode } from "../lib/posting.js";
 export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void {
   app.get("/drafts/pending", async () => {
     const repository = await deps.repository;
-    return { drafts: await repository.listPendingDrafts() };
+    const drafts = await repository.listPendingDrafts();
+    return {
+      drafts: drafts.filter((draft) => draft.metadata.yolo === true || draft.metadata.lane === "batch")
+    };
   });
 
   app.get("/drafts/quality-gate-failures", async () => {

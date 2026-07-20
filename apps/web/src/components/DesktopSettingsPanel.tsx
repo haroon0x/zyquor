@@ -3,17 +3,19 @@ import { api } from "../api.js";
 import type { DesktopSettingsData, PanelProps } from "../types.js";
 import { Busy, InlineError, PanelIcon, errorMessage } from "./Feedback.js";
 
+type DesktopSettingsDraft = Omit<DesktopSettingsData, "cdpPort"> & { cdpPort?: number | "" };
+
 export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
   const { busy, run } = panel;
-  const [desktopSettings, setDesktopSettings] = useState<DesktopSettingsData>({});
+  const [desktopSettings, setDesktopSettings] = useState<DesktopSettingsDraft>({});
   const [apiKeys, setApiKeys] = useState({ geminiApiKey: "", openrouterApiKey: "" });
   const [desktopRestartRequired, setDesktopRestartRequired] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  function patchSetting<K extends keyof DesktopSettingsData>(key: K, value: DesktopSettingsData[K] | undefined) {
+  function patchSetting<K extends keyof DesktopSettingsDraft>(key: K, value: DesktopSettingsDraft[K] | undefined) {
     setDesktopSettings((prev) => {
       const next = { ...prev };
-      if (value === undefined || value === "") delete next[key];
+      if (value === undefined) delete next[key];
       else next[key] = value;
       return next;
     });
@@ -77,7 +79,7 @@ export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
         </label>
         <label>
           Provider
-          <select value={desktopSettings.llmProvider ?? ""} onChange={(event) => patchSetting("llmProvider", event.target.value || undefined)}>
+          <select value={desktopSettings.llmProvider ?? ""} onChange={(event) => patchSetting("llmProvider", event.target.value)}>
             <option value="">(default)</option>
             <option value="command-code">Command Code</option>
             <option value="openrouter">OpenRouter</option>
@@ -88,7 +90,7 @@ export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
         </label>
         <label>
           Command Code path
-          <input value={desktopSettings.commandCodePath ?? ""} onChange={(event) => patchSetting("commandCodePath", event.target.value || undefined)} placeholder="command-code" />
+          <input value={desktopSettings.commandCodePath ?? ""} onChange={(event) => patchSetting("commandCodePath", event.target.value)} placeholder="command-code" />
         </label>
         <label>
           OpenRouter API key
@@ -100,11 +102,11 @@ export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
         </label>
         <label>
           Chrome path
-          <input value={desktopSettings.chromePath ?? ""} onChange={(event) => patchSetting("chromePath", event.target.value || undefined)} placeholder="Auto-detect" />
+          <input value={desktopSettings.chromePath ?? ""} onChange={(event) => patchSetting("chromePath", event.target.value)} placeholder="Auto-detect" />
         </label>
         <label>
           CDP port
-          <input type="number" value={desktopSettings.cdpPort ?? ""} onChange={(event) => patchSetting("cdpPort", event.target.value ? Number(event.target.value) : undefined)} placeholder="9222" />
+          <input type="number" value={desktopSettings.cdpPort ?? ""} onChange={(event) => patchSetting("cdpPort", event.target.value ? Number(event.target.value) : "")} placeholder="9222" />
         </label>
       </div>
       <button disabled={busy} onClick={saveDesktopSettings}><Busy active={busy} />Save settings</button>
