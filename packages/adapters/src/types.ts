@@ -10,6 +10,7 @@ export interface SourceAdapter {
   name: string;
   sourceType: string;
   fetch(configMetadata?: Record<string, unknown>): Promise<SourceItem[]>;
+  enrich?(item: SourceItem): Promise<SourceItem>;
 }
 
 export interface CrawlService {

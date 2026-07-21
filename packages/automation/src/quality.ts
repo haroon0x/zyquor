@@ -56,8 +56,28 @@ function repairQuoteTimeline(text: string) {
   );
 }
 
+const TRAILING_SOURCE_LABEL = /(https?:\/\/\S+)\s+\[[^\]\n]{1,40}\]\s+.+$/;
+
+export function stripTrailingSourceLabel(text: string) {
+  return text.replace(TRAILING_SOURCE_LABEL, "$1").trimEnd();
+}
+
+function normalizeForTitleMatch(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+export function stripTrailingTitleEcho(text: string, title: string) {
+  const match = text.match(/(https?:\/\/\S+)[\s,;:.-]+([^\n]+)$/);
+  if (!match) return text;
+  const echo = normalizeForTitleMatch(match[2] ?? "");
+  const normalizedTitle = normalizeForTitleMatch(title);
+  if (echo.length < 12 || normalizedTitle.length < 12) return text;
+  if (!normalizedTitle.includes(echo) && !echo.includes(normalizedTitle)) return text;
+  return text.slice(0, (match.index ?? 0) + (match[1]?.length ?? 0)).replace(/[\s,;:.-]+$/, "");
+}
+
 export function withRequiredSourceUrl(text: string, packet: SourcePacket) {
-  const repaired = repairQuoteTimeline(text);
+  const repaired = stripTrailingTitleEcho(stripTrailingSourceLabel(repairQuoteTimeline(text)), packet.title);
   if (!sourceNeedsLink(packet) || !packet.url || repaired.includes(packet.url)) return repaired;
   const separator = repaired.includes("\n") ? "\n" : " ";
   return postProcessTweetText(`${repaired}${separator}${packet.url}`);

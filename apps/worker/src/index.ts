@@ -7,6 +7,7 @@ loadDotEnv();
 
 export interface WorkerOptions {
   apiUrl: string;
+  shouldContinue?: () => boolean;
   autoSeedDefaultIngest?: boolean;
   ingestIntervalMs?: number;
   pollMs: number;
@@ -14,6 +15,8 @@ export interface WorkerOptions {
 
 export interface WorkerHandle {
   finished: Promise<void>;
+  isPaused(): boolean;
+  setPaused(paused: boolean): void;
   stop(): Promise<void>;
 }
 
@@ -286,6 +289,7 @@ export async function processApprovedJobs(
   const seenThisRun = new Set<string>();
   const loginByAccount = new Map<string, boolean>();
   for (const job of approvedJobs) {
+    if (options.shouldContinue && !options.shouldContinue()) break;
     if (seenThisRun.has(job.id)) {
       continue;
     }
@@ -372,15 +376,18 @@ export async function processPendingDrafts(options: WorkerOptions) {
   const { drafts } = await api<{ drafts: Draft[] }>(options.apiUrl, "/drafts/pending");
   if (drafts.length === 0) return 0;
 
+  let generated = 0;
   for (const draft of drafts) {
+    if (options.shouldContinue && !options.shouldContinue()) break;
     try {
       await api(options.apiUrl, `/drafts/${draft.id}/generate`, { method: "POST" });
+      generated += 1;
     } catch (error) {
       console.error(`Failed to generate draft ${draft.id}:`, error instanceof Error ? error.message : error);
     }
   }
 
-  return drafts.length;
+  return generated;
 }
 
 export async function processNewSourcePackets(options: WorkerOptions) {
@@ -392,6 +399,7 @@ export async function processNewSourcePackets(options: WorkerOptions) {
 
   let processed = 0;
   for (const packet of newPackets) {
+    if (options.shouldContinue && !options.shouldContinue()) break;
     try {
       await api(options.apiUrl, `/source-packets/${packet.id}/draft`, {
         method: "POST",
@@ -440,29 +448,30 @@ export async function recoverStaleJobs(options: WorkerOptions) {
 }
 
 export async function runWorkerCycle(options: WorkerOptions, state: WorkerState) {
+  const keepGoing = () => (options.shouldContinue ? options.shouldContinue() : true);
   state.lastError = null;
   const recoveredCount = await recoverStaleJobs(options);
   if (recoveredCount > 0) {
     console.log(`Recovered ${recoveredCount} stale browser job(s)`);
   }
 
-  const approvedProcessed = await processApprovedJobs(options, state);
+  const approvedProcessed = keepGoing() ? await processApprovedJobs(options, state) : 0;
   if (approvedProcessed > 0) {
     console.log(`Processed ${approvedProcessed} approved job(s)`);
   }
 
-  const pendingProcessed = await processPendingDrafts(options);
+  const pendingProcessed = keepGoing() ? await processPendingDrafts(options) : 0;
   if (pendingProcessed > 0) {
     console.log(`Generated ${pendingProcessed} pending draft(s)`);
   }
 
-  const sourcePacketProcessed = await processNewSourcePackets(options);
+  const sourcePacketProcessed = keepGoing() ? await processNewSourcePackets(options) : 0;
   if (sourcePacketProcessed > 0) {
     console.log(`Drafted ${sourcePacketProcessed} source packet(s)`);
   }
 
   const now = Date.now();
-  if (now - state.lastIngestMs >= (options.ingestIntervalMs ?? 1 * 60 * 1000)) {
+  if (keepGoing() && now - state.lastIngestMs >= (options.ingestIntervalMs ?? 1 * 60 * 1000)) {
     state.lastIngestMs = now;
     const ingestAccepted = await processIngest(options);
     if (ingestAccepted > 0) {
@@ -482,6 +491,11 @@ export function startWorker(
   const checkStartup = _deps?.checkStartup ?? checkWorkerStartup;
   const state = createWorkerState();
   let stopping = false;
+  let paused = false;
+  const cycleOptions: WorkerOptions = {
+    ...options,
+    shouldContinue: () => !paused && !stopping && (options.shouldContinue ? options.shouldContinue() : true)
+  };
   let currentCycle: Promise<void> | null = null;
   let timerId: ReturnType<typeof setTimeout> | null = null;
 
@@ -499,7 +513,7 @@ export function startWorker(
   (async () => {
     try {
       console.log(describeWorker());
-      const startup = await checkStartup(options);
+      const startup = await checkStartup(cycleOptions);
       for (const warning of startup.warnings) {
         console.warn(warning);
       }
@@ -523,11 +537,15 @@ export function startWorker(
       }
       currentCycle = (async () => {
         try {
-          await runWorkerCycle(options, state);
+          if (paused) {
+            await heartbeat(options, state);
+            return;
+          }
+          await runWorkerCycle(cycleOptions, state);
         } catch (error) {
           state.lastError = error instanceof Error ? error.message : String(error);
           console.error(error instanceof Error ? error.message : error);
-          await heartbeat(options, state);
+          await heartbeat(cycleOptions, state);
         }
       })();
       await currentCycle;
@@ -544,6 +562,12 @@ export function startWorker(
 
   return {
     finished,
+    isPaused() {
+      return paused;
+    },
+    setPaused(next: boolean) {
+      paused = next;
+    },
     async stop() {
       stopping = true;
       if (timerId !== null) {

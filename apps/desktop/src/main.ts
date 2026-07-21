@@ -4,8 +4,8 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { profilesPath } from "@zyquor/core";
-import { launchPostingChrome } from "./chrome.js";
-import { initFileLog, logLine } from "./log.js";
+import { closePostingChrome, isCdpUp, launchedPostingChromePid, launchPostingChrome } from "./chrome.js";
+import { initFileLog, logLine, logTail } from "./log.js";
 import { applyDesktopEnvDefaults, applySettingsToEnv, loadSettings, saveSettings, type DesktopSettings } from "./settings.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -46,6 +46,71 @@ function loadAppIcon(): Electron.NativeImage | null {
   if (!existsSync(iconPath)) return null;
   const icon = nativeImage.createFromPath(iconPath);
   return icon.isEmpty() ? null : icon;
+}
+
+function captureConsole(): void {
+  const forward = (level: string) => (...args: unknown[]) => {
+    const text = args
+      .map((arg) => (arg instanceof Error ? arg.stack ?? arg.message : typeof arg === "string" ? arg : JSON.stringify(arg)))
+      .join(" ");
+    if (text.length > 0) logLine(level, text);
+  };
+  console.log = forward("info");
+  console.info = forward("info");
+  console.warn = forward("warn");
+  console.error = forward("error");
+}
+
+const ROUTINE_POLL_PATHS = /^\/(health|worker\/(status|heartbeat)|system\/(status|logs)|(jobs|ingest-runs)\/recover-stale)\b/;
+
+function makeApiLogStream() {
+  const urlByRequestId = new Map<string, string>();
+
+  return {
+    write(chunk: string) {
+      for (const raw of chunk.split("\n")) {
+        if (!raw.trim()) continue;
+        let entry: {
+          level?: number;
+          msg?: string;
+          reqId?: string;
+          req?: { method?: string; url?: string };
+          res?: { statusCode?: number };
+          responseTime?: number;
+        };
+        try {
+          entry = JSON.parse(raw);
+        } catch {
+          logLine("info", `api ${raw.slice(0, 500)}`);
+          continue;
+        }
+
+        const level = (entry.level ?? 30) >= 50 ? "error" : (entry.level ?? 30) >= 40 ? "warn" : "info";
+        const method = entry.req?.method ?? "GET";
+        const url = entry.req?.url;
+
+        if (url) {
+          if (entry.reqId) {
+            urlByRequestId.set(entry.reqId, `${method} ${url}`);
+            if (urlByRequestId.size > 200) urlByRequestId.delete(urlByRequestId.keys().next().value!);
+          }
+          if (method === "GET" || ROUTINE_POLL_PATHS.test(url)) continue;
+          logLine(level, `api ${method} ${url}`);
+          continue;
+        }
+
+        if (entry.res?.statusCode !== undefined) {
+          const label = entry.reqId ? urlByRequestId.get(entry.reqId) : undefined;
+          if (entry.reqId) urlByRequestId.delete(entry.reqId);
+          if (entry.res.statusCode < 400) continue;
+          logLine("warn", `api ${entry.res.statusCode} ${label ?? ""} in ${Math.round(entry.responseTime ?? 0)}ms`.replace(/\s+/g, " "));
+          continue;
+        }
+
+        if (entry.msg) logLine(level, `api ${entry.msg}`);
+      }
+    },
+  };
 }
 
 app.setName("Zyquor");
@@ -91,6 +156,7 @@ async function main() {
   }
 
   initFileLog(process.env.ZYQUOR_DATA_ROOT);
+  captureConsole();
   logLine("info", "app boot");
 
   // Load desktop settings and apply to env before packages read process.env.
@@ -150,7 +216,7 @@ async function main() {
         }
       }
       saveSettings(dataRoot, currentSettings);
-      applySettingsToEnv(currentSettings);
+      applySettingsToEnv(currentSettings, { overwrite: true });
 
       // Wire startWithWindows
       if (!headlessSmoke && process.platform === "win32") {
@@ -164,6 +230,51 @@ async function main() {
     },
   };
 
+  const startedAt = new Date().toISOString();
+  let workerControl: { isPaused(): boolean; setPaused(paused: boolean): void } | null = null;
+  let quitEverything: () => Promise<void> = async () => undefined;
+
+  const desktopControl = {
+    async closeChrome() {
+      const result = await closePostingChrome({ cdpPort: getCdpPort() });
+      logLine(result.closed ? "info" : "warn", `chrome close: ${result.closed ? "closed" : result.reason ?? "unknown"}`);
+      return result;
+    },
+    async logTail(lines: number) {
+      return logTail(lines);
+    },
+    async quit() {
+      logLine("info", "quit requested from UI");
+      await quitEverything();
+      app.quit();
+    },
+    async restart() {
+      logLine("info", "restart requested from UI");
+      await quitEverything();
+      app.relaunch();
+      app.exit(0);
+    },
+    async setWorkerPaused(paused: boolean) {
+      workerControl?.setPaused(paused);
+      logLine("info", `worker ${paused ? "paused" : "resumed"} from UI`);
+      return workerControl?.isPaused() ?? false;
+    },
+    async status() {
+      const cdpUrl = `http://127.0.0.1:${getCdpPort()}`;
+      return {
+        appVersion: app.getVersion(),
+        cdpUrl,
+        chromeConnected: await isCdpUp(cdpUrl),
+        chromePid: launchedPostingChromePid(),
+        dataRoot,
+        logPath: join(dataRoot, "logs", "main.log"),
+        platform: process.platform,
+        startedAt,
+        workerPaused: workerControl?.isPaused() ?? false
+      };
+    }
+  };
+
   const api = buildApp({
     enableBrowserPrepare,
     enableBrowserPost,
@@ -175,6 +286,8 @@ async function main() {
     closeAfterPost,
     launchPostingChrome: desktopLaunchPostingChrome,
     desktopSettings: desktopSettingsDep,
+    desktopControl,
+    logStream: makeApiLogStream(),
   });
 
   await api.listen({ host: "127.0.0.1", port: 0 });
@@ -192,6 +305,7 @@ async function main() {
     ingestIntervalMs: Number(process.env.ZYQUOR_WORKER_INGEST_INTERVAL_MS ?? 60_000),
     pollMs: Number(process.env.ZYQUOR_WORKER_POLL_MS ?? 5000),
   });
+  workerControl = workerHandle;
   logLine("info", "worker started");
 
   if (headlessSmoke) {
@@ -308,6 +422,22 @@ async function main() {
     }
   }
 
+  let shutdown: Promise<void> | null = null;
+  quitEverything = async () => {
+    if (!shutdown) {
+      shutdown = (async () => {
+        isQuitting = true;
+        clearPolls();
+        workerHandle.setPaused(true);
+        await workerHandle.stop();
+        await api.close();
+        await closePostingChrome({ cdpPort: getCdpPort() }).catch(() => undefined);
+        logLine("info", "shutdown complete");
+      })();
+    }
+    await shutdown;
+  };
+
   const contextMenu = Menu.buildFromTemplate([
     {
       label: "Open",
@@ -367,14 +497,23 @@ async function main() {
         }
       },
     },
+    {
+      label: "Stop everything",
+      click: async () => {
+        try {
+          await fetch(`${workerApiUrl}/system/stop-all`, { method: "POST" });
+          logLine("warn", "stop everything from tray");
+          tray.setToolTip("Zyquor — stopped");
+        } catch (error) {
+          logLine("error", `stop everything failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      },
+    },
     { type: "separator" },
     {
       label: "Quit",
       click: async () => {
-        isQuitting = true;
-        clearPolls();
-        await workerHandle.stop();
-        await api.close();
+        await quitEverything();
         app.quit();
       },
     },
@@ -471,12 +610,11 @@ async function main() {
   // App stays in tray when window is closed — do not quit.
   app.on("window-all-closed", () => {});
 
-  app.on("before-quit", async () => {
-    isQuitting = true;
-    clearPolls();
+  app.on("before-quit", (event) => {
+    if (shutdown) return;
+    event.preventDefault();
     logLine("info", "app quitting");
-    await workerHandle.stop();
-    await api.close();
+    void quitEverything().finally(() => app.exit(0));
   });
 }
 

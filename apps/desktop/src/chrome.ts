@@ -64,6 +64,80 @@ export async function isCdpUp(cdpUrl: string): Promise<boolean> {
   }
 }
 
+let launchedChromePid: number | null = null;
+
+export function launchedPostingChromePid(): number | null {
+  return launchedChromePid;
+}
+
+function runCommand(command: string, args: string[]): Promise<string> {
+  return new Promise((done) => {
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "ignore"] });
+    let output = "";
+    child.stdout.on("data", (chunk) => {
+      output += String(chunk);
+    });
+    child.on("error", () => done(""));
+    child.on("close", () => done(output));
+  });
+}
+
+export async function pidListeningOnPort(port: number): Promise<number | null> {
+  if (platform() === "win32") {
+    const output = await runCommand("powershell.exe", [
+      "-NoProfile",
+      "-Command",
+      `(Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess`
+    ]);
+    const pid = Number(output.trim());
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  }
+
+  const output = await runCommand("lsof", ["-t", "-i", `:${port}`, "-sTCP:LISTEN"]);
+  const pid = Number(output.split("\n")[0]?.trim());
+  return Number.isInteger(pid) && pid > 0 ? pid : null;
+}
+
+export async function closePostingChrome(opts: { cdpPort: number }): Promise<{ closed: boolean; reason?: string }> {
+  const cdpUrl = `http://127.0.0.1:${opts.cdpPort}`;
+  if (!(await isCdpUp(cdpUrl))) {
+    launchedChromePid = null;
+    return { closed: false, reason: "not-running" };
+  }
+
+  const pid = launchedChromePid ?? (await pidListeningOnPort(opts.cdpPort));
+  if (pid === null) {
+    return { closed: false, reason: "pid-not-found" };
+  }
+  if (platform() === "win32") {
+    await new Promise<void>((done) => {
+      const kill = spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
+      kill.on("error", () => done());
+      kill.on("exit", () => done());
+    });
+  } else {
+    try {
+      process.kill(-pid, "SIGTERM");
+    } catch {
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch {
+        return { closed: false, reason: "kill-failed" };
+      }
+    }
+  }
+
+  const start = Date.now();
+  while (Date.now() - start < CDP_POLL_TIMEOUT_MS) {
+    if (!(await isCdpUp(cdpUrl))) {
+      launchedChromePid = null;
+      return { closed: true };
+    }
+    await new Promise((resolve) => setTimeout(resolve, CDP_POLL_INTERVAL_MS));
+  }
+  return { closed: false, reason: "still-running" };
+}
+
 export async function launchPostingChrome(opts: {
   profileDir: string;
   cdpPort: number;
@@ -96,6 +170,7 @@ export async function launchPostingChrome(opts: {
 
   child.on("error", () => undefined);
   child.unref();
+  launchedChromePid = child.pid ?? null;
 
   const start = Date.now();
   while (Date.now() - start < CDP_POLL_TIMEOUT_MS) {

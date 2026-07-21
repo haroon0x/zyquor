@@ -1,9 +1,11 @@
-import { appendFileSync, mkdirSync, renameSync, statSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const FIVE_MB = 5 * 1024 * 1024;
 
 let _logPath: string | null = null;
+
+const baseConsoleLog = console.log.bind(console);
 
 function rotateIfNeeded(logPath: string): void {
   try {
@@ -13,6 +15,21 @@ function rotateIfNeeded(logPath: string): void {
     }
   } catch {
     // file doesn't exist or can't be stat'd — no rotation needed
+  }
+}
+
+export function logFilePath(): string | null {
+  return _logPath;
+}
+
+export function logTail(lines: number): string[] {
+  if (!_logPath) return [];
+  try {
+    const content = readFileSync(_logPath, "utf8");
+    const all = content.split("\n").filter((line) => line.length > 0);
+    return all.slice(-lines);
+  } catch {
+    return [];
   }
 }
 
@@ -45,7 +62,7 @@ export function logLine(level: string, msg: string): void {
   const ts = new Date().toISOString();
   const line = `${ts} [${level}] ${msg}`;
 
-  console.log(line);
+  baseConsoleLog(line);
 
   if (_logPath) {
     try {

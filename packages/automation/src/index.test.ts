@@ -78,6 +78,7 @@ describe("automatic ingest", () => {
           {
             title: `HN: ${(metadata.topic as string | undefined) ?? "agents"}`,
             url: "https://news.ycombinator.com/item?id=1",
+            metadata: { published: "2026-04-24T16:00:00.000Z" },
             content: "A real Hacker News discussion about automatic workers, LLM context, and posting pipelines.",
             imageUrl: "https://example.com/news.png"
           }
@@ -141,6 +142,7 @@ describe("automatic ingest", () => {
           {
             title: "Company blog explains safer database failover",
             url: "https://example.com/database-failover",
+            metadata: { published: "2026-04-24T16:00:00.000Z" },
             content:
               "The article explains safer database failover defaults for operators. It includes specific recovery tradeoffs and rollout notes."
           }
@@ -239,11 +241,13 @@ describe("automatic ingest", () => {
           {
             title: "Celebrity profile gets a redesign",
             url: "https://example.com/celebrity-profile",
+            metadata: { published: "2026-04-24T16:00:00.000Z" },
             content: "A lifestyle site changed its homepage layout."
           },
           {
             title: "Science team publishes battery research with economy impact",
             url: "https://example.com/battery-economy-research",
+            metadata: { published: "2026-04-24T16:00:00.000Z" },
             content:
               "Researchers published a new paper on battery storage, energy supply chains, and inflation pressure."
           }
@@ -304,16 +308,19 @@ describe("automatic ingest", () => {
           {
             title: "Already posted source",
             url: "https://example.com/already-posted",
+            metadata: { published: "2026-04-24T16:00:00.000Z" },
             content: "AI source that should not be posted twice."
           },
           {
             title: "Bad generated source",
             url: "https://example.com/bad-generated",
+            metadata: { published: "2026-04-24T16:00:00.000Z" },
             content: "AI source that will generate an invalid long tweet."
           },
           {
             title: "Good generated source",
             url: "https://example.com/good-generated",
+            metadata: { published: "2026-04-24T16:00:00.000Z" },
             content: "AI source that should still be queued after a bad item."
           }
         ];
@@ -370,16 +377,19 @@ describe("automatic ingest", () => {
           {
             title: "We built deterministic routing enginebypass geopolitical supply chain chokeholds",
             url: "https://book.stripe.com/fZu5kCaBZ1JpaYTflPgEg05",
+            metadata: { published: "2026-04-24T16:00:00.000Z" },
             content: "Payment link should never become an autopost source."
           },
           {
             title: "Microsoft Edge: Passwords end up in memory as plaintext",
             url: "https://reddit.com/r/technology/comments/example",
+            metadata: { published: "2026-04-24T16:00:00.000Z" },
             content: "Microsoft Edge: Passwords end up in memory as plaintext"
           },
           {
             title: "Open source database release improves replication safety",
             url: "https://example.com/database-release",
+            metadata: { published: "2026-04-24T16:00:00.000Z" },
             content:
               "The release adds safer replication defaults for distributed databases. Operators can reduce failover risk without adding a separate coordination service."
           }
@@ -439,11 +449,13 @@ describe("automatic ingest", () => {
           {
             title: "new/github-agent: agent workflow repository",
             url: "https://github.com/new/github-agent",
+            metadata: { published: "2026-04-24T16:00:00.000Z" },
             content: "Language: TypeScript. Stars: 10000. Agent workflow repository."
           },
           {
             title: "Independent research lab publishes database benchmark",
             url: "https://example.org/database-benchmark",
+            metadata: { published: "2026-04-24T16:00:00.000Z" },
             content:
               "The benchmark compares database replication behavior under network partitions. It includes reproducible scripts and notes on operator tradeoffs."
           }

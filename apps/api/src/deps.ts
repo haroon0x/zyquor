@@ -21,6 +21,27 @@ export interface DesktopSettingsConfig {
   update(patch: DesktopSettingsData): DesktopSettingsData;
 }
 
+export interface DesktopRuntimeStatus {
+  appVersion: string;
+  chromeConnected: boolean;
+  chromePid: number | null;
+  cdpUrl: string;
+  dataRoot: string;
+  logPath: string;
+  platform: string;
+  startedAt: string;
+  workerPaused: boolean;
+}
+
+export interface DesktopControl {
+  closeChrome(): Promise<{ closed: boolean; reason?: string }>;
+  logTail(lines: number): Promise<string[]>;
+  quit(): Promise<void>;
+  restart(): Promise<void>;
+  setWorkerPaused(paused: boolean): Promise<boolean>;
+  status(): Promise<DesktopRuntimeStatus>;
+}
+
 export interface BuildAppOptions {
   repository?: ZyquorRepository;
   generationProvider?: DraftGenerationProvider;
@@ -54,6 +75,8 @@ export interface BuildAppOptions {
   closeAfterPost?: boolean;
   launchPostingChrome?: (input: { accountId: string }) => Promise<{ launched: boolean; reason?: string }>;
   desktopSettings?: DesktopSettingsConfig;
+  desktopControl?: DesktopControl;
+  logStream?: { write(chunk: string): void };
 }
 
 export interface AppDeps {
@@ -65,6 +88,7 @@ export interface AppDeps {
   generationConfigPath: string | null;
   launchPostingChrome: ((input: { accountId: string }) => Promise<{ launched: boolean; reason?: string }>) | undefined;
   desktopSettings: DesktopSettingsConfig | undefined;
+  desktopControl: DesktopControl | undefined;
   workerHeartbeat: {
     lastError: string | null;
     lastHeartbeatAt: string;
@@ -72,6 +96,7 @@ export interface AppDeps {
     lastPostAt: string | null;
   } | null;
   ingestRunState: {
+    cancelRequested?: boolean;
     errors: Array<{ configId: string; error: string }>;
     finishedAt: string | null;
     lastStartedAt: string | null;

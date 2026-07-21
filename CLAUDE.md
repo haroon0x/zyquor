@@ -14,6 +14,8 @@ Three creation lanes: `single` (one idea → candidates → approve), `batch` (m
 
 Automated lane: deterministic source ingestion → compact source packet → one generated draft → approved autopost job. LLM never browses, scrapes, schedules, ranks, or decides whether to post.
 
+Draft quality has two layers (2026-07-21): a reader-critic LLM pass inside the command-code provider (generate → fact/editorial audit → reader critique → revise → second critique → drop rejected; all-dropped means no draft), and `scoreTweetQuality` in `packages/generation/src/quality.ts`, a floor (`ZYQUOR_QUALITY_MIN`, default 3) against recaps and slop, not a ranker. Measure prompt/pipeline changes with `node scripts/tweet-eval.mjs` (real command-code calls plus an LLM judge; prints meanJudgeScore).
+
 X free-tier character limit enforced at 280. Tweet types: `feed_observation`, `news_context`, `useful_info`, `guide`, `lesson`, `tool`, `opinion`, `reply`, `hiring`, `article_summary`, `narrative_history`.
 
 Controlled posting only behind env flags. Multi-account UI, Tauri, and E2E tests are future work. Reply drafting shipped (plan 007-C).
@@ -26,7 +28,7 @@ Controlled posting only behind env flags. Multi-account UI, Tauri, and E2E tests
 - `packages/core`: domain types, Zod schemas.
 - `packages/adapters`: source adapters, aggregation, source health.
 - `packages/automation`: ingest and source-packet drafting.
-- `packages/generation`: OpenRouter/Ollama/Gemini providers (no mock provider; tests inject providers via buildApp options).
+- `packages/generation`: command-code/OpenRouter/Ollama/Gemini providers (no mock provider; tests inject providers via buildApp options).
 - `packages/storage`: SQLite + JSON fallback repositories.
 - `packages/browser`: Playwright prepare/post flow.
 - `packages/accounts`: account config helpers.
@@ -120,6 +122,16 @@ IngestConfig fields: `accountId`, `sourceType`, `maxPacketsPerDay`, `tweetTypeMi
 - `GET /worker/status`
 - `POST /worker/heartbeat`
 
+### System (desktop control plane)
+- `GET /system/status`
+- `POST /system/posting` — toggle prepare/post flags live
+- `POST /system/ingest/cancel`
+- `GET /system/logs`
+- `POST /system/worker/pause`
+- `POST /system/chrome/close`
+- `POST /system/stop-all`
+- `POST /system/quit`, `POST /system/restart` (desktop only)
+
 ## Web UI State
 
 Mode derived from UI inputs:
@@ -150,7 +162,7 @@ pnpm dist:desktop
 - Worker polls due jobs every 5s
 - Electron desktop app: `apps/desktop/` — Electron 37, tray-resident, runs API/worker in-process. Data root via `ZYQUOR_DATA_ROOT` (defaults to Electron `userData`). Settings kept as `settings.json` in data root instead of `.env`. Logs to `<dataRoot>/logs/main.log` (rotates at 5 MB). Entry points: `src/main.ts` (main process), `src/preload.ts` (context bridge), `src/chrome.ts` (CDP launch), `src/settings.ts` (JSON config), `src/log.ts` (file logging).
 
-Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (disabled by default for safety), `ZYQUOR_LLM_PROVIDER=openrouter|gemini|ollama|auto`.
+Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (disabled by default for safety), `ZYQUOR_LLM_PROVIDER=command-code|openrouter|gemini|ollama|auto`.
 Source smoke: `pnpm smoke:adapters`. Product Hunt is optional without `ZYQUOR_PRODUCTHUNT_API_TOKEN`.
 
 ### pnpm Setup
@@ -164,7 +176,7 @@ ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
 - Provider is resolved in order: saved `data/generation.json` > `.env` > `process.env`.
 - Setting `ZYQUOR_LLM_PROVIDER=openrouter` without `ZYQUOR_OPENROUTER_API_KEY` crashes the API. Use `auto` if the key is not yet available — it falls back through available providers.
 - Shell env vars take precedence over `.env`; the dotenv loader skips already-set vars.
-- Preferred provider is OpenRouter. Default model is `openrouter/owl-alpha`. The full free-model allowlist lives in `OPENROUTER_MODELS` in `packages/generation/src/index.ts`. Setting a model not in the list silently coerces to the default.
+- Preferred provider is `command-code` (local CLI, model `deepseek/deepseek-v4-pro`, path/model via `ZYQUOR_COMMAND_CODE_PATH`/`ZYQUOR_COMMAND_CODE_MODEL`); it is the only provider that runs the audit + reader-critic pipeline. OpenRouter default model is `openrouter/owl-alpha`; the free-model allowlist lives in `OPENROUTER_MODELS` in `packages/generation/src/index.ts`, and a model not in the list silently coerces to the default.
 
 ### Browser Automation Caveats
 - Playwright bundled Chromium (`playwright install chromium`) fails on Ubuntu 26.04+ — it's unsupported on newer distros.
@@ -175,13 +187,12 @@ ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
   sudo apt update && sudo apt install google-chrome-stable
   ```
 
-## Latest Work (2026-05-08)
+## Latest Work (2026-07-21)
 
-- Live adapter smoke added and arXiv RSS fallback fixed.
-- Source health now cools down failing/empty aggregated upstreams.
-- Post-history analysis and source metadata tracing exist.
-- Source packet repost cap is 2 per account.
-- TODO pruned so Next tracks remaining work only.
+- Reader-critic quality pipeline in the command-code provider plus `scripts/tweet-eval.mjs` for measuring it.
+- Ingest grounding: fresh-source filter (48h), host caps, topic-overlap and thin-context skips.
+- Desktop control plane: `/system/*` routes (status, posting toggle, logs, worker pause, chrome close, stop-all, quit, restart) and a System view in the web UI.
+- Source health cools down failing/empty aggregated upstreams; post-history analysis and source metadata tracing exist.
 
 ## Next Steps
 
@@ -211,3 +222,33 @@ pnpm check
 pnpm test
 pnpm build
 ```
+----
+# Delegation Rules
+
+You are the **coordinator**: design, decide, review, land. Delegate hands-on execution and well-scoped research to **executor subagents** (Agent tool, `model: sonnet') or to the command-code CLI running DeepSeek V4 Pro.
+
+## Role check first
+
+- If your prompt starts with `ROLE: EXECUTOR` — or you were spawned by another agent at all — you are an **executor**: ignore the rest of this file, do the work order yourself, **never spawn subagents**. If blocked or the order is ambiguous, report back instead of delegating.
+- Coordinator: start every executor prompt with `ROLE: EXECUTOR — do the work yourself; do not spawn subagents.`
+
+## Delegate (default for hands-on work)
+
+- Implementation from a frozen spec; refactors; migrations
+- Bug fixes, CI/lint/type failures, tests, dependency bumps, tooling
+- Read-heavy exploration — fan out parallel executors, each returns a distilled summary
+- Git mechanics (rebase, conflicts, merge workflow) — mechanics only, after the coordinator decides to land
+
+## Keep in the coordinator
+
+- Design, architecture, naming, UX judgment; tasks where writing the spec IS the work
+- Tiny edits (~<20 lines) — delegation overhead loses
+- Session tools (MCP, secrets), releases/publishes/version bumps
+- The land decision, pre-land gates (review clean, CI green, proof), and review of all executor output — never delegated, never skipped
+
+## How
+
+- Complex work: freeze the spec as a md file in `/tasks` first; executor prompts reference it. Small work: full work order inline in the prompt, no spec file.
+- Executor prompts are self-contained (context, constraints, expected output) — subagents don't see your conversation.
+- Review output before accepting; re-delegate failures with the error context included.
+- Heuristic: prompt reads as a work order → delegate; writing it forces decisions → coordinator.

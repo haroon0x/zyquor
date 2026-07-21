@@ -77,6 +77,11 @@ export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
           <span aria-hidden="true" className="switch" />
           Close Chrome after post
         </label>
+        <label className="checkbox-row switch-row">
+          <input checked={desktopSettings.startWithWindows ?? false} type="checkbox" onChange={(event) => patchSetting("startWithWindows", event.target.checked)} />
+          <span aria-hidden="true" className="switch" />
+          Start with Windows
+        </label>
         <label>
           Provider
           <select value={desktopSettings.llmProvider ?? ""} onChange={(event) => patchSetting("llmProvider", event.target.value)}>

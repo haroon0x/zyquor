@@ -1,19 +1,17 @@
 import type { FastifyInstance } from "fastify";
+import { createGenerationProviderFromEnv } from "@zyquor/generation";
 import type { AppDeps, DesktopSettingsData } from "../deps.js";
 
 const SENSITIVE_KEYS = new Set(["openrouterApiKey", "geminiApiKey"]);
 
-const RESTART_REQUIRED_KEYS = new Set([
-  "enableBrowserPrepare",
-  "enableBrowserPost",
-  "closeChromeAfterPost",
-  "commandCodePath",
-  "llmProvider",
-  "openrouterApiKey",
-  "geminiApiKey",
-  "chromePath",
-  "cdpPort",
-]);
+const GENERATION_KEYS = new Set(["commandCodePath", "llmProvider", "openrouterApiKey", "geminiApiKey"]);
+
+const GENERATION_ENV_KEYS: Record<string, string> = {
+  commandCodePath: "ZYQUOR_COMMAND_CODE_PATH",
+  geminiApiKey: "ZYQUOR_GEMINI_API_KEY",
+  llmProvider: "ZYQUOR_LLM_PROVIDER",
+  openrouterApiKey: "ZYQUOR_OPENROUTER_API_KEY",
+};
 
 function maskSettings(settings: DesktopSettingsData): DesktopSettingsData {
   const masked = { ...settings } as Record<string, unknown>;
@@ -47,14 +45,32 @@ export function registerSettingsRoutes(app: FastifyInstance, deps: AppDeps): voi
       }
     }
 
+    for (const key of Object.keys(patch) as (keyof DesktopSettingsData)[]) {
+      if (patch[key] === "") delete patch[key];
+    }
+
     const updated = deps.desktopSettings!.update(patch);
     const masked = maskSettings(updated);
 
+    if (typeof patch.enableBrowserPrepare === "boolean") deps.browser.enablePrepare = patch.enableBrowserPrepare;
+    if (typeof patch.enableBrowserPost === "boolean") deps.browser.enablePost = patch.enableBrowserPost;
+    if (typeof patch.closeChromeAfterPost === "boolean") deps.browser.closeAfterPost = patch.closeChromeAfterPost;
+    if (typeof patch.cdpPort === "number") deps.browser.cdpUrl = `http://127.0.0.1:${patch.cdpPort}`;
+
     let restartRequired = false;
-    for (const key of Object.keys(patch)) {
-      if (RESTART_REQUIRED_KEYS.has(key)) {
+    const generationPatch = Object.keys(patch).filter((key) => GENERATION_KEYS.has(key));
+    if (generationPatch.length > 0) {
+      const nextEnv = { ...deps.generationEnv } as Record<string, string | undefined>;
+      for (const key of generationPatch) {
+        const value = updated[key as keyof DesktopSettingsData];
+        nextEnv[GENERATION_ENV_KEYS[key]!] = value === undefined ? undefined : String(value);
+      }
+      try {
+        deps.generationProvider = createGenerationProviderFromEnv(nextEnv);
+        deps.generationEnv = nextEnv;
+        restartRequired = false;
+      } catch {
         restartRequired = true;
-        break;
       }
     }
 

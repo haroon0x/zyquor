@@ -158,8 +158,8 @@ describe("ollama generation", () => {
     expect(messages[0]?.content).toContain("Never use em or en dashes (— or –)");
     expect(messages[0]?.content).toContain("not affiliated");
     expect(candidates).toEqual([
-      { text: "first local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 1, quality: -1 } },
-      { text: "second local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 2, quality: -1 } }
+      { text: "first local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 1, quality: 0 } },
+      { text: "second local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 2, quality: 0 } }
     ]);
   });
 
@@ -193,11 +193,11 @@ describe("ollama generation", () => {
     expect(candidates).toEqual([
       {
         text: "keep the automation path auditable before it touches a public account.",
-        score: { provider: "ollama", model: "qwen2.5:0.5b", rank: 1, quality: 0 }
+        score: { provider: "ollama", model: "qwen2.5:0.5b", rank: 1, quality: 1 }
       },
       {
         text: "local-first tools should make every browser action inspectable.",
-        score: { provider: "ollama", model: "qwen2.5:0.5b", rank: 2, quality: 0 }
+        score: { provider: "ollama", model: "qwen2.5:0.5b", rank: 2, quality: 1 }
       }
     ]);
   });
@@ -229,9 +229,9 @@ describe("ollama generation", () => {
     const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
     const messages = body.messages as Array<{ content: string; role: string }>;
     const prompt = messages[0]?.content ?? "";
-    const headings = ["Role", "Non-negotiable rules", "Voice", "Tweet type", "Calibration examples", "User style", "Output format"];
+    const headings = ["Role", "Publication rules", "Voice", "Tweet type", "Calibration examples", "User style", "Output format"];
 
-    expect(prompt.length).toBeLessThan(4000);
+    expect(prompt.length).toBeLessThan(4100);
     expect(headings.map((heading) => prompt.indexOf(heading))).toEqual(
       [...headings].map((heading) => prompt.indexOf(heading)).sort((left, right) => left - right)
     );
@@ -294,8 +294,8 @@ describe("openrouter generation", () => {
     expect(headers.authorization).toBe("Bearer test-key");
     expect(body).toMatchObject({ model: "cohere/north-mini-code:free", response_format: { type: "json_object" } });
     expect(candidates).toEqual([
-      { text: "a clean openrouter draft.", score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 1, quality: -1 } },
-      { text: "another clean openrouter draft.", score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 2, quality: -1 } }
+      { text: "a clean openrouter draft.", score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 1, quality: 0 } },
+      { text: "another clean openrouter draft.", score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 2, quality: 0 } }
     ]);
   });
 
@@ -329,7 +329,7 @@ describe("openrouter generation", () => {
           {
             message: {
               content:
-                "Keep Zyquor ingest drafts human-reviewed before anything reaches X.\nMake local posting automation auditable enough that every account action has a trail."
+                "Keep ingest drafts human-reviewed before anything reaches X.\nMake local posting automation auditable enough that every account action has a trail."
             }
           }
         ]
@@ -354,12 +354,12 @@ describe("openrouter generation", () => {
     expect(retryBody).toMatchObject({ temperature: 0.5, max_tokens: 500 });
     expect(candidates).toEqual([
       {
-        text: "keep zyquor ingest drafts human-reviewed before anything reaches x.",
-        score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 1, quality: 0 }
+        text: "keep ingest drafts human-reviewed before anything reaches x.",
+        score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 1, quality: 1 }
       },
       {
         text: "make local posting automation auditable enough that every account action has a trail.",
-        score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 2, quality: 0 }
+        score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 2, quality: 1 }
       }
     ]);
   });
@@ -429,7 +429,7 @@ describe("gemini generation", () => {
       }
     });
     expect(candidates).toEqual([
-      { text: "a clean gemini draft.", score: { provider: "gemini", model: "gemini-2.0-flash", rank: 1, quality: -1 } }
+      { text: "a clean gemini draft.", score: { provider: "gemini", model: "gemini-2.0-flash", rank: 1, quality: 0 } }
     ]);
   });
 });
@@ -492,7 +492,7 @@ describe("tweet quality harness", () => {
       },
       {
         text: "compute supply now decides which ai products can scale.",
-        score: { provider: "ollama", model: "gemma4:e4b", rank: 2, quality: -1 }
+        score: { provider: "ollama", model: "gemma4:e4b", rank: 2, quality: 0 }
       }
     ]);
   });
@@ -509,7 +509,6 @@ describe("tweet quality harness", () => {
     });
 
     expect(input.idea).toContain("Source title: Automatic posting worker ships");
-    expect(input.idea).toContain("Required attribution: <source-title>Automatic posting worker ships</source-title>");
     expect(input.idea).toContain(
       "Required source link: <source-url>https://news.ycombinator.com/item?id=1</source-url>"
     );

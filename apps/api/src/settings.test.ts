@@ -76,7 +76,7 @@ describe("/settings routes", () => {
     const body = res.json<DesktopSettingsData & { restartRequired?: boolean }>();
     expect(body.enableBrowserPost).toBe(true);
     expect(body.openrouterApiKey).toBe("***************1234");
-    expect(body.restartRequired).toBe(true);
+    expect(body.restartRequired).toBe(false);
     expect(dep.update).toHaveBeenCalledWith({
       enableBrowserPost: true,
       openrouterApiKey: "sk-or-v1-newkey1234",

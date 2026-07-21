@@ -49,8 +49,51 @@ export function createGitHubTrendingAdapter(options: GitHubTrendingAdapterOption
       } catch {
         return [];
       }
+    },
+    async enrich(item: SourceItem): Promise<SourceItem> {
+      const fullName = item.metadata?.fullName;
+      if (typeof fullName !== "string" || !fullName.trim()) return item;
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      try {
+        const response = await globalThis.fetch(`https://api.github.com/repos/${fullName}/readme`, {
+          headers: {
+            accept: "application/vnd.github.raw+json",
+            "user-agent": "Zyquor/1.0"
+          },
+          signal: controller.signal
+        });
+        if (!response.ok) return item;
+        const raw = await response.text();
+        if (!raw.trim()) return item;
+        const excerpt = cleanReadme(raw).slice(0, 1200);
+        if (!excerpt) return item;
+        return {
+          ...item,
+          content: [item.content, excerpt].join("\n")
+        };
+      } catch {
+        return item;
+      } finally {
+        clearTimeout(timeout);
+      }
     }
   };
+}
+
+function cleanReadme(raw: string): string {
+  return raw
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{2,}/g, "\n")
+    .trim();
 }
 
 function buildGitHubQuery(input: {
@@ -71,7 +114,7 @@ function repositoryToSourceItem(repository: GitHubRepository): SourceItem {
   const topics = repository.topics?.length ? `Topics: ${repository.topics.slice(0, 8).join(", ")}` : "";
   const description = repository.description ?? "No description provided.";
   return {
-    title: `${repository.full_name}: ${description}`,
+    title: repository.full_name,
     url: repository.html_url,
     content: [
       description,
@@ -85,6 +128,7 @@ function repositoryToSourceItem(repository: GitHubRepository): SourceItem {
       .join("\n"),
     metadata: {
       forks: repository.forks_count,
+      fullName: repository.full_name,
       language: repository.language,
       published: repository.created_at,
       pushedAt: repository.pushed_at,

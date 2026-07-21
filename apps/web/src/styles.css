@@ -2140,3 +2140,92 @@ label {
     opacity: 1;
   }
 }
+
+.system-view {
+  display: grid;
+  gap: 16px;
+}
+
+.system-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0 24px;
+  margin: 0;
+}
+
+.system-grid div {
+  display: grid;
+  grid-template-columns: minmax(8rem, auto) minmax(0, 1fr);
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.system-grid dt {
+  color: var(--muted);
+}
+
+.system-grid dd {
+  margin: 0;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.system-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.system-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.system-controls--danger {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+button.danger.stop-everything {
+  background: var(--warn);
+  color: #1a0606;
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.system-follow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.log-box {
+  max-height: 340px;
+  overflow: auto;
+  background: var(--input);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.log-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
+.log-line.warn {
+  color: var(--pending);
+}
+
+.log-line.error {
+  color: var(--warn);
+}

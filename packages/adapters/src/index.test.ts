@@ -172,7 +172,7 @@ describe("adapters", () => {
     await expect(adapter.fetch()).resolves.toEqual([
       expect.objectContaining({
         metadata: expect.objectContaining({ source: "github", stars: 1234 }),
-        title: "example/agentkit: Agent framework for local workflows",
+        title: "example/agentkit",
         url: "https://github.com/example/agentkit"
       })
     ]);

@@ -42,11 +42,10 @@ export function buildSourceTweetInput(input: {
   return {
     idea: [
       input.sourceType === "job" ? `Hiring post: ${compact(input.title)}` : `Source title: ${compact(input.title)}`,
-      `Required attribution: <source-title>${compact(input.title)}</source-title>`,
       input.url ? `Required source link: <source-url>${input.url}</source-url>` : null,
       `Known summary: ${compact(input.summary)}`,
       facts.length ? `Verified facts:\n${facts.map((fact) => `- ${fact}`).join("\n")}` : null,
-      "Write a clean standalone tweet from this context. Include the exact source link and reference at least one concrete fact above. Use only the <source-title> value for attribution. Do not mention internal processing, datasets, packets, summaries, prompts, or metadata."
+      "Write a clean standalone tweet from this context. Include the exact source link and reference at least one concrete fact above. Never paste the source title into the post; the link is the attribution. Do not mention internal processing, datasets, packets, summaries, prompts, or metadata."
     ]
       .filter(Boolean)
       .join("\n"),

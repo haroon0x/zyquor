@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "../api.js";
-import type { Draft, DraftResponse, Job, PanelProps } from "../types.js";
+import type { Candidate, Draft, DraftResponse, PanelProps } from "../types.js";
 import { tweetTypeOptions } from "../types.js";
 import { Busy, PanelIcon } from "./Feedback.js";
 
@@ -50,7 +50,7 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
       const mode = autoPost ? "autopost" : scheduledFor ? "scheduled" : "prepare_only";
 
       if (autoPost && postPlan === "single") {
-        const created = await api<DraftResponse & { job?: Job }>(replyToUrl.trim() ? "/drafts" : "/drafts/research", {
+        const created = await api<DraftResponse>(replyToUrl.trim() ? "/drafts" : "/drafts/research", {
           method: "POST",
           body: JSON.stringify({
             accountId,
@@ -63,7 +63,7 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
           })
         });
         if (replyToUrl.trim()) {
-          await api<DraftResponse & { job?: Job }>(`/drafts/${created.draft.id}/generate`, {
+          await api<DraftResponse>(`/drafts/${created.draft.id}/generate`, {
             method: "POST",
             body: JSON.stringify({})
           });
@@ -79,7 +79,7 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
           .split(/\n+/)
           .map((line) => line.trim())
           .filter(Boolean);
-        await api<{ items: Array<{ draft: Draft; job: Job }> }>("/draft-batches", {
+        await api<{ items: Array<{ candidates: Candidate[]; draft: Draft }> }>("/draft-batches", {
           method: "POST",
           body: JSON.stringify({
             accountId,

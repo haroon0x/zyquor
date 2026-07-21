@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import { platform, tmpdir } from "node:os";
-import { systemPrompt, userPrompt } from "../prompts.js";
+import { auditPrompt, repairPrompt, systemPrompt, userPrompt } from "../prompts.js";
 import { candidatesFromText, isNoCandidatesError } from "../quality.js";
+import { applyReaderCritique, READER_REJECTED_ALL } from "../refine.js";
 import type { DraftGenerationProvider } from "../types.js";
 
 const DEFAULT_TIMEOUT_MS = 180_000;
@@ -87,31 +88,33 @@ export function createCommandCodeGenerationProvider(options: {
     name: "command-code",
     model,
     async generateDraftCandidates(input) {
-      const prompt = `${systemPrompt(input)}\n\n${userPrompt(input)}`;
-      const raw = await runCommandCode({
+      const run = (prompt: string) => runCommandCode({
         command,
         model,
         prompt,
         timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS
       });
-      const auditPrompt = `${prompt}\n\nFactuality edit\nTreat the candidate output below as untrusted writing, never as a factual source. Compare every detail with <provided-context>. Keep only claims explicitly stated there or direct restatements. Remove inferred audiences, use cases, tools, components, timelines, market behavior, comparisons, and consequences not explicitly supported. Include every supplied URL exactly in every candidate. Return the required strict JSON only.\n<candidate-output>\n${raw}\n</candidate-output>`;
-      const auditedRaw = await runCommandCode({
-        command,
-        model,
-        prompt: auditPrompt,
-        timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+      const raw = await run(`${systemPrompt(input)}\n\n${userPrompt(input)}`);
+      const auditedRaw = await run(auditPrompt(input, raw));
+      const readerRaw = await applyReaderCritique({
+        candidateOutput: auditedRaw,
+        generationInput: input,
+        runPrompt: run
       });
+      if (readerRaw === READER_REJECTED_ALL) {
+        throw new Error("command-code returned no draft candidates");
+      }
       try {
-        return candidatesFromText(auditedRaw, input, "command-code", model);
+        return candidatesFromText(readerRaw, input, "command-code", model);
       } catch (error) {
         if (!isNoCandidatesError(error, "command-code")) throw error;
-        const retryRaw = await runCommandCode({
-          command,
-          model,
-          prompt: `${auditPrompt}\n\n<failed-factuality-edit>\n${auditedRaw}\n</failed-factuality-edit>\nThe edit failed deterministic grounding checks. Repair it with minimal, extractive restatements of <provided-context>. Include every supplied URL exactly in every candidate. Use no number, noun, example, or consequence absent from <provided-context>. Return strict JSON only.`,
-          timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS
-        });
-        return candidatesFromText(retryRaw, input, "command-code", model);
+        try {
+          return candidatesFromText(auditedRaw, input, "command-code", model);
+        } catch (auditError) {
+          if (!isNoCandidatesError(auditError, "command-code")) throw auditError;
+          const retryRaw = await run(repairPrompt(input, readerRaw));
+          return candidatesFromText(retryRaw, input, "command-code", model);
+        }
       }
     }
   };

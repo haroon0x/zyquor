@@ -69,7 +69,7 @@ export async function draftFromSourcePacket(input: {
           })
         }))
         .filter((candidate) => candidate.validation.ok && Number(candidate.score.quality) >= qualityMin)
-        .sort((a, b) => Number(b.score.quality) - Number(a.score.quality))
+        .sort((a, b) => Number(a.score.rank) - Number(b.score.rank))
     : [];
   const approvedCandidate = passingCandidates[0] ?? null;
   const sourceMetadata = {

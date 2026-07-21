@@ -193,6 +193,58 @@ export interface DesktopSettingsData {
   restartRequired?: boolean;
 }
 
+export interface SystemStatus {
+  api: {
+    startedAt: string;
+    browserLoaded: boolean;
+  };
+  counts: {
+    drafts: number;
+    ingestConfigsEnabled: number;
+    jobs: number;
+    jobsByStatus: Record<string, number>;
+    sourcePackets: number;
+  };
+  desktop: {
+    appVersion: string;
+    cdpUrl: string;
+    chromeConnected: boolean;
+    chromePid: number | null;
+    dataRoot: string;
+    logPath: string;
+    platform: string;
+    startedAt: string;
+    workerPaused: boolean;
+  } | null;
+  generation: {
+    model: string;
+    provider: string;
+  };
+  runningJobs: Array<{ accountId: string; id: string; mode: string; updatedAt: string }>;
+  ingestRun: {
+    cancelRequested?: boolean;
+    errors: Array<{ configId: string; error: string }>;
+    finishedAt: string | null;
+    lastStartedAt: string | null;
+    processed: number;
+    running: boolean;
+  };
+  posting: {
+    cdpUrl: string | null;
+    channel: string | null;
+    enablePost: boolean;
+    enablePrepare: boolean;
+  };
+  worker: {
+    lastError: string | null;
+    lastHeartbeatAt: string | null;
+    lastIngestAt: string | null;
+    lastPostAt: string | null;
+    paused: boolean;
+    running: boolean;
+  };
+}
+
 export interface PanelProps {
   accountId: string;
   busy: boolean;

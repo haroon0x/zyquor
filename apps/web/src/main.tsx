@@ -18,15 +18,17 @@ import { ComposeView } from "./views/Compose.js";
 import { HistoryView } from "./views/History.js";
 import { QueueView } from "./views/Queue.js";
 import { SettingsView } from "./views/Settings.js";
+import { SystemView } from "./views/System.js";
 import "./styles.css";
 
-type ViewId = "compose" | "queue" | "automation" | "history" | "settings";
+type ViewId = "compose" | "queue" | "automation" | "history" | "system" | "settings";
 
 const views: Array<{ description: string; icon: PanelIconName; id: ViewId; title: string }> = [
   { id: "compose", icon: "pencil", title: "Compose", description: "Turn a rough idea into a polished, reviewable post." },
   { id: "queue", icon: "list-checks", title: "Queue", description: "Prepare, schedule, post, and inspect every job." },
   { id: "automation", icon: "zap", title: "Automation", description: "Control source ingestion and the automatic posting pipeline." },
   { id: "history", icon: "clock", title: "History", description: "Review recently posted content and its sources." },
+  { id: "system", icon: "activity", title: "System", description: "See what is running and take control of it." },
   { id: "settings", icon: "settings", title: "Settings", description: "Tune generation, writing style, and desktop behavior." }
 ];
 
@@ -169,6 +171,14 @@ function App() {
     }, "account-create");
   }
 
+  function stopEverything() {
+    if (!window.confirm("Stop everything? This pauses the worker, turns off prepare and post, and closes the posting Chrome.")) return;
+    run(async () => {
+      await api("/system/stop-all", { method: "POST" });
+      setRefreshToken((current) => current + 1);
+    }, "stop-all");
+  }
+
   function navigate(view: ViewId) {
     setActiveView(view);
     window.location.hash = view;
@@ -218,6 +228,8 @@ function App() {
     );
   } else if (activeView === "history") {
     viewContent = <HistoryView panel={panelFor("history")} />;
+  } else if (activeView === "system") {
+    viewContent = <SystemView panel={panelFor("system")} />;
   } else {
     viewContent = (
       <SettingsView
@@ -312,6 +324,14 @@ function App() {
               <button className="secondary compact-button" disabled={busyScopes.includes("header")} onClick={checkBrowserSession}>
                 <Busy active={busyScopes.includes("header")} />Check X
               </button>
+              {isElectron ? <button
+                className="danger compact-button stop-everything"
+                disabled={busyScopes.includes("stop-all")}
+                onClick={stopEverything}
+                title="Pause the worker, turn off prepare and post, close the posting Chrome"
+              >
+                <Busy active={busyScopes.includes("stop-all")} />Stop everything
+              </button> : null}
             </div>
           </div>
         </div>

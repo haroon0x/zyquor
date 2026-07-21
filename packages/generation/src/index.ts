@@ -21,6 +21,8 @@ export { createOllamaGenerationProvider, stripThinking } from "./providers/ollam
 export { createOpenRouterGenerationProvider } from "./providers/openrouter.js";
 export { evaluateTweetQuality } from "./evaluator.js";
 export { isCleanTweetText, postProcessTweetText, scoreTweetQuality } from "./quality.js";
+export { applyReaderCritique, parseReaderCritique, READER_REJECTED_ALL } from "./refine.js";
+export type { ReaderVerdict } from "./refine.js";
 export type {
   DraftGenerationProvider,
   FetchLike,

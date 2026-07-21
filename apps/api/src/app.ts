@@ -21,6 +21,7 @@ import { registerJobsRoutes } from "./routes/jobs.js";
 import { registerHistoryRoutes } from "./routes/history.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerOnboardingRoutes } from "./routes/onboarding.js";
+import { registerSystemRoutes } from "./routes/system.js";
 
 export { type BuildAppOptions };
 
@@ -34,7 +35,7 @@ function createDefaultSourceAdapters(): SourceAdapter[] {
 }
 
 export function buildApp(options: BuildAppOptions = {}) {
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: options.logStream ? { stream: options.logStream as never } : true });
   const repositoryPromise = options.repository ? Promise.resolve(options.repository) : createLocalRepository();
   const sourceAdapters = adaptersBySourceType(options.sourceAdapters ?? createDefaultSourceAdapters());
   const baseGenerationEnv = options.generationEnv ?? process.env;
@@ -60,6 +61,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     generationConfigPath,
     launchPostingChrome: options.launchPostingChrome,
     desktopSettings: options.desktopSettings,
+    desktopControl: options.desktopControl,
     workerHeartbeat: null,
     ingestRunState: {
       errors: [],
@@ -90,6 +92,15 @@ export function buildApp(options: BuildAppOptions = {}) {
     origin: true
   });
 
+  app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, (_request, body: string, done) => {
+    if (!body) return done(null, {});
+    try {
+      done(null, Object.fromEntries(new URLSearchParams(body)));
+    } catch (error) {
+      done(error as Error, undefined);
+    }
+  });
+
   app.setErrorHandler((caught, _request, reply) => {
     const error = asError(caught);
     if (error instanceof ZodError) {
@@ -106,6 +117,10 @@ export function buildApp(options: BuildAppOptions = {}) {
     }
 
     app.log.error(error);
+    const statusCode = (error as { statusCode?: number }).statusCode;
+    if (typeof statusCode === "number" && statusCode >= 400 && statusCode < 600) {
+      return reply.code(statusCode).send({ error: error.message });
+    }
     if (isConflictError(error)) {
       return reply.code(409).send({ error: error.message });
     }
@@ -129,6 +144,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   registerHistoryRoutes(app, deps);
   registerSettingsRoutes(app, deps);
   registerOnboardingRoutes(app, deps);
+  registerSystemRoutes(app, deps);
 
   return app;
 }

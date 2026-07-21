@@ -158,6 +158,7 @@ export function registerIngestRoutes(app: FastifyInstance, deps: AppDeps): void 
     );
 
     deps.ingestRunState = {
+      cancelRequested: false,
       errors: [],
       finishedAt: null,
       lastStartedAt: new Date().toISOString(),
@@ -170,7 +171,8 @@ export function registerIngestRoutes(app: FastifyInstance, deps: AppDeps): void 
         const result = await runAutomaticIngest({
           adapters: deps.sourceAdapters,
           generationProvider: deps.generationProvider,
-          repository
+          repository,
+          shouldContinue: () => deps.ingestRunState.cancelRequested !== true
         });
         for (const error of result.errors) {
           app.log.error(`Async ingest run failed for config ${error.configId}: ${error.error}`);

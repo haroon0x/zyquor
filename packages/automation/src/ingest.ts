@@ -44,6 +44,7 @@ export interface RunAutomaticIngestOptions {
   generationProvider: DraftGenerationProvider;
   now?: Date;
   repository: ZyquorRepository;
+  shouldContinue?: () => boolean;
 }
 
 const PREFERRED_NEWS_KEYWORDS = [
@@ -300,6 +301,7 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
   const seenHostsThisRun = new Map<string, number>();
 
   for (const config of enabled) {
+    if (options.shouldContinue && !options.shouldContinue()) break;
     try {
       if (!isWithinScheduleWindow(config.scheduleWindowStart, config.scheduleWindowEnd, options.now)) {
         skippedByReason.scheduleWindow += 1;
@@ -356,13 +358,14 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
 
         let packetId: string | null = null;
         try {
-          const { summary, facts, title } = packetFieldsFromItem(item);
+          const enriched = adapter.enrich ? await adapter.enrich(item).catch(() => item) : item;
+          const { summary, facts, title } = packetFieldsFromItem(enriched);
           if (!hasEnoughSourceContext({ facts, summary, title })) {
             skippedByReason.thinContext += 1;
             continue;
           }
           const tweetType = routeTweetType(
-            { item, sourceName: adapter.name, sourceType: adapter.sourceType },
+            { item: enriched, sourceName: adapter.name, sourceType: adapter.sourceType },
             config.tweetTypeMix
           );
           const packet = await options.repository.createSourcePacket({
@@ -372,7 +375,7 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
             summary,
             title,
             tweetType,
-            url: item.url
+            url: enriched.url
           });
           packetId = packet.id;
           const drafted = await draftFromSourcePacket({
@@ -382,7 +385,7 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
             options: {
               autoApprove: true,
               count: 3,
-              ...(item.imageUrl ? { mediaUrls: [item.imageUrl] } : {}),
+              ...(enriched.imageUrl ? { mediaUrls: [enriched.imageUrl] } : {}),
               mode: "autopost"
             }
           });

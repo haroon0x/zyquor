@@ -123,7 +123,7 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
     if (metadata.yolo) {
       const qualityMin = Number(process.env.ZYQUOR_QUALITY_MIN ?? 3);
       const sortedCandidates = [...updated.candidates].sort(
-        (a, b) => Number(b.score.quality ?? -Infinity) - Number(a.score.quality ?? -Infinity)
+        (a, b) => Number(a.score.rank ?? Infinity) - Number(b.score.rank ?? Infinity)
       );
       const bestCandidate = sortedCandidates[0];
       const bestQuality = Number(bestCandidate?.score.quality ?? -Infinity);

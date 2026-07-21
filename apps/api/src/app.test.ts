@@ -1,10 +1,15 @@
 import { createMemoryRepository } from "@zyquor/storage";
 import type { SourceAdapter } from "@zyquor/adapters";
 import type { DraftGenerationProvider } from "@zyquor/generation";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 
+beforeEach(() => {
+  process.env.ZYQUOR_QUALITY_MIN = "3";
+});
+
 afterEach(() => {
+  delete process.env.ZYQUOR_QUALITY_MIN;
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -18,19 +23,22 @@ const testNewsAdapter: SourceAdapter = {
         title: "TypeScript 6.0: The Future of Static Typing",
         url: "https://dev.to/typescript/ts-6-preview",
         content:
-          "TypeScript 6.0 introduces higher-order type guards and improved recursive type inference. This release focuses on developer productivity and large codebase performance."
+          "TypeScript 6.0 introduces higher-order type guards and improved recursive type inference. This release focuses on developer productivity and large codebase performance.",
+        metadata: { published: new Date().toISOString() }
       },
       {
         title: "Playwright v2.0: Native Mobile Emulation",
         url: "https://playwright.dev/blog/v2-roadmap",
         content:
-          "Playwright v2.0 focuses on native mobile emulation, multi-page debugging in a single trace, and a unified API for cross-device testing."
+          "Playwright v2.0 focuses on native mobile emulation, multi-page debugging in a single trace, and a unified API for cross-device testing.",
+        metadata: { published: new Date().toISOString() }
       },
       {
         title: "YC Hacker News: The Future of AI Agents",
         url: "https://news.ycombinator.com/item?id=40000000",
         content:
-          "Hacker News discussion on autonomous agentic workflows and persistent background-running agents that handle complex pipelines."
+          "Hacker News discussion on autonomous agentic workflows and persistent background-running agents that handle complex pipelines.",
+        metadata: { published: new Date().toISOString() }
       }
     ];
   }
@@ -1667,7 +1675,8 @@ describe("api workflow", () => {
           {
             title: "Live release notes",
             url: "https://example.com/live-release",
-            content: "A live source item from an RSS feed."
+            content: "A live source item from an RSS feed.",
+            metadata: { published: new Date().toISOString() }
           }
         ];
       }

@@ -10,7 +10,7 @@ const INTERNAL_LEAK_PATTERNS = [
   /\bcandidate tweet\b/i,
   /\bdraft candidate\b/i,
   /\bstrict JSON\b/i,
-  /\bmetadata\b/i,
+  /\b(?:candidate|draft|source) metadata\b/i,
   /\bgrounded facts?\b/i,
   /\bsource context\b/i,
   /\bzyquor\b/i,
@@ -130,8 +130,42 @@ function scoreReadability(text: string) {
   return score;
 }
 
-function countNamedEntities(text: string) {
-  return (text.match(/\b([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)\b/g) ?? []).length;
+const PAYOFF_PATTERNS = [
+  /\b(?:if|unless|until|whenever)\b/i,
+  /\bwhen\b(?! it comes to)/i,
+  /\b(?:which|that) means\b/i,
+  /\bbecause\b/i,
+  /\bso (?:you|they|the|it)\b/i,
+  /\b(?:instead of|rather than|not worth|only|the (?:cost|tradeoff|catch|limit|constraint|difference|point|question) is)\b/i,
+  /\bturns? .{3,40} into\b/i,
+  /\bmatters (?:most )?(?:to|when|because)\b/i
+];
+
+const RECAP_OPENERS = [
+  /^(?:a |an )?new\b/i,
+  /^(?:researchers|the team|the paper|the post|the article|the release|the project|the company)\b/i,
+  /^\w[\w .'-]{0,60}\b(?:released|announced|published|launched|shipped|introduced|arrives?|is here|has arrived|hits (?:v?\d|stable)|reaches stable|is now (?:a )?stable)\b/i,
+  /\bafter years of\b/i
+];
+
+const SOURCE_ARTIFACT_PATTERNS = [
+  /\bverified (?:facts?|part)\b/i,
+  /\bknown summary\b/i,
+  /\bsource (?:title|name)\b/i,
+  /\bthis milestone\b/i,
+  /\b(?:workflow )?impact is\b/i
+];
+
+function countPayoffSignals(text: string) {
+  return PAYOFF_PATTERNS.filter((pattern) => pattern.test(text)).length;
+}
+
+function looksLikeSourceRecap(text: string) {
+  return RECAP_OPENERS.some((pattern) => pattern.test(text.trim()));
+}
+
+function containsSourceArtifact(text: string) {
+  return SOURCE_ARTIFACT_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 function countSpecificNouns(text: string) {
@@ -141,12 +175,16 @@ function countSpecificNouns(text: string) {
 
 export function scoreTweetQuality(text: string) {
   const trimmed = text.trim();
-  let score = 0;
-  if (/\d/.test(trimmed)) score += 2;
+  const payoffSignals = countPayoffSignals(trimmed);
+  let score = 3;
+  if (/\d/.test(trimmed)) score += 1;
   if (/https?:\/\//.test(trimmed)) score += 1;
   score += scoreReadability(trimmed);
-  score += countNamedEntities(trimmed);
-  score += countSpecificNouns(trimmed) * 2;
+  score += Math.min(countSpecificNouns(trimmed), 3);
+  score += Math.min(payoffSignals, 2) * 2;
+  if (payoffSignals === 0) score -= 2;
+  if (containsSourceArtifact(trimmed)) score -= 3;
+  if (looksLikeSourceRecap(trimmed)) score -= 3;
   if (WEAK_OPENER_PATTERN.test(trimmed)) score -= 2;
   if (/!/.test(trimmed)) score -= 1;
   if (/\?$/.test(trimmed) && trimmed.length < 60) score -= 1;
@@ -162,7 +200,7 @@ export function isCleanTweetText(text: string) {
   const trimmed = text.trim();
   return (
     trimmed.length > 0 &&
-    trimmed.length <= DEFAULT_CHARACTER_LIMIT &&
+    xPostCharacterLength(trimmed) <= DEFAULT_CHARACTER_LIMIT &&
     !INTERNAL_LEAK_PATTERNS.some((pattern) => pattern.test(trimmed)) &&
     !INCOMPLETE_PATTERNS.some((pattern) => pattern.test(trimmed)) &&
     !containsGenericSlop(trimmed) &&
@@ -204,6 +242,19 @@ function cleanLineCandidate(line: string) {
     .trim();
 }
 
+const REASONING_LINE_PATTERNS = [
+  /^(?:we|i) (?:must|should|need to|will|can|could)\b/i,
+  /^(?:let me|let's|first|next|now|okay|ok|so),?\b.{0,20}(?:write|draft|check|make|consider|think)\b/i,
+  /^(?:option|candidate|draft|version|variant)\s*\d*\s*[:.-]/i,
+  /^(?:here (?:are|is)|the following|these are)\b/i,
+  /\b(?:character count|char count|word count|under 280|within 280)\b/i,
+  /^(?:note|reasoning|analysis|plan|constraint)s?\s*[:-]/i
+];
+
+function looksLikeReasoningLine(line: string) {
+  return REASONING_LINE_PATTERNS.some((pattern) => pattern.test(line));
+}
+
 function urlsIn(text: string) {
   return (text.match(/https?:\/\/[^\s<>]+/gi) ?? []).map((url) => url.replace(/[),.;!?]+$/, ""));
 }
@@ -233,7 +284,7 @@ function isGroundedCandidate(text: string, input: GenerateDraftCandidatesInput, 
   return numberTokensIn(text).every((token) => suppliedNumbers.has(token));
 }
 
-function parseCandidateTexts(raw: string, count: number) {
+export function parseCandidateTexts(raw: string, count: number) {
   try {
     const parsed = parseJsonCandidateTexts(raw, count);
     if (parsed !== null) {
@@ -245,7 +296,7 @@ function parseCandidateTexts(raw: string, count: number) {
   return raw
     .split(/\n+/)
     .map(cleanLineCandidate)
-    .filter((line) => line.length > 0)
+    .filter((line) => line.length > 0 && !looksLikeReasoningLine(line))
     .slice(0, count);
 }
 
@@ -272,19 +323,15 @@ export function candidatesFromText(
     throw new Error(`${provider} returned no draft candidates`);
   }
 
-  return texts
-    .map((text, index) => ({ text, modelOrder: index, quality: scoreTweetQuality(text) }))
-    .sort((a, b) => b.quality - a.quality || a.modelOrder - b.modelOrder)
-    .slice(0, count)
-    .map(({ text, quality }, index) => ({
-      text,
-      score: {
-        provider,
-        model,
-        rank: index + 1,
-        quality
-      }
-    }));
+  return texts.slice(0, count).map((text, index) => ({
+    text,
+    score: {
+      provider,
+      model,
+      rank: index + 1,
+      quality: scoreTweetQuality(text)
+    }
+  }));
 }
 
 export function isNoCandidatesError(error: unknown, provider: GenerationProviderName) {
