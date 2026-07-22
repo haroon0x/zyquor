@@ -19,7 +19,8 @@ const VOICE_EXAMPLES = [
   "Weak summary: 'the new system records each step in an agent run.'",
   "Useful thought: 'recording each step turns an agent failure from a mystery into a trace: you can inspect the decision, state, and handoff that produced it.'",
   "Weak reaction: 'smaller models are getting more capable.'",
-  "Useful thought: 'a smaller model that handles the routine path well can leave the expensive model for the few decisions where extra reasoning changes the result.'"
+  "Useful thought: 'a smaller model that handles the routine path well can leave the expensive model for the few decisions where extra reasoning changes the result.'",
+  "Strong opinion: 'Supposedly OpenAI and Anthropic hired the world's best people, paid them tens of millions, and gave them billions to work with. Then a Chinese model had to save the day. If I were an investor, I'd ask: what exactly am I paying for?'"
 ];
 
 const PUNCTUATION_RULES = [
