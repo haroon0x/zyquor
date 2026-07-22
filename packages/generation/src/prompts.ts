@@ -20,7 +20,8 @@ const VOICE_EXAMPLES = [
   "Useful thought: 'recording each step turns an agent failure from a mystery into a trace: you can inspect the decision, state, and handoff that produced it.'",
   "Weak reaction: 'smaller models are getting more capable.'",
   "Useful thought: 'a smaller model that handles the routine path well can leave the expensive model for the few decisions where extra reasoning changes the result.'",
-  "Strong opinion: 'Supposedly OpenAI and Anthropic hired the world's best people, paid them tens of millions, and gave them billions to work with. Then a Chinese model had to save the day. If I were an investor, I'd ask: what exactly am I paying for?'"
+  "Strong opinion: 'Supposedly OpenAI and Anthropic hired the world's best people, paid them tens of millions, and gave them billions to work with. Then a Chinese model had to save the day. If I were an investor, I'd ask: what exactly am I paying for?'",
+  "Good post: 'I was reading a blog on how reasoning levels are implemented and found a chart where a 20B model gets pretty good accuracy on AIME 25. That’s impressive for 20B, right? i didn't know that quantized models gain from more reasoning budget.'"
 ];
 
 const PUNCTUATION_RULES = [
