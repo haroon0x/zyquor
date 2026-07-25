@@ -167,14 +167,15 @@ describe("ollama generation", () => {
     const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
     const fetchImpl: FetchLike = async (url, init) => {
       calls.push({ url: String(url), init });
-      if (calls.length === 1) {
-        return jsonResponse({ message: { content: '{"candidates":[],"status":"Draft"}' } });
+      // The quality loop uses format: "json"; only the line-prompt fallback omits it.
+      if (!JSON.parse(String(init?.body)).format) {
+        return jsonResponse({
+          message: {
+            content: "Draft 1:\nKeep the automation path auditable before it touches a public account.\n\nDraft 2:\nLocal-first tools should make every browser action inspectable."
+          }
+        });
       }
-      return jsonResponse({
-        message: {
-          content: "Draft 1:\nKeep the automation path auditable before it touches a public account.\n\nDraft 2:\nLocal-first tools should make every browser action inspectable."
-        }
-      });
+      return jsonResponse({ message: { content: '{"candidates":[],"status":"Draft"}' } });
     };
     const provider = createOllamaGenerationProvider({
       model: "qwen2.5:0.5b",
@@ -183,9 +184,8 @@ describe("ollama generation", () => {
 
     const candidates = await provider.generateDraftCandidates({ idea: "Make local automation auditable.", count: 2 });
 
-    expect(calls).toHaveLength(2);
     expect(JSON.parse(String(calls[0]?.init?.body))).toMatchObject({ format: "json" });
-    const retryBody = JSON.parse(String(calls[1]?.init?.body)) as Record<string, unknown>;
+    const retryBody = JSON.parse(String(calls.at(-1)?.init?.body)) as Record<string, unknown>;
     expect(retryBody).not.toHaveProperty("format");
     expect(retryBody).toMatchObject({ think: false });
     const retryMessages = retryBody.messages as Array<{ content: string; role: string }>;
@@ -238,13 +238,14 @@ describe("ollama generation", () => {
     expect(prompt).toContain("Use the tweet-type style reference above.");
     expect(prompt).toContain("Account voice notes:\nPrefer lessons grounded in hands-on experience.");
 
+    const overrideCallIndex = calls.length;
     await provider.generateDraftCandidates({
       idea: "SQLite serves 8 million rows from one $20 node.",
       systemPromptExtra: "Voice examples:\n1. sqlite is boring right up until boring saves a weekend.",
       tweetType: "feed_observation"
     });
 
-    const overrideBody = JSON.parse(String(calls[1]?.init?.body)) as Record<string, unknown>;
+    const overrideBody = JSON.parse(String(calls[overrideCallIndex]?.init?.body)) as Record<string, unknown>;
     const overrideMessages = overrideBody.messages as Array<{ content: string; role: string }>;
     const overridePrompt = overrideMessages[0]?.content ?? "";
     expect(overridePrompt).toContain("Account voice notes (example tweets below override the generic calibration pairs):");
@@ -313,7 +314,8 @@ describe("openrouter generation", () => {
           ]
         });
       }
-      if (calls.length === 2) {
+      // The quality loop sets response_format; only the line-prompt fallback omits it.
+      if (JSON.parse(String(init?.body)).response_format) {
         return jsonResponse({
           choices: [
             {
@@ -343,12 +345,11 @@ describe("openrouter generation", () => {
 
     const candidates = await provider.generateDraftCandidates({ idea: "Make ingest reliable and auditable.", count: 2 });
     const firstBody = JSON.parse(String(calls[1]?.init?.body)) as Record<string, unknown>;
-    const retryBody = JSON.parse(String(calls[2]?.init?.body)) as Record<string, unknown>;
+    const retryBody = JSON.parse(String(calls.at(-1)?.init?.body)) as Record<string, unknown>;
 
-    expect(calls).toHaveLength(3);
     expect(calls[0]?.url).toBe("https://openrouter.ai/api/v1/models");
     expect(calls[1]?.url).toBe("https://openrouter.ai/api/v1/chat/completions");
-    expect(calls[2]?.url).toBe("https://openrouter.ai/api/v1/chat/completions");
+    expect(calls.at(-1)?.url).toBe("https://openrouter.ai/api/v1/chat/completions");
     expect(firstBody).toMatchObject({ response_format: { type: "json_object" } });
     expect(retryBody).not.toHaveProperty("response_format");
     expect(retryBody).toMatchObject({ temperature: 0.5, max_tokens: 500 });
@@ -574,11 +575,11 @@ describe("generation config", () => {
       })
     ).toMatchObject({
       provider: "openrouter",
-      model: "google/gemma-4-26b-a4b-it:free",
+      model: "inclusionai/ling-3.0-flash:free",
       configured: true
     });
     expect(warn).toHaveBeenCalledWith(
-      'generation: OpenRouter model "openai/gpt-4.1-mini" is not in the free allowlist; using "google/gemma-4-26b-a4b-it:free"'
+      'generation: OpenRouter model "openai/gpt-4.1-mini" is not in the free allowlist; using "inclusionai/ling-3.0-flash:free"'
     );
 
     expect(
@@ -621,6 +622,7 @@ describe("generation config", () => {
 
   it("exposes provider-specific model dropdown options", () => {
     expect(GENERATION_MODEL_OPTIONS.openrouter).toEqual([
+      "inclusionai/ling-3.0-flash:free",
       "google/gemma-4-26b-a4b-it:free",
       "google/gemma-4-31b-it:free",
       "tencent/hy3:free",

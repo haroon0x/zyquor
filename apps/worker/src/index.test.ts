@@ -641,7 +641,7 @@ describe("worker startup checks", () => {
       const result = await checkWorkerStartup({ apiUrl: "http://api.test", pollMs: 1000 });
 
       expect(result.warnings).toEqual([
-        "ZYQUOR_ENABLE_BROWSER_POST=0, so autopost jobs cannot submit to X."
+        "Browser post is disabled, so drafts queue up as approved autopost jobs but never submit to X."
       ]);
       expect(calls).not.toContain(expect.stringContaining("/browser/x-session"));
     } finally {

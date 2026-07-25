@@ -5,6 +5,8 @@ import { Busy, InlineError, StatusBadge, errorMessage } from "./Feedback.js";
 
 type QueueFilter = "ready" | "scheduled" | "failed" | "posted";
 
+const JOBS_POLL_MS = 5000;
+
 interface JobDraftDetails {
   text: string;
   type: string;
@@ -69,7 +71,10 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
     setJobs(loadedJobs);
     setAttemptsByJob(Object.fromEntries(details.map((detail) => [detail.jobId, detail.attempts])));
     setDraftsByJob(Object.fromEntries(details.map((detail) => [detail.jobId, detail.draft])));
-    setScheduleEdits(Object.fromEntries(loadedJobs.map((job) => [job.id, toDateTimeLocal(job.scheduledFor)])));
+    // Keep any schedule the user is currently typing; background polls must not clobber it.
+    setScheduleEdits((current) =>
+      Object.fromEntries(loadedJobs.map((job) => [job.id, current[job.id] ?? toDateTimeLocal(job.scheduledFor)]))
+    );
     setSelectedJobIds((current) => current.filter((id) => availableJobIds.has(id)));
     setExpandedJobId((current) => current && availableJobIds.has(current) ? current : null);
   }
@@ -77,6 +82,14 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
   useEffect(() => {
     void loadJobs().catch((error) => setLoadError(errorMessage(error, "Jobs unavailable")));
   }, [accountId, refreshToken]);
+
+  // The worker changes job state every few seconds; without this the queue is
+  // stale until the user clicks something. Paused while an action is in flight.
+  useEffect(() => {
+    if (busy) return;
+    const timer = setInterval(() => void loadJobs().catch(() => undefined), JOBS_POLL_MS);
+    return () => clearInterval(timer);
+  }, [accountId, busy]);
 
   function prepareJob(job: Job) { run(async () => { await api(`/jobs/${job.id}/prepare`, { method: "POST" }); await refresh(); }); }
   function postJob(job: Job) { run(async () => { await api(`/jobs/${job.id}/post`, { method: "POST" }); await refresh(); }); }

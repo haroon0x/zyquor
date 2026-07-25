@@ -1,6 +1,7 @@
 import { DEFAULT_OLLAMA_BASE_URL, DEFAULT_OLLAMA_MODEL } from "../config.js";
 import { linePrompt, systemPrompt, userPrompt } from "../prompts.js";
 import { asText, candidatesFromText, isNoCandidatesError } from "../quality.js";
+import { generateWithQualityLoop } from "../refine.js";
 import type { DraftGenerationProvider, FetchLike } from "../types.js";
 import { postJson } from "./http.js";
 
@@ -36,24 +37,36 @@ export function createOllamaGenerationProvider(options: {
     name: "ollama",
     model,
     async generateDraftCandidates(input) {
-      const count = Math.min(Math.max(input.count ?? 3, 1), 5);
-      try {
+      const chat = async (messages: Array<{ role: string; content: string }>, numPredict: number) => {
         const body = await postJson<{ message?: { content?: unknown } }>(fetchImpl, `${baseUrl}/api/chat`, {
           model,
-          messages: [
-            { role: "system", content: systemPrompt(input) },
-            { role: "user", content: userPrompt(input) }
-          ],
+          messages,
           stream: false,
           format: "json",
           think: false,
           options: {
             temperature: 0.6,
-            num_predict: 900
+            num_predict: numPredict
           }
         });
+        return stripThinking(asText(body.message?.content));
+      };
 
-        return candidatesFromText(stripThinking(asText(body.message?.content)), input, "ollama", model);
+      try {
+        return await generateWithQualityLoop({
+          generationInput: input,
+          model,
+          providerName: "ollama",
+          runInitial: () =>
+            chat(
+              [
+                { role: "system", content: systemPrompt(input) },
+                { role: "user", content: userPrompt(input) }
+              ],
+              900
+            ),
+          runPrompt: (prompt) => chat([{ role: "user", content: prompt }], 900)
+        });
       } catch (error) {
         if (!isNoCandidatesError(error, "ollama")) {
           throw error;

@@ -4,6 +4,7 @@ import {
 } from "../config.js";
 import { linePrompt, systemPrompt, userPrompt } from "../prompts.js";
 import { asText, candidatesFromText, isNoCandidatesError } from "../quality.js";
+import { generateWithQualityLoop } from "../refine.js";
 import type { DraftGenerationProvider, FetchLike } from "../types.js";
 import { getJson, postJson } from "./http.js";
 
@@ -30,6 +31,7 @@ export function createOpenRouterGenerationProvider(options: {
   const model = safeOpenRouterModel(options.model);
   const fetchImpl = options.fetch ?? fetch;
   let confirmedFree = false;
+  let supportsJsonFormat = true;
 
   async function assertFreeModel() {
     if (confirmedFree) return;
@@ -58,26 +60,46 @@ export function createOpenRouterGenerationProvider(options: {
         "x-title": "Zyquor"
       };
 
-      try {
-        const body = await postJson<{
-          choices?: Array<{ message?: { content?: unknown } }>;
-        }>(
+      const send = (messages: Array<{ role: string; content: string }>, withJsonFormat: boolean) =>
+        postJson<{ choices?: Array<{ message?: { content?: unknown } }> }>(
           fetchImpl,
           url,
           {
             model,
-            messages: [
-              { role: "system", content: systemPrompt(input) },
-              { role: "user", content: userPrompt(input) }
-            ],
-            response_format: { type: "json_object" },
+            messages,
+            ...(withJsonFormat ? { response_format: { type: "json_object" } } : {}),
             temperature: 0.65,
             max_tokens: 900
           },
           headers
         );
-        const text = asText(body.choices?.[0]?.message?.content);
-        return candidatesFromText(text, input, "openrouter", model);
+
+      const chat = async (messages: Array<{ role: string; content: string }>) => {
+        try {
+          return asText((await send(messages, supportsJsonFormat)).choices?.[0]?.message?.content);
+        } catch (error) {
+          // Not every free model supports structured outputs. Fall back once and
+          // remember, instead of failing every item in the run.
+          if (!supportsJsonFormat || !/structured-outputs|response_format/i.test(String((error as Error).message))) {
+            throw error;
+          }
+          supportsJsonFormat = false;
+          return asText((await send(messages, false)).choices?.[0]?.message?.content);
+        }
+      };
+
+      try {
+        return await generateWithQualityLoop({
+          generationInput: input,
+          model,
+          providerName: "openrouter",
+          runInitial: () =>
+            chat([
+              { role: "system", content: systemPrompt(input) },
+              { role: "user", content: userPrompt(input) }
+            ]),
+          runPrompt: (prompt) => chat([{ role: "user", content: prompt }])
+        });
       } catch (error) {
         if (!isNoCandidatesError(error, "openrouter")) {
           throw error;

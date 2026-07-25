@@ -1,6 +1,6 @@
-import { readerCritiquePrompt, readerRevisePrompt } from "./prompts.js";
-import { normalizeCount, parseCandidateTexts } from "./quality.js";
-import type { GenerateDraftCandidatesInput } from "./types.js";
+import { auditPrompt, readerCritiquePrompt, readerRevisePrompt, repairPrompt, systemPrompt, userPrompt } from "./prompts.js";
+import { candidatesFromText, isNoCandidatesError, normalizeCount, parseCandidateTexts } from "./quality.js";
+import type { GenerateDraftCandidatesInput, GenerationProviderName } from "./types.js";
 
 export interface ReaderVerdict {
   n: number;
@@ -83,4 +83,39 @@ export async function applyReaderCritique(input: {
   if (finalVerdicts.length === 0) return revised;
 
   return dropRejectedCandidates(revised, finalVerdicts, count);
+}
+
+export async function generateWithQualityLoop(input: {
+  generationInput: GenerateDraftCandidatesInput;
+  model: string;
+  providerName: GenerationProviderName;
+  runInitial?: (() => Promise<string>) | undefined;
+  runPrompt: (prompt: string) => Promise<string>;
+}) {
+  const { generationInput, model, providerName, runPrompt } = input;
+  const raw = input.runInitial
+    ? await input.runInitial()
+    : await runPrompt(`${systemPrompt(generationInput)}\n\n${userPrompt(generationInput)}`);
+  const auditedRaw = await runPrompt(auditPrompt(generationInput, raw));
+  const readerRaw = await applyReaderCritique({
+    candidateOutput: auditedRaw,
+    generationInput,
+    runPrompt
+  });
+  if (readerRaw === READER_REJECTED_ALL) {
+    throw new Error(`${providerName} returned no draft candidates`);
+  }
+
+  try {
+    return candidatesFromText(readerRaw, generationInput, providerName, model);
+  } catch (error) {
+    if (!isNoCandidatesError(error, providerName)) throw error;
+    try {
+      return candidatesFromText(auditedRaw, generationInput, providerName, model);
+    } catch (auditError) {
+      if (!isNoCandidatesError(auditError, providerName)) throw auditError;
+      const retryRaw = await runPrompt(repairPrompt(generationInput, readerRaw));
+      return candidatesFromText(retryRaw, generationInput, providerName, model);
+    }
+  }
 }

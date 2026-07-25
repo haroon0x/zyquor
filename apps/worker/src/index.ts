@@ -86,6 +86,10 @@ function acquireWorkerLock(lockPath = resolve(process.env.ZYQUOR_WORKER_LOCK_PAT
   return release;
 }
 
+export function postEnabled() {
+  return process.env.ZYQUOR_ENABLE_BROWSER_POST === "1";
+}
+
 export function createWorkerState(): WorkerState {
   return {
     lastError: null,
@@ -188,8 +192,8 @@ export async function checkWorkerStartup(options: WorkerOptions) {
     return { recoveredIngestRunCount, seededConfigId, warnings };
   }
 
-  if (process.env.ZYQUOR_ENABLE_BROWSER_POST === "0") {
-    warnings.push("ZYQUOR_ENABLE_BROWSER_POST=0, so autopost jobs cannot submit to X.");
+  if (!postEnabled()) {
+    warnings.push("Browser post is disabled, so drafts queue up as approved autopost jobs but never submit to X.");
   }
 
   const recovery = await api<{ recoveredCount: number }>(
@@ -217,7 +221,7 @@ export async function checkWorkerStartup(options: WorkerOptions) {
 
   if (runnableAccount) {
     const browserPrepareEnabled = process.env.ZYQUOR_ENABLE_BROWSER_PREPARE === "1";
-    const browserPostEnabled = process.env.ZYQUOR_ENABLE_BROWSER_POST === "1";
+    const browserPostEnabled = postEnabled();
 
     if (!browserPrepareEnabled && !browserPostEnabled) {
       console.log("skipping X session check (browser actions disabled)");
@@ -296,7 +300,7 @@ export async function processApprovedJobs(
     seenThisRun.add(job.id);
 
     const action = job.mode === "autopost" ? "post" : "prepare";
-    if (action === "post" && process.env.ZYQUOR_ENABLE_BROWSER_POST === "0") {
+    if (action === "post" && !postEnabled()) {
       continue;
     }
     if (action === "post" && state?.autopostJobIds.has(job.id)) {
@@ -391,7 +395,6 @@ export async function processPendingDrafts(options: WorkerOptions) {
 }
 
 export async function processNewSourcePackets(options: WorkerOptions) {
-  if (process.env.ZYQUOR_ENABLE_BROWSER_POST === "0") return 0;
   const { packets } = await api<{ packets?: SourcePacket[] }>(options.apiUrl, "/source-packets");
   const sourcePackets = packets ?? [];
   const newPackets = sourcePackets.filter((packet) => packet.status === "new");
@@ -423,7 +426,6 @@ export async function processNewSourcePackets(options: WorkerOptions) {
 }
 
 export async function processIngest(options: WorkerOptions) {
-  if (process.env.ZYQUOR_ENABLE_BROWSER_POST === "0") return 0;
   try {
     const result = await api<{ accepted: boolean; ingestRun: { processed: number; running: boolean } }>(
       options.apiUrl,

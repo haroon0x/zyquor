@@ -1,6 +1,7 @@
 import { DEFAULT_GEMINI_BASE_URL, DEFAULT_GEMINI_MODEL } from "../config.js";
 import { systemPrompt, userPrompt } from "../prompts.js";
-import { asText, candidatesFromText } from "../quality.js";
+import { asText } from "../quality.js";
+import { generateWithQualityLoop } from "../refine.js";
 import type { DraftGenerationProvider, FetchLike } from "../types.js";
 import { postJson } from "./http.js";
 
@@ -18,26 +19,33 @@ export function createGeminiGenerationProvider(options: {
     name: "gemini",
     model,
     async generateDraftCandidates(input) {
-      const body = await postJson<{
-        candidates?: Array<{ content?: { parts?: Array<{ text?: unknown }> } }>;
-      }>(fetchImpl, `${baseUrl}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(options.apiKey)}`, {
-        systemInstruction: {
-          parts: [{ text: systemPrompt(input) }]
-        },
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: userPrompt(input) }]
+      const generate = async (prompt: string, system?: string) => {
+        const body = await postJson<{
+          candidates?: Array<{ content?: { parts?: Array<{ text?: unknown }> } }>;
+        }>(fetchImpl, `${baseUrl}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(options.apiKey)}`, {
+          ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: prompt }]
+            }
+          ],
+          generationConfig: {
+            responseMimeType: "application/json",
+            temperature: 0.65,
+            maxOutputTokens: 900
           }
-        ],
-        generationConfig: {
-          responseMimeType: "application/json",
-          temperature: 0.65,
-          maxOutputTokens: 900
-        }
+        });
+        return asText(body.candidates?.[0]?.content?.parts?.map((part) => asText(part.text)).join("\n"));
+      };
+
+      return generateWithQualityLoop({
+        generationInput: input,
+        model,
+        providerName: "gemini",
+        runInitial: () => generate(userPrompt(input), systemPrompt(input)),
+        runPrompt: (prompt) => generate(prompt)
       });
-      const text = asText(body.candidates?.[0]?.content?.parts?.map((part) => asText(part.text)).join("\n"));
-      return candidatesFromText(text, input, "gemini", model);
     }
   };
 }

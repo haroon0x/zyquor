@@ -171,6 +171,9 @@ export function registerIngestRoutes(app: FastifyInstance, deps: AppDeps): void 
         const result = await runAutomaticIngest({
           adapters: deps.sourceAdapters,
           generationProvider: deps.generationProvider,
+          onProgress: ({ errors, processed }) => {
+            deps.ingestRunState = { ...deps.ingestRunState, errors, processed };
+          },
           repository,
           shouldContinue: () => deps.ingestRunState.cancelRequested !== true
         });

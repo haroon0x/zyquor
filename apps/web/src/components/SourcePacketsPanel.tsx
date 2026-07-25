@@ -4,6 +4,8 @@ import type { DraftResponse, PanelProps, SourcePacket } from "../types.js";
 import { tweetTypeOptions } from "../types.js";
 import { Busy, InlineError, PanelIcon, StatusBadge, errorMessage } from "./Feedback.js";
 
+const PACKETS_POLL_MS = 5000;
+
 export interface SourcePacketsState {
   setDraft: (draft: DraftResponse | null) => void;
   setEditedText: (text: string) => void;
@@ -95,6 +97,13 @@ export function SourcePacketsPanel({ panel, state }: { panel: PanelProps; state:
   useEffect(() => {
     void loadSourcePackets().catch((error) => setLoadError(errorMessage(error, "Source packets unavailable")));
   }, [accountId, refreshToken]);
+
+  // Ingest creates and drafts packets in the background; poll so the list keeps up.
+  useEffect(() => {
+    if (busy) return;
+    const timer = setInterval(() => void loadSourcePackets().catch(() => undefined), PACKETS_POLL_MS);
+    return () => clearInterval(timer);
+  }, [accountId, busy]);
 
   function draftFromSourcePacket(packet: SourcePacket) {
     run(async () => {

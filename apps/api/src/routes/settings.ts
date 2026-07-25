@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { createGenerationProviderFromEnv } from "@zyquor/generation";
 import type { AppDeps, DesktopSettingsData } from "../deps.js";
+import { writeSavedGenerationEnv } from "../lib/generation.js";
 
 const SENSITIVE_KEYS = new Set(["openrouterApiKey", "geminiApiKey"]);
 
@@ -69,6 +70,11 @@ export function registerSettingsRoutes(app: FastifyInstance, deps: AppDeps): voi
         deps.generationProvider = createGenerationProviderFromEnv(nextEnv);
         deps.generationEnv = nextEnv;
         restartRequired = false;
+        // Persist to the same file GET /generation reads, otherwise the saved
+        // generation config silently overrides this panel on the next boot.
+        if (patch.llmProvider !== undefined) {
+          writeSavedGenerationEnv(deps.generationConfigPath, nextEnv);
+        }
       } catch {
         restartRequired = true;
       }

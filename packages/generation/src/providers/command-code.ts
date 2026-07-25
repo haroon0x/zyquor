@@ -1,8 +1,6 @@
 import { spawn } from "node:child_process";
 import { platform, tmpdir } from "node:os";
-import { auditPrompt, repairPrompt, systemPrompt, userPrompt } from "../prompts.js";
-import { candidatesFromText, isNoCandidatesError } from "../quality.js";
-import { applyReaderCritique, READER_REJECTED_ALL } from "../refine.js";
+import { generateWithQualityLoop } from "../refine.js";
 import type { DraftGenerationProvider } from "../types.js";
 
 const DEFAULT_TIMEOUT_MS = 180_000;
@@ -94,28 +92,12 @@ export function createCommandCodeGenerationProvider(options: {
         prompt,
         timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS
       });
-      const raw = await run(`${systemPrompt(input)}\n\n${userPrompt(input)}`);
-      const auditedRaw = await run(auditPrompt(input, raw));
-      const readerRaw = await applyReaderCritique({
-        candidateOutput: auditedRaw,
+      return generateWithQualityLoop({
         generationInput: input,
+        model,
+        providerName: "command-code",
         runPrompt: run
       });
-      if (readerRaw === READER_REJECTED_ALL) {
-        throw new Error("command-code returned no draft candidates");
-      }
-      try {
-        return candidatesFromText(readerRaw, input, "command-code", model);
-      } catch (error) {
-        if (!isNoCandidatesError(error, "command-code")) throw error;
-        try {
-          return candidatesFromText(auditedRaw, input, "command-code", model);
-        } catch (auditError) {
-          if (!isNoCandidatesError(auditError, "command-code")) throw auditError;
-          const retryRaw = await run(repairPrompt(input, readerRaw));
-          return candidatesFromText(retryRaw, input, "command-code", model);
-        }
-      }
     }
   };
 }

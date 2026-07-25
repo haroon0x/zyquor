@@ -26,6 +26,8 @@ export function registerGenerationRoutes(app: FastifyInstance, deps: AppDeps): v
     deps.generationEnv = nextEnv;
     deps.generationProvider = nextProvider;
     writeSavedGenerationEnv(deps.generationConfigPath, deps.generationEnv);
+    // Keep the desktop settings panel in step; otherwise it reports a stale provider.
+    deps.desktopSettings?.update({ llmProvider: input.provider });
 
     return {
       generation: resolveGenerationProviderConfig(deps.generationEnv),

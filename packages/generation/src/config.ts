@@ -24,8 +24,9 @@ export function safeCommandCodeModel(model: string | undefined) {
 }
 
 export const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
-export const DEFAULT_OPENROUTER_MODEL = "google/gemma-4-26b-a4b-it:free";
+export const DEFAULT_OPENROUTER_MODEL = "inclusionai/ling-3.0-flash:free";
 export const OPENROUTER_MODELS = [
+  "inclusionai/ling-3.0-flash:free",
   "google/gemma-4-26b-a4b-it:free",
   "google/gemma-4-31b-it:free",
   "tencent/hy3:free",
@@ -35,8 +36,9 @@ export const OPENROUTER_MODELS = [
 ] as const;
 const ALLOWED_OPENROUTER_MODELS = OPENROUTER_MODELS;
 export const DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
-export const DEFAULT_GEMINI_MODEL = "gemini-2.0-flash";
+export const DEFAULT_GEMINI_MODEL = "gemini-3.6-flash";
 export const GEMINI_MODELS = [
+  "gemini-3.6-flash",
   "gemini-2.5-flash",
   "gemini-2.5-pro",
   "gemini-2.0-flash",

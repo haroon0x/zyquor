@@ -43,6 +43,9 @@ export interface RunAutomaticIngestOptions {
   adapters: Map<string, SourceAdapter>;
   generationProvider: DraftGenerationProvider;
   now?: Date;
+  // Reports counts as the run proceeds. Without it a caller only learns of
+  // errors once the whole run ends, so a failing run looks healthy throughout.
+  onProgress?: (progress: { errors: Array<{ configId: string; error: string }>; processed: number }) => void;
   repository: ZyquorRepository;
   shouldContinue?: () => boolean;
 }
@@ -280,6 +283,23 @@ function prioritizeSourceItems(items: SourceItem[]) {
   return prioritized;
 }
 
+// Generation failures that every later item in the run would hit identically.
+// Retrying them per item just burns time and floods the run log.
+const PROVIDER_FAILURE_PATTERNS = [
+  /insufficient credits/i,
+  /\b(401|403)\b/,
+  /unauthorized/i,
+  /invalid api key/i,
+  /was not found at/i,
+  /failed to start/i,
+  /is not confirmed free/i,
+  /ECONNREFUSED/i
+];
+
+export function isProviderFailure(message: string) {
+  return PROVIDER_FAILURE_PATTERNS.some((pattern) => pattern.test(message));
+}
+
 export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
   const configs = await options.repository.listIngestConfigs();
   const enabled = configs.filter((config) => config.enabled);
@@ -299,9 +319,11 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
   }
   const seenUrlsThisRun = new Set<string>();
   const seenHostsThisRun = new Map<string, number>();
+  let providerFailed = false;
 
   for (const config of enabled) {
     if (options.shouldContinue && !options.shouldContinue()) break;
+    if (providerFailed) break;
     try {
       if (!isWithinScheduleWindow(config.scheduleWindowStart, config.scheduleWindowEnd, options.now)) {
         skippedByReason.scheduleWindow += 1;
@@ -399,6 +421,7 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
             url: packet.url
           });
           createdForConfig += 1;
+          options.onProgress?.({ errors: [...errors], processed: results.length });
           if (host) {
             seenHostsThisRun.set(host, (seenHostsThisRun.get(host) ?? 0) + 1);
             postedTitlesByHost.set(host, [...(postedTitlesByHost.get(host) ?? []), title]);
@@ -407,10 +430,13 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
           if (packetId) {
             await options.repository.deleteSourcePacket(packetId).catch(() => null);
           }
-          errors.push({
-            configId: config.id,
-            error: error instanceof Error ? error.message : "Unknown item ingest error"
-          });
+          const message = error instanceof Error ? error.message : "Unknown item ingest error";
+          errors.push({ configId: config.id, error: message });
+          options.onProgress?.({ errors: [...errors], processed: results.length });
+          if (isProviderFailure(message)) {
+            providerFailed = true;
+            break;
+          }
         }
       }
     } catch (error) {
