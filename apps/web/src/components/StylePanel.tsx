@@ -32,7 +32,7 @@ export function StylePanel({ panel, styleProfileId }: { panel: PanelProps; style
 
   useEffect(() => {
     void loadStyleProfile().catch((error) => setLoadError(errorMessage(error, "Prompt unavailable")));
-  }, [styleProfileId, panel.refreshToken]);
+  }, [accountId, styleProfileId, panel.refreshToken]);
 
   function saveStyleProfile() {
     if (!styleProfile) return;
@@ -66,7 +66,7 @@ export function StylePanel({ panel, styleProfileId }: { panel: PanelProps; style
   function deleteSystemFeedback(id: string) {
     run(async () => {
       await api(`/system-feedback/${id}`, { method: "DELETE" });
-      setSystemFeedback(systemFeedback.filter((item) => item.id !== id));
+      setSystemFeedback((items) => items.filter((item) => item.id !== id));
     });
   }
 

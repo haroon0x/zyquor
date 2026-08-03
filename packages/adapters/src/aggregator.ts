@@ -428,9 +428,9 @@ function estimateEngagement(item: SourceItem, source: string, tags: string[], ha
 export function inferTweetType(item: SourceItem): string {
   const title = item.title.toLowerCase();
   if (/how to|tutorial|guide/i.test(title)) return "guide";
-  if (/mistake|wrong|lesson|learned/i.test(title)) return "guide";
+  if (/mistake|wrong|lesson|learned/i.test(title)) return "lesson";
   if (/opinion|think|believe|should/i.test(title)) return "opinion";
-  if (/tool|app|product|launch/i.test(title)) return "useful_info";
+  if (/tool|app|product|launch/i.test(title)) return "tool";
   if (/study|research|paper/i.test(item.content.toLowerCase())) return "useful_info";
-  return "useful_info";
+  return "feed_observation";
 }

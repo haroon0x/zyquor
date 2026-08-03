@@ -74,11 +74,6 @@ export interface PostGateResult {
   waitMinutes: number;
 }
 
-/**
- * Decides whether enough time has passed since the account's last real post.
- * Anchored on post history rather than on a job's scheduledFor, so a stale or
- * overdue backlog cannot fire back to back.
- */
 export function evaluatePostGate(input: PostGateInput): PostGateResult {
   const nowMs = Date.parse(input.now);
 
@@ -91,7 +86,8 @@ export function evaluatePostGate(input: PostGateInput): PostGateResult {
     return { allowed: true, nextEligibleAt: null, reason: "unparsable-last-post", requiredGapMinutes: 0, waitMinutes: 0 };
   }
 
-  const requiredGapMs = Math.max(5, input.gapMinMinutes) * MS_PER_MINUTE;
+  const gapMinutes = Number.isFinite(input.gapMinMinutes) ? Math.max(5, input.gapMinMinutes) : 30;
+  const requiredGapMs = gapMinutes * MS_PER_MINUTE;
   const reason = "minimum-gap";
 
   const nextEligibleMs = lastMs + requiredGapMs;
@@ -117,8 +113,12 @@ export function evaluatePostGate(input: PostGateInput): PostGateResult {
 export function nextAutopostScheduledFor(input: NextAutopostInput): NextAutopostResult {
   const tracePrefix = input.traceId ? `[trace=${input.traceId}] ` : "";
   const nowMs = Date.parse(input.timestamp);
-  const minMs = Math.max(5, input.gapMinMinutes) * MS_PER_MINUTE;
-  const maxMs = Math.max(input.gapMinMinutes + 5, input.gapMaxMinutes) * MS_PER_MINUTE;
+  const gapMinMinutes = Number.isFinite(input.gapMinMinutes) ? Math.max(5, input.gapMinMinutes) : 30;
+  const gapMaxMinutes = Number.isFinite(input.gapMaxMinutes)
+    ? Math.max(gapMinMinutes + 5, input.gapMaxMinutes)
+    : Math.max(gapMinMinutes + 5, 90);
+  const minMs = gapMinMinutes * MS_PER_MINUTE;
+  const maxMs = gapMaxMinutes * MS_PER_MINUTE;
   const lastMs = input.lastScheduledFor ? Date.parse(input.lastScheduledFor) : nowMs;
   const anchor = Math.max(lastMs, nowMs);
 

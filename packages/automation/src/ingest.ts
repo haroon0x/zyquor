@@ -48,15 +48,11 @@ export interface RunAutomaticIngestOptions {
   qualityEvaluator?: TweetQualityEvaluator;
   qualityEvaluatorOptions?: EvaluateTweetQualityOptions;
   now?: Date;
-  // Reports counts as the run proceeds. Without it a caller only learns of
-  // errors once the whole run ends, so a failing run looks healthy throughout.
   onProgress?: (progress: { errors: Array<{ configId: string; error: string }>; processed: number }) => void;
   repository: ZyquorRepository;
   shouldContinue?: () => boolean;
 }
 
-// A story must carry at least one of these to be worth posting about. Matched on
-// word boundaries: substring matching made "ai" hit "said", "chair" and "email".
 const CORE_AI_TERMS = [
   "ai", "a.i.", "artificial intelligence", "agi",
   "llm", "llms", "language model", "foundation model", "frontier model",
@@ -73,7 +69,6 @@ const CORE_AI_TERMS = [
   "machine learning", "deep learning", "neural network", "training run", "pretraining"
 ];
 
-// Supporting terms only sharpen ranking; they never qualify a story on their own.
 const SUPPORTING_TERMS = [
   "developer", "programming", "software", "open source", "framework", "sdk", "api",
   "startup", "funding", "launch", "release", "product", "shipped",
@@ -81,8 +76,6 @@ const SUPPORTING_TERMS = [
   "database", "infrastructure", "latency", "throughput", "gpu", "nvidia", "compute"
 ];
 
-// Rejected even when an AI term appears: adjacent industries that generate
-// endless funding news with nothing worth an opinion.
 const OFF_TOPIC_TERMS = [
   "nuclear", "reactor", "barge", "climate", "carbon", "emissions", "solar farm", "wind farm",
   "crypto", "bitcoin", "ethereum", "blockchain", "web3", "nft", "token sale",
@@ -230,8 +223,6 @@ function isFreshSourceItem(item: SourceItem, now: Date) {
 
 function prioritizeSourceItems(items: SourceItem[]) {
   const groups = new Map<string, SourceItem[]>();
-  // Ranking alone let zero-signal stories through whenever the queue was short.
-  // Off-topic items are dropped here, not merely sorted to the bottom.
   for (const item of [...items].sort((a, b) => sourceRelevanceScore(b) - sourceRelevanceScore(a))) {
     const key = itemSourceKey(item);
     groups.set(key, [...(groups.get(key) ?? []), item]);
@@ -248,12 +239,8 @@ function prioritizeSourceItems(items: SourceItem[]) {
   return prioritized;
 }
 
-// Generation failures that every later item in the run would hit identically.
-// Retrying them per item just burns time and floods the run log.
 const PROVIDER_FAILURE_PATTERNS = [
   /insufficient credits/i,
-  // Daily quota exhaustion cannot recover within this run. Per-minute limits are
-  // deliberately excluded: the HTTP layer waits those out and retries.
   /per-day/i,
   /daily limit/i,
   /quota exceeded/i,
@@ -270,15 +257,11 @@ export function isProviderFailure(message: string) {
   return PROVIDER_FAILURE_PATTERNS.some((pattern) => pattern.test(message));
 }
 
-/**
- * Per-day packet target, picked deterministically from the date so it holds
- * steady all day but varies day to day. A fixed daily count is a tell.
- */
 export function dailyPacketTarget(today: string): number {
-  // Daily packet target per ingest config, env-tunable. The quality floor, not
-  // this number, decides what actually posts.
-  const min = Math.min(20, Math.max(1, Number(process.env.ZYQUOR_DAILY_PACKET_MIN ?? 6)));
-  const max = Math.min(20, Math.max(min, Number(process.env.ZYQUOR_DAILY_PACKET_MAX ?? 10)));
+  const minValue = Number(process.env.ZYQUOR_DAILY_PACKET_MIN ?? 6);
+  const maxValue = Number(process.env.ZYQUOR_DAILY_PACKET_MAX ?? 10);
+  const min = Math.min(20, Math.max(1, Number.isFinite(minValue) ? Math.floor(minValue) : 6));
+  const max = Math.min(20, Math.max(min, Number.isFinite(maxValue) ? Math.floor(maxValue) : 10));
   let hash = 2166136261;
   for (let i = 0; i < today.length; i += 1) {
     hash ^= today.charCodeAt(i);
@@ -312,9 +295,6 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
   const seenHostsThisRun = new Map<string, number>();
   let providerFailed = false;
 
-  // Approved jobs that never got posted carry over to today rather than being
-  // discarded, so today's ingest is reduced by the size of that carry-over.
-  // Without this, unposted days compound into an ever-growing queue.
   const allJobs = await options.repository.listJobs();
   const carriedOverByAccount = new Map<string, number>();
   for (const job of allJobs) {
@@ -352,8 +332,13 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
 
       const remaining = effectiveCap - todayPackets.length;
       const now = options.now ?? new Date();
-      const fresh = (await adapter.fetch({ ...config.metadata, accountId: config.accountId })).filter((item) => isFreshSourceItem(item, now));
-      const onTopic = config.sourceType === "x-feed" ? fresh : fresh.filter((item) => isOnTopicSourceItem(item));
+      const fetchMetadata = config.sourceType === "x-feed"
+        ? { ...config.metadata, accountId: config.accountId }
+        : config.metadata;
+      const fresh = (await adapter.fetch(fetchMetadata)).filter((item) => isFreshSourceItem(item, now));
+      const onTopic = config.sourceType === "job" || config.sourceType === "x-feed" || config.sourceType === "model-releases"
+        ? fresh
+        : fresh.filter((item) => isOnTopicSourceItem(item));
       skippedByReason.offTopic += fresh.length - onTopic.length;
       const items = prioritizeSourceItems(onTopic);
       let createdForConfig = 0;
@@ -409,7 +394,7 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
             summary,
             title,
             tweetType,
-            url: config.sourceType === "x-feed" ? null : enriched.url
+            url: enriched.url
           });
           packetId = packet.id;
           const drafted = await draftFromSourcePacket({
@@ -417,7 +402,7 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
             packet,
             repository: options.repository,
             options: {
-              autoApprove: options.autoApproveEnabled === true,
+              autoApprove: options.autoApproveEnabled !== false,
               count: 1,
               ...(enriched.imageUrl ? { mediaUrls: [enriched.imageUrl] } : {}),
               mode: "autopost",

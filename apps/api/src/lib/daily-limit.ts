@@ -10,9 +10,14 @@ function dailyHash(seed: string) {
   return hash;
 }
 
+function envInteger(name: string, fallback: number) {
+  const value = Number(process.env[name] ?? fallback);
+  return Number.isFinite(value) ? Math.floor(value) : fallback;
+}
+
 function dailyVarianceCap(): { min: number; max: number; value: number; traceId: string; absolute: number } {
-  const min = Math.min(ABSOLUTE_DAILY_POST_LIMIT, Math.max(1, Number(process.env.ZYQUOR_DAILY_POST_VARIANCE_MIN ?? 3)));
-  const requestedMax = Math.max(min, Number(process.env.ZYQUOR_DAILY_POST_VARIANCE_MAX ?? 4));
+  const min = Math.min(ABSOLUTE_DAILY_POST_LIMIT, Math.max(1, envInteger("ZYQUOR_DAILY_POST_VARIANCE_MIN", 3)));
+  const requestedMax = Math.max(min, envInteger("ZYQUOR_DAILY_POST_VARIANCE_MAX", 4));
   const max = Math.min(requestedMax, ABSOLUTE_DAILY_POST_LIMIT);
   const seed = new Date().toISOString().slice(0, 10);
   const span = max - min + 1;

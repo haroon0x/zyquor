@@ -19,8 +19,7 @@ export function registerWorkerRoutes(app: FastifyInstance, deps: AppDeps): void 
       repository.listSourcePackets()
     ]);
     const enabledConfigs = configs.filter((config) => config.enabled);
-    const latestPacket = packets
-      .filter((packet) => packet.sourceType === "news" || packet.sourceType === "feed")
+    const latestPacket = [...packets]
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
     const latestPosted = jobs
       .filter((job) => job.status === "posted")

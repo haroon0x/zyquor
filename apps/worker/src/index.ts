@@ -363,7 +363,6 @@ export async function processApprovedJobs(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (action === "post" && message.includes("Too soon since the last post")) {
-        // Expected while the spacing gap runs down; not a failure.
         continue;
       }
       console.error(`Failed to ${action} job ${job.id}:`, message);

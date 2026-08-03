@@ -492,8 +492,9 @@ async function extractFeedTweets(page: Page, maxTweets: number) {
       const text = article.querySelector('[data-testid="tweetText"]')?.textContent?.trim() ?? "";
       const userName = article.querySelector('[data-testid="User-Name"]')?.textContent ?? "";
       const socialContext = article.querySelector('[data-testid="socialContext"]')?.textContent ?? "";
+      const headerText = article.querySelector("header")?.textContent ?? "";
       const publishedAt = article.querySelector("time[datetime]")?.getAttribute("datetime") ?? null;
-      return { statusLink, text, userName, socialContext, publishedAt };
+      return { statusLink, text, userName, socialContext, headerText, publishedAt };
     })
   );
 
@@ -509,7 +510,7 @@ async function extractFeedTweets(page: Page, maxTweets: number) {
     seen.add(url);
     const handle = handleMatch[1]!;
     const nameLine = (entry.userName.split("\n")[0] ?? "").trim();
-    const authorName = nameLine.split("@")[0]?.trim() || handle;
+    const authorName = nameLine.replace(/\s+@[A-Za-z0-9_]{1,15}\s*$/, "").trim() || handle;
     tweets.push({
       id: idMatch[1]!,
       authorHandle: handle,
@@ -517,7 +518,7 @@ async function extractFeedTweets(page: Page, maxTweets: number) {
       text: entry.text,
       url,
       publishedAt: entry.publishedAt,
-      isRetweet: /reposted/i.test(entry.socialContext)
+      isRetweet: /reposted/i.test(`${entry.socialContext} ${entry.headerText}`)
     });
     if (tweets.length >= maxTweets) break;
   }
@@ -534,12 +535,16 @@ export async function fetchXHomeFeed(input: FetchXHomeFeedInput): Promise<FetchX
   const artifactId = new Date().toISOString().replace(/[:.]/g, "-");
   const screenshotPath = join(artifactsDir, `feed-${artifactId}.png`);
 
-  const { context, ownsContext } = await openPersistentContext({
-    ...input,
-    autoLaunchCdp: false
-  });
+  let context: BrowserContext | null = null;
+  let ownsContext = false;
 
   try {
+    const opened = await openPersistentContext({
+      ...input,
+      autoLaunchCdp: false
+    });
+    context = opened.context;
+    ownsContext = opened.ownsContext;
     context.setDefaultTimeout(30_000);
     const page = await pageForSessionCheck(context, input);
     await assertNotLoginPage(page);
@@ -552,20 +557,21 @@ export async function fetchXHomeFeed(input: FetchXHomeFeedInput): Promise<FetchX
     if (tweets.length < minTweets) {
       throw new Error(`Only ${tweets.length} tweets extracted from the X home feed (minimum ${minTweets})`);
     }
+    const url = page.url();
     if (ownsContext) {
       await context.close();
     }
-    return { tweets, url: page.url() };
+    return { tweets, url };
   } catch (error) {
-    const page = context.pages()[0];
+    const page = context?.pages()[0];
     if (page) {
       await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined);
     }
     const message = error instanceof Error ? error.message : "Unknown X home feed fetch error";
-    if (ownsContext) {
+    if (context && ownsContext) {
       await context.close();
     }
-    throw new BrowserFeedError(message, screenshotPath);
+    throw new BrowserFeedError(message, context ? screenshotPath : null);
   }
 }
 

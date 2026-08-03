@@ -10,6 +10,11 @@ import { definedEntries } from "../lib/utils.js";
 import { qualityJudgeOptions } from "../lib/quality-judge.js";
 
 export function registerIngestRoutes(app: FastifyInstance, deps: AppDeps): void {
+  const autoApproveEnabled = () =>
+    deps.desktopSettings
+      ? deps.browser.enablePost === true && deps.desktopSettings.get().autoApproveSourcePackets === true
+      : true;
+
   app.get("/ingest-runs", async (request) => {
     const { accountId } = request.query as { accountId?: string };
     return {
@@ -134,11 +139,11 @@ export function registerIngestRoutes(app: FastifyInstance, deps: AppDeps): void 
     const judgeOptions = qualityJudgeOptions(deps.generationEnv);
     const result = await runAutomaticIngest({
       adapters: deps.sourceAdapters,
-      autoApproveEnabled:
-        deps.browser.enablePost === true && deps.desktopSettings?.get().autoApproveSourcePackets === true,
+      autoApproveEnabled: autoApproveEnabled(),
       generationProvider: deps.generationProvider,
-      qualityEvaluator: deps.tweetQualityEvaluator,
-      qualityEvaluatorOptions: judgeOptions,
+      ...(deps.desktopSettings
+        ? { qualityEvaluator: deps.tweetQualityEvaluator, qualityEvaluatorOptions: judgeOptions }
+        : {}),
       repository
     });
 
@@ -174,11 +179,11 @@ export function registerIngestRoutes(app: FastifyInstance, deps: AppDeps): void 
       try {
         const result = await runAutomaticIngest({
           adapters: deps.sourceAdapters,
-          autoApproveEnabled:
-            deps.browser.enablePost === true && deps.desktopSettings?.get().autoApproveSourcePackets === true,
+          autoApproveEnabled: autoApproveEnabled(),
           generationProvider: deps.generationProvider,
-          qualityEvaluator: deps.tweetQualityEvaluator,
-          qualityEvaluatorOptions: judgeOptions,
+          ...(deps.desktopSettings
+            ? { qualityEvaluator: deps.tweetQualityEvaluator, qualityEvaluatorOptions: judgeOptions }
+            : {}),
           onProgress: ({ errors, processed }) => {
             deps.ingestRunState = { ...deps.ingestRunState, errors, processed };
           },

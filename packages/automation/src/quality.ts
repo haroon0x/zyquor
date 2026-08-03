@@ -49,7 +49,7 @@ function containsUrl(text: string) {
 }
 
 function sourceNeedsLink(packet: SourcePacket) {
-  return Boolean(packet.url);
+  return Boolean(packet.url) && packet.sourceType !== "x-feed";
 }
 
 function sourceEvidence(packet: SourcePacket) {

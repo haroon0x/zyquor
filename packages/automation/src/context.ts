@@ -116,9 +116,9 @@ export function packetFieldsFromFeedDigest(item: SourceItem) {
 export function hasEnoughSourceContext(input: { facts: string[]; summary: string; title: string }) {
   const title = cleanSentence(input.title).toLowerCase();
   const facts = [...new Set(input.facts.map((fact) => cleanSentence(fact).toLowerCase()))]
-    .filter((fact) => fact.length >= 20 && fact !== title);
+    .filter((fact) => fact.length > 0 && fact !== title);
   const summary = cleanSentence(input.summary).toLowerCase();
-  return facts.length >= 2 || (facts.length >= 1 && summary.length >= 80 && summary !== title);
+  return facts.length >= 1 && summary !== title;
 }
 
 export function inferTweetTypeFromText(item: SourceItem): TweetType {
@@ -127,10 +127,10 @@ export function inferTweetTypeFromText(item: SourceItem): TweetType {
   const title = item.title.toLowerCase();
   const content = item.content.toLowerCase();
   if (type === "hiring" || source.includes("hackernews-jobs") || /hiring|is hiring|we're hiring|jobs?/.test(title)) {
-    return "useful_info";
+    return "hiring";
   }
   if (source === "company-rss" || /\b(blog|article|post|essay|guide)\b/i.test(title)) {
-    return "useful_info";
+    return "article_summary";
   }
   if (
     /\b(history|invented|inventor|founded|founder|created|origin|born|died|legacy|anniversary|pioneer)\b/i.test(
@@ -140,9 +140,9 @@ export function inferTweetTypeFromText(item: SourceItem): TweetType {
     return "narrative_history";
   }
   if (/how to|tutorial|guide/i.test(title)) return "guide";
-  if (/mistake|wrong|lesson|learned/i.test(title)) return "guide";
+  if (/mistake|wrong|lesson|learned/i.test(title)) return "lesson";
   if (/opinion|think|believe|should/i.test(title)) return "opinion";
-  if (/tool|app|product|launch/i.test(title)) return "useful_info";
+  if (/tool|app|product|launch/i.test(title)) return "tool";
   if (/study|research|paper/i.test(content)) return "useful_info";
-  return "useful_info";
+  return "feed_observation";
 }

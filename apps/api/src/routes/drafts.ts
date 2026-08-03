@@ -24,6 +24,10 @@ import { tracePostProcessTweetText } from "../lib/post-process.js";
 import { isPostingMode } from "../lib/posting.js";
 import { qualityJudgeOptions } from "../lib/quality-judge.js";
 
+function generationTweetType(value: string) {
+  return value === "hiring" ? value : normalizeTweetType(value);
+}
+
 export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void {
   app.get("/drafts/pending", async () => {
     const repository = await deps.repository;
@@ -60,7 +64,7 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
     const judgeTweetType = existing.draft.replyTo
       ? "reply"
       : typeof metadata.tweetType === "string"
-        ? normalizeTweetType(metadata.tweetType)
+        ? generationTweetType(metadata.tweetType)
         : undefined;
     const judgeOptions = qualityJudgeOptions(deps.generationEnv);
     const evaluations = [];
@@ -120,7 +124,7 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
     const judgeTweetType = draft.replyTo
       ? "reply"
       : typeof metadata.tweetType === "string"
-        ? normalizeTweetType(metadata.tweetType)
+        ? generationTweetType(metadata.tweetType)
         : undefined;
     const count = metadata.yolo ? 1 : (Number(metadata.count) || 3);
 
@@ -132,11 +136,12 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
       ...(draft.replyTo
         ? { tweetType: "reply" }
         : metadata.tweetType
-          ? { tweetType: normalizeTweetType(metadata.tweetType as string) }
+          ? { tweetType: generationTweetType(metadata.tweetType as string) }
           : {}),
       ...(draft.replyTo
         ? { replyContext: { authorHandle: draft.replyTo.authorHandle, url: draft.replyTo.url } }
-        : {})
+        : {}),
+      ...(sourcePacket?.feedback ? { feedback: sourcePacket.feedback } : {})
     });
 
     let updated = await repository.saveDraftCandidates(
@@ -296,7 +301,7 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
         sourceType: "news",
         summary: fields.summary,
         title: fields.title,
-        tweetType: normalizeTweetType(input.tweetType),
+        tweetType: input.tweetType ?? "useful_info",
         url: item.url
       });
 
@@ -344,7 +349,7 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
         yolo: input.yolo,
         autopost: input.autopost,
         count: input.count ?? 3,
-        tweetType: replyTo ? "reply" : normalizeTweetType(input.tweetType)
+        tweetType: replyTo ? "reply" : input.tweetType
       }
     });
 
@@ -412,10 +417,12 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
           })
         : null;
       const qualityText = sourceQuality?.text ?? approvedText;
-      const generatedQuality = validateGeneratedPostQuality(qualityText);
+      const generatedQualityRequired =
+        existing.draft.metadata.yolo === true || existing.draft.metadata.generatedScore !== undefined;
+      const generatedQuality = generatedQualityRequired ? validateGeneratedPostQuality(qualityText) : null;
       const reasons = [
         ...(sourceQuality?.reasons ?? []),
-        ...generatedQuality.reasons
+        ...(generatedQuality?.reasons ?? [])
       ];
       if (reasons.length > 0) {
         return reply.code(409).send({ error: `Autopost quality gate failed: ${[...new Set(reasons)].join(", ")}` });

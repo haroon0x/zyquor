@@ -117,7 +117,7 @@ export function SystemView({ panel }: { panel: PanelProps }) {
         method: "POST",
         body: JSON.stringify(patch)
       });
-      return `Prepare ${result.enablePrepare ? "on" : "off"} · Post ${result.enablePost ? "on" : "off"} · Automated review ${result.autoApproveSourcePackets ? "off" : "on"}`;
+      return `Prepare ${result.enablePrepare ? "on" : "off"} · Post ${result.enablePost ? "on" : "off"} · Automated posting ${result.autoApproveSourcePackets ? "on" : "off"}`;
     });
   }
 

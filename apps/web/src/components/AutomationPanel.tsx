@@ -126,6 +126,7 @@ export function AutomationPanel({ panel }: { panel: PanelProps }) {
           <select value={automationDraft.sourceType} onChange={(event) => setAutomationDraft({ ...automationDraft, sourceType: event.target.value })}>
             <option value="news">Aggregated tech/news</option>
             <option value="feed">RSS feed URL</option>
+            <option value="model-releases">Model releases</option>
             <option value="x-feed">X home feed observations</option>
           </select>
         </label>

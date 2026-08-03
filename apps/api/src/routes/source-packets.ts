@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../deps.js";
 import { createSourcePacketRequestSchema, setSourcePacketFeedbackRequestSchema } from "@zyquor/core";
-import { draftFromSourcePacket, hasEnoughSourceContext, normalizeTweetType } from "@zyquor/automation";
+import { draftFromSourcePacket, hasEnoughSourceContext } from "@zyquor/automation";
 import { deleteSourcePacketCascade } from "../lib/source-packet-delete.js";
 import { appendNotebookEntry, resolveFeedbackDir } from "../lib/feedback-notebook.js";
 import { qualityJudgeOptions } from "../lib/quality-judge.js";
@@ -68,7 +68,7 @@ export function registerSourcePacketsRoutes(app: FastifyInstance, deps: AppDeps)
       sourceType: input.sourceType,
       summary: input.summary,
       title: input.title,
-      tweetType: normalizeTweetType(input.tweetType),
+      tweetType: input.tweetType,
       url: input.url ?? null
     });
 
@@ -90,7 +90,8 @@ export function registerSourcePacketsRoutes(app: FastifyInstance, deps: AppDeps)
 
     const requestedAutoApprove = body.autoApprove === true || body.mode === "autopost";
     const autoApproveAllowed =
-      deps.browser.enablePost === true && deps.desktopSettings?.get().autoApproveSourcePackets === true;
+      deps.browser.enablePost === true &&
+      (deps.desktopSettings ? deps.desktopSettings.get().autoApproveSourcePackets === true : true);
     const autoApprove = requestedAutoApprove && autoApproveAllowed;
     if (requestedAutoApprove && !autoApproveAllowed) {
       app.log.warn(`Auto-approve requested for packet ${id} but automated posting is off; drafting for review`);
@@ -102,8 +103,12 @@ export function registerSourcePacketsRoutes(app: FastifyInstance, deps: AppDeps)
         ? {
             autoApprove: true,
             mode: "autopost" as const,
-            qualityEvaluator: deps.tweetQualityEvaluator,
-            qualityEvaluatorOptions: qualityJudgeOptions(deps.generationEnv)
+            ...(deps.desktopSettings
+              ? {
+                  qualityEvaluator: deps.tweetQualityEvaluator,
+                  qualityEvaluatorOptions: qualityJudgeOptions(deps.generationEnv)
+                }
+              : {})
           }
         : {})
     };

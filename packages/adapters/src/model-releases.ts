@@ -9,12 +9,12 @@ const MAX_SOURCE_AGE_MS = 48 * 60 * 60 * 1000;
 
 export function createModelReleasesAdapter(options: ModelReleasesAdapterOptions = {}): SourceAdapter {
   const maxItems = options.maxItems ?? 20;
-  const now = options.now ?? new Date();
 
   return {
     name: "model-releases",
     sourceType: "model-releases",
     async fetch(): Promise<SourceItem[]> {
+      const now = options.now ?? new Date();
       const settled = await Promise.allSettled([
         fetchOpenRouterModels(),
         fetchHuggingFaceModels(now),

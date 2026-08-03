@@ -237,6 +237,17 @@ export interface SystemStatus {
     lastStartedAt: string | null;
     processed: number;
     running: boolean;
+    skippedByReason?: {
+      blockedUrl: number;
+      duplicatePacket: number;
+      duplicatePostedUrl: number;
+      hostCap: number;
+      offTopic: number;
+      packetCap: number;
+      scheduleWindow: number;
+      thinContext: number;
+      topicOverlap: number;
+    };
   };
   posting: {
     cdpUrl: string | null;

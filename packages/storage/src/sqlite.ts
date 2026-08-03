@@ -391,6 +391,7 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
         db.prepare("DELETE FROM source_packets WHERE account_id = ?").run(accountId);
         db.prepare("DELETE FROM ingest_runs WHERE account_id = ?").run(accountId);
         db.prepare("DELETE FROM ingest_configs WHERE account_id = ?").run(accountId);
+        db.prepare("DELETE FROM system_feedback WHERE account_id = ?").run(accountId);
         db.prepare("DELETE FROM accounts WHERE id = ?").run(accountId);
         return toAccount(accountRow);
       });

@@ -72,8 +72,6 @@ export async function postBrowserJob(deps: AppDeps, jobId: string) {
     throw new HttpError(409, "Daily post limit reached for this account");
   }
 
-  // Spacing is anchored on real post history, not on the job's scheduledFor, so a
-  // stale or overdue backlog cannot fire back to back.
   const accountHistory = (await repository.listPostHistory())
     .filter((item) => item.accountId === account.id)
     .sort((left, right) => Date.parse(left.postedAt) - Date.parse(right.postedAt));
@@ -120,7 +118,10 @@ export async function postBrowserJob(deps: AppDeps, jobId: string) {
       })
     : null;
   const qualityText = { value: sourceQuality?.text ?? postedText };
-  const generatedQuality = job.mode === "autopost" ? validateGeneratedPostQuality(qualityText.value) : null;
+  const generatedQualityRequired =
+    job.mode === "autopost" &&
+    (draftForPost.metadata.yolo === true || draftForPost.metadata.generatedScore !== undefined);
+  const generatedQuality = generatedQualityRequired ? validateGeneratedPostQuality(qualityText.value) : null;
   const qualityReasons = [
     ...(sourceQuality?.reasons ?? []),
     ...(generatedQuality?.reasons ?? [])

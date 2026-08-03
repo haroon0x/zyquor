@@ -9,14 +9,19 @@ import type { DraftGenerationProvider, FetchLike } from "../types.js";
 import { getJson, postJson } from "./http.js";
 
 function isZeroPrice(value: unknown) {
-  return typeof value === "string" && Number(value) === 0;
+  return (typeof value === "string" || typeof value === "number") && Number(value) === 0;
 }
 
 function assertOpenRouterPricingIsFree(input: {
   model: string;
   pricing?: { completion?: unknown; prompt?: unknown; request?: unknown };
 }) {
-  if (!input.pricing || !isZeroPrice(input.pricing.prompt) || !isZeroPrice(input.pricing.completion)) {
+  if (
+    !input.pricing ||
+    !isZeroPrice(input.pricing.prompt) ||
+    !isZeroPrice(input.pricing.completion) ||
+    (input.pricing.request !== undefined && !isZeroPrice(input.pricing.request))
+  ) {
     throw new Error(`OpenRouter model is not confirmed free: ${input.model}`);
   }
 }

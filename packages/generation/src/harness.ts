@@ -67,7 +67,7 @@ export function buildSourceTweetInput(input: {
       summary: compact(input.summary),
       title: compact(input.title),
       topicTags: input.topicTags ?? [],
-      url: input.url ?? null
+      url: isXFeed ? null : input.url ?? null
     }
   };
 }

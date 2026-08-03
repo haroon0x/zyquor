@@ -14,6 +14,10 @@ import { accountGenerationContext, articleTweetIdea, hasEnoughSourceContext, sou
 import { validateSourcePostQuality, withRequiredSourceUrl } from "./quality.js";
 import { normalizeTweetType } from "./selection.js";
 
+function generationTweetType(value: SourcePacket["tweetType"]) {
+  return value === "hiring" ? value : normalizeTweetType(value);
+}
+
 export interface PacketDraftOptions {
   autoApprove?: boolean;
   count?: number;
@@ -43,13 +47,13 @@ export async function generateCandidatesForPacket(input: {
   const tweetInput = sourceTweetInput(input.packet);
 
   return input.generationProvider.generateDraftCandidates({
-    idea: "",
+    idea: input.packet.title,
     ...(tweetInput.source ? { context: tweetInput.source } : {}),
     insightRequired: true,
     count: input.count ?? 1,
     ...context,
     ...(input.packet.feedback ? { feedback: input.packet.feedback } : {}),
-    tweetType: normalizeTweetType(input.packet.tweetType)
+    tweetType: generationTweetType(input.packet.tweetType)
   });
 }
 
@@ -78,12 +82,11 @@ export async function draftFromSourcePacket(input: {
     }))
   );
   let judgeError: string | null = null;
+  const hasQualityJudge = Boolean(input.options?.qualityEvaluator);
   if (input.options?.autoApprove) {
-    if (!input.options.qualityEvaluator) {
-      judgeError = "quality_judge_unavailable";
-    } else {
+    if (input.options.qualityEvaluator) {
       const judgeIdea = articleTweetIdea(input.packet);
-      const judgeTweetType = normalizeTweetType(input.packet.tweetType);
+      const judgeTweetType = generationTweetType(input.packet.tweetType);
       const judgedAt = new Date().toISOString();
       try {
         const judgedCandidates: GeneratedDraftCandidate[] = [];
@@ -122,7 +125,7 @@ export async function draftFromSourcePacket(input: {
     }
   }
   const history = input.options?.autoApprove ? await input.repository.listPostHistory() : [];
-  const qualityMin = qualityMinimum();
+  const qualityMin = hasQualityJudge || process.env.ZYQUOR_QUALITY_MIN?.trim() ? qualityMinimum() : 3;
   const passingCandidates = input.options?.autoApprove
     ? candidates
         .map((candidate) => ({
@@ -134,7 +137,10 @@ export async function draftFromSourcePacket(input: {
           }),
           generatedValidation: passesTweetQualityFloor(candidate.text, qualityMin)
         }))
-        .filter((candidate) => candidate.validation.ok && candidate.generatedValidation && candidate.score.judgePass === true)
+        .filter(
+          (candidate) =>
+            candidate.validation.ok && candidate.generatedValidation && (!hasQualityJudge || candidate.score.judgePass === true)
+        )
         .sort((a, b) => Number(b.score.quality) - Number(a.score.quality) || Number((a.score as Record<string, unknown>).rank) - Number((b.score as Record<string, unknown>).rank))
     : [];
   const approvedCandidate = passingCandidates[0] ?? null;
@@ -142,7 +148,7 @@ export async function draftFromSourcePacket(input: {
     ...(input.options?.mediaUrls?.length ? { mediaUrls: input.options.mediaUrls } : {}),
     sourcePacketId: input.packet.id,
     sourceType: input.packet.sourceType,
-    tweetType: normalizeTweetType(input.packet.tweetType)
+    tweetType: input.packet.tweetType
   };
 
   if (input.options?.autoApprove && approvedCandidate) {
@@ -182,7 +188,12 @@ export async function draftFromSourcePacket(input: {
               reason:
                 candidates.length === 0
                   ? "no_candidates_generated"
-                  : judgeError ?? (passingCandidates.length === 0 ? "quality_judge_rejected_all" : null),
+                  : judgeError ??
+                    (passingCandidates.length === 0
+                      ? hasQualityJudge
+                        ? "quality_judge_rejected_all"
+                        : "all_below_quality_floor"
+                      : null),
               candidates: candidates.map((candidate) => ({
                 text: candidate.text,
                 score: candidate.score,
@@ -199,7 +210,7 @@ export async function draftFromSourcePacket(input: {
         ...candidate.score,
         sourcePacketId: input.packet.id,
         sourceType: input.packet.sourceType,
-        tweetType: normalizeTweetType(input.packet.tweetType)
+        tweetType: input.packet.tweetType
       }
     }))
   });

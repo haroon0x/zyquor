@@ -103,8 +103,8 @@ export function postProcessTweetText(text: string) {
       line
         .replace(/[^\S\n]+/g, " ")
         .replace(/\s+([,.!?;:])/g, "$1")
-        .replace(/(?<!\d):(?!\d)/g, ".")
-        .replace(/([,.!?;]){2,}/g, "$1")
+        .replace(/:\s*$/g, ".")
+        .replace(/([,.!?;:]){2,}/g, "$1")
         .trim()
     )
     .join("\n")

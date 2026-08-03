@@ -1,7 +1,7 @@
 import type { SourceItem } from "@zyquor/adapters";
 import type { TweetType } from "@zyquor/core";
 import { inferTweetTypeFromText } from "./context.js";
-import { isTweetType, normalizeTweetType } from "./selection.js";
+import { isTweetType } from "./selection.js";
 
 export interface TweetTypeRouteInput {
   item: SourceItem;
@@ -32,14 +32,14 @@ function tweetTypeFromMix(item: SourceItem, mix: Record<string, number>) {
       (entry[0] !== "narrative_history" || inferred === "narrative_history")
   );
   const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
-  if (total <= 0) return normalizeTweetType(inferred);
+  if (total <= 0) return inferred;
 
   let selected = stableHash(`${item.url}\n${item.title}`) % total;
   for (const [type, weight] of entries) {
     selected -= weight;
-    if (selected < 0) return normalizeTweetType(type);
+    if (selected < 0) return type;
   }
-  return normalizeTweetType(inferred);
+  return inferred;
 }
 
 export function routeTweetType(input: TweetTypeRouteInput, configMix: Record<string, number>): TweetType {
@@ -53,13 +53,13 @@ export function routeTweetType(input: TweetTypeRouteInput, configMix: Record<str
   const metadataType = typeof input.item.metadata?.type === "string" ? input.item.metadata.type : "";
 
   if (sourceType === "job" || metadataType === "hiring" || sourceName === "hiring" || sourceName === "hackernews-jobs") {
-    return "useful_info";
+    return "hiring";
   }
   if (sourceType === "feed" || sourceName === "rss" || sourceName === "company-rss" || sourceName === "techcrunch") {
-    return "useful_info";
+    return "article_summary";
   }
   if (sourceType === "x-feed") {
     return "feed_observation";
   }
-  return normalizeTweetType(tweetTypeFromMix(input.item, configMix));
+  return tweetTypeFromMix(input.item, configMix);
 }

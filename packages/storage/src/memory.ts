@@ -208,6 +208,9 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       for (const [configId, config] of ingestConfigs) {
         if (config.accountId === id) ingestConfigs.delete(configId);
       }
+      for (const [feedbackId, feedback] of systemFeedback) {
+        if (feedback.accountId === id) systemFeedback.delete(feedbackId);
+      }
       for (const draftId of accountDraftIds) drafts.delete(draftId);
       accounts.delete(id);
       persist();

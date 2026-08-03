@@ -1,24 +1,19 @@
 import type { FetchLike } from "../types.js";
 
-// Rate limits and "model overloaded" are worth waiting out; a tight retry loop
-// across many items only deepens the limit.
 const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
 const MAX_ATTEMPTS = 4;
 const BASE_BACKOFF_MS = 2000;
 const MAX_BACKOFF_MS = 70_000;
-// Windows closer than this (per-minute meters) are worth waiting out; longer
-// windows (daily free-tier quotas) are not — sleeping into them only stalls
-// the pipeline before failing anyway.
 const NEAR_RESET_THRESHOLD_MS = 90_000;
 
-// Free tiers commonly meter per minute and report when the window reopens, either
-// as Retry-After seconds or X-RateLimit-Reset (epoch ms). Waiting the stated time
-// beats exponential guessing, which lands inside the same closed window.
 export function backoffMs(attempt: number, retryAfter: string | null, rateLimitReset: string | null, now = Date.now()) {
   const seconds = Number(retryAfter);
   if (Number.isFinite(seconds) && seconds > 0) return Math.min(seconds * 1000, MAX_BACKOFF_MS);
 
-  const resetAt = Number(rateLimitReset);
+  const resetValue = Number(rateLimitReset);
+  const resetAt = Number.isFinite(resetValue) && resetValue > 0 && resetValue < 1_000_000_000_000
+    ? resetValue * 1000
+    : resetValue;
   if (Number.isFinite(resetAt) && resetAt > now) {
     const waitMs = resetAt - now;
     if (waitMs <= NEAR_RESET_THRESHOLD_MS) return waitMs + 500;
