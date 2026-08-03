@@ -1,7 +1,7 @@
 import type { SourceItem } from "@zyquor/adapters";
 import type { TweetType } from "@zyquor/core";
 import { inferTweetTypeFromText } from "./context.js";
-import { isTweetType } from "./selection.js";
+import { isTweetType, normalizeTweetType } from "./selection.js";
 
 export interface TweetTypeRouteInput {
   item: SourceItem;
@@ -23,18 +23,23 @@ function stableHash(value: string) {
 }
 
 function tweetTypeFromMix(item: SourceItem, mix: Record<string, number>) {
+  const inferred = inferTweetTypeFromText(item);
   const entries = Object.entries(mix).filter(
-    (entry): entry is [TweetType, number] => isTweetType(entry[0]) && Number.isFinite(entry[1]) && entry[1] > 0
+    (entry): entry is [TweetType, number] =>
+      isTweetType(entry[0]) &&
+      Number.isFinite(entry[1]) &&
+      entry[1] > 0 &&
+      (entry[0] !== "narrative_history" || inferred === "narrative_history")
   );
   const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
-  if (total <= 0) return inferTweetTypeFromText(item);
+  if (total <= 0) return normalizeTweetType(inferred);
 
   let selected = stableHash(`${item.url}\n${item.title}`) % total;
   for (const [type, weight] of entries) {
     selected -= weight;
-    if (selected < 0) return type;
+    if (selected < 0) return normalizeTweetType(type);
   }
-  return inferTweetTypeFromText(item);
+  return normalizeTweetType(inferred);
 }
 
 export function routeTweetType(input: TweetTypeRouteInput, configMix: Record<string, number>): TweetType {
@@ -48,10 +53,13 @@ export function routeTweetType(input: TweetTypeRouteInput, configMix: Record<str
   const metadataType = typeof input.item.metadata?.type === "string" ? input.item.metadata.type : "";
 
   if (sourceType === "job" || metadataType === "hiring" || sourceName === "hiring" || sourceName === "hackernews-jobs") {
-    return "hiring";
+    return "useful_info";
   }
   if (sourceType === "feed" || sourceName === "rss" || sourceName === "company-rss" || sourceName === "techcrunch") {
-    return "article_summary";
+    return "useful_info";
   }
-  return tweetTypeFromMix(input.item, configMix);
+  if (sourceType === "x-feed") {
+    return "feed_observation";
+  }
+  return normalizeTweetType(tweetTypeFromMix(input.item, configMix));
 }

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../deps.js";
 import { createDraftBatchRequestSchema } from "@zyquor/core";
+import { normalizeTweetType } from "@zyquor/automation";
 import { isPostingMode } from "../lib/posting.js";
 
 function addMinutes(timestamp: string, minutes: number) {
@@ -29,7 +30,7 @@ export function registerBatchesRoutes(app: FastifyInstance, deps: AppDeps): void
           yolo: input.yolo,
           autopost: input.autopost,
           mode,
-          tweetType: input.tweetType,
+          tweetType: normalizeTweetType(input.tweetType),
           scheduleStart: input.scheduleStart ? addMinutes(input.scheduleStart, index * scheduleSpacingMinutes) : null
         }
       });

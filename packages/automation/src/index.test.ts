@@ -140,11 +140,11 @@ describe("automatic ingest", () => {
       async fetch() {
         return [
           {
-            title: "Company blog explains safer database failover",
+            title: "Company blog explains safer AI agent failover",
             url: "https://example.com/database-failover",
             metadata: { published: "2026-04-24T16:00:00.000Z" },
             content:
-              "The article explains safer database failover defaults for operators. It includes specific recovery tradeoffs and rollout notes."
+              "The article explains safer failover defaults for AI agent operators. It includes specific recovery tradeoffs and rollout notes."
           }
         ];
       }
@@ -239,17 +239,17 @@ describe("automatic ingest", () => {
       async fetch() {
         return [
           {
-            title: "Celebrity profile gets a redesign",
+            title: "AI startup redesigns its blog",
             url: "https://example.com/celebrity-profile",
             metadata: { published: "2026-04-24T16:00:00.000Z" },
-            content: "A lifestyle site changed its homepage layout."
+            content: "A startup announced a small redesign to its blog. The team mentioned using AI for the layout."
           },
           {
-            title: "Science team publishes battery research with economy impact",
+            title: "AI research team publishes language model benchmark with agent reliability gains",
             url: "https://example.com/battery-economy-research",
             metadata: { published: "2026-04-24T16:00:00.000Z" },
             content:
-              "Researchers published a new paper on battery storage, energy supply chains, and inflation pressure."
+              "Researchers published a new paper on their language model, covering inference improvements, benchmark results, and agentic reliability gains for developers using the open source framework."
           }
         ];
       }
@@ -279,7 +279,7 @@ describe("automatic ingest", () => {
     });
     await expect(repository.listSourcePackets("account_personal")).resolves.toMatchObject([
       {
-        title: "Science team publishes battery research with economy impact"
+        title: "AI research team publishes language model benchmark with agent reliability gains"
       }
     ]);
   });
@@ -375,23 +375,23 @@ describe("automatic ingest", () => {
       async fetch() {
         return [
           {
-            title: "We built deterministic routing enginebypass geopolitical supply chain chokeholds",
+            title: "We built a deterministic AI agent router bypassing geopolitical supply chain chokeholds",
             url: "https://book.stripe.com/fZu5kCaBZ1JpaYTflPgEg05",
             metadata: { published: "2026-04-24T16:00:00.000Z" },
             content: "Payment link should never become an autopost source."
           },
           {
-            title: "Microsoft Edge: Passwords end up in memory as plaintext",
+            title: "AI agent leaks credentials in memory as plaintext",
             url: "https://reddit.com/r/technology/comments/example",
             metadata: { published: "2026-04-24T16:00:00.000Z" },
-            content: "Microsoft Edge: Passwords end up in memory as plaintext"
+            content: "AI agent leaks credentials in memory as plaintext"
           },
           {
-            title: "Open source database release improves replication safety",
+            title: "Open source AI agent database release improves replication safety",
             url: "https://example.com/database-release",
             metadata: { published: "2026-04-24T16:00:00.000Z" },
             content:
-              "The release adds safer replication defaults for distributed databases. Operators can reduce failover risk without adding a separate coordination service."
+              "The release adds safer replication defaults for AI agent workflows and distributed databases. Operators can reduce failover risk without adding a separate coordination service."
           }
         ];
       }

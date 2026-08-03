@@ -1,5 +1,5 @@
 import type { SourceType, TweetType } from "@zyquor/core";
-import { SOURCE_TYPES, TWEET_TYPES } from "@zyquor/core";
+import { ALL_TWEET_TYPES, SOURCE_TYPES } from "@zyquor/core";
 import type { ZyquorRepository } from "@zyquor/storage";
 import { sourcePacketIdForDraft } from "./source-packet.js";
 
@@ -8,7 +8,7 @@ function metadataSourceType(value: unknown): SourceType | null {
 }
 
 function metadataTweetType(value: unknown): TweetType | null {
-  return typeof value === "string" && TWEET_TYPES.includes(value as TweetType) ? (value as TweetType) : null;
+  return typeof value === "string" && ALL_TWEET_TYPES.includes(value as TweetType) ? (value as TweetType) : null;
 }
 
 export async function postHistorySnapshot(repository: ZyquorRepository, draftId: string) {

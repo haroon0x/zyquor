@@ -11,18 +11,23 @@ export const POSTING_MODES = [
 ] as const;
 
 export const TWEET_TYPES = [
-  "feed_observation",
-  "news_context",
   "useful_info",
   "guide",
-  "lesson",
-  "tool",
   "opinion",
   "reply",
-  "hiring",
-  "article_summary",
-  "narrative_history"
+  "narrative_history",
+  "feed_observation"
 ] as const;
+
+export const LEGACY_TWEET_TYPES = [
+  "news_context",
+  "lesson",
+  "tool",
+  "article_summary",
+  "hiring"
+] as const;
+
+export const ALL_TWEET_TYPES = [...TWEET_TYPES, ...LEGACY_TWEET_TYPES] as const;
 
 export const X_FREE_POST_CHARACTER_LIMIT = 280;
 export const X_URL_CHARACTER_LENGTH = 23;
@@ -39,11 +44,14 @@ export const SOURCE_TYPES = [
   "bookmark",
   "note",
   "guide",
-  "job"
+  "job",
+  "model-releases",
+  "x-feed"
 ] as const;
 
 export const LLM_PROVIDERS = [
   "command-code",
+  "codex",
   "openrouter",
   "gemini",
   "ollama"
@@ -78,7 +86,7 @@ export const ATTEMPT_STATUSES = [
 ] as const;
 
 export type PostingMode = (typeof POSTING_MODES)[number];
-export type TweetType = (typeof TWEET_TYPES)[number];
+export type TweetType = (typeof ALL_TWEET_TYPES)[number];
 export type SourceType = (typeof SOURCE_TYPES)[number];
 export type LlmProvider = (typeof LLM_PROVIDERS)[number];
 export type DraftStatus = (typeof DRAFT_STATUSES)[number];
@@ -229,7 +237,7 @@ export const postHistorySchema = z.object({
   sourceType: z.enum(SOURCE_TYPES).nullable(),
   sourceTitle: z.string().max(240).nullable(),
   sourceUrl: z.string().url().nullable(),
-  tweetType: z.enum(TWEET_TYPES).nullable(),
+  tweetType: z.enum(ALL_TWEET_TYPES).nullable(),
   metadata: z.record(z.unknown()),
   postedAt: isoTimestampSchema
 });
@@ -242,17 +250,34 @@ export const sourcePacketSchema = z.object({
   url: z.string().url().nullable(),
   summary: z.string().min(1).max(2000),
   facts: z.array(z.string().min(1).max(500)).max(8),
-  tweetType: z.enum(TWEET_TYPES),
+  tweetType: z.enum(ALL_TWEET_TYPES),
   status: z.enum(["new", "drafted", "archived"]),
+  feedback: z.string().max(2000).nullable().optional(),
   createdAt: isoTimestampSchema,
   updatedAt: isoTimestampSchema
+});
+
+export const systemFeedbackSchema = z.object({
+  id: idSchema,
+  accountId: idSchema,
+  text: z.string().min(1).max(1000),
+  createdAt: isoTimestampSchema
+});
+
+export const setSourcePacketFeedbackRequestSchema = z.object({
+  feedback: z.string().max(2000).nullable()
+});
+
+export const createSystemFeedbackRequestSchema = z.object({
+  accountId: idSchema,
+  text: z.string().min(1).max(1000)
 });
 
 export const createDraftRequestSchema = z.object({
   accountId: idSchema,
   idea: z.string().min(1).max(4000),
   count: z.number().int().min(1).max(5).optional(),
-  tweetType: z.enum(TWEET_TYPES).optional(),
+  tweetType: z.enum(ALL_TWEET_TYPES).optional(),
   replyToUrl: z.string().url().optional(),
   yolo: z.boolean().optional().default(false),
   autopost: z.boolean().optional().default(false)
@@ -265,7 +290,7 @@ export const createDraftBatchRequestSchema = z.object({
   scheduleSpacingMinutes: z.number().int().min(15).max(480).optional(),
   scheduleStart: isoTimestampSchema.nullable().optional(),
   replyToUrl: z.string().url().optional(),
-  tweetType: z.enum(TWEET_TYPES).optional(),
+  tweetType: z.enum(ALL_TWEET_TYPES).optional(),
   yolo: z.boolean().optional().default(false),
   autopost: z.boolean().optional().default(false)
 });
@@ -276,7 +301,7 @@ export const createSourcePacketRequestSchema = z.object({
   sourceType: z.enum(SOURCE_TYPES),
   summary: z.string().min(1).max(2000),
   title: z.string().min(1).max(240),
-  tweetType: z.enum(TWEET_TYPES).default("useful_info"),
+  tweetType: z.enum(ALL_TWEET_TYPES).default("useful_info"),
   url: z.string().url().nullable().optional()
 });
 
@@ -291,7 +316,7 @@ export const ingestConfigSchema = z.object({
   sourceType: z.enum(SOURCE_TYPES),
   maxPacketsPerDay: z.number().int().min(1).max(1000),
   metadata: z.record(z.unknown()).default({}),
-  tweetTypeMix: z.record(z.enum(TWEET_TYPES), z.number().int().min(0).max(100)),
+  tweetTypeMix: z.record(z.enum(ALL_TWEET_TYPES), z.number().int().min(0).max(100)),
   scheduleWindowStart: z.string().regex(/^\d{2}:\d{2}$/),
   scheduleWindowEnd: z.string().regex(/^\d{2}:\d{2}$/),
   enabled: z.boolean(),
@@ -302,9 +327,9 @@ export const ingestConfigSchema = z.object({
 export const createIngestConfigRequestSchema = z.object({
   accountId: idSchema,
   sourceType: z.enum(SOURCE_TYPES),
-  maxPacketsPerDay: z.number().int().min(1).max(1000).default(10),
+  maxPacketsPerDay: z.number().int().min(1).max(1000).default(4),
   metadata: z.record(z.unknown()).default({}),
-  tweetTypeMix: z.record(z.enum(TWEET_TYPES), z.number().int().min(0).max(100)).default({}),
+  tweetTypeMix: z.record(z.enum(ALL_TWEET_TYPES), z.number().int().min(0).max(100)).default({}),
   scheduleWindowStart: z.string().regex(/^\d{2}:\d{2}$/).default("09:00"),
   scheduleWindowEnd: z.string().regex(/^\d{2}:\d{2}$/).default("21:00"),
   enabled: z.boolean().default(true)
@@ -314,7 +339,7 @@ export const updateIngestConfigRequestSchema = z.object({
   sourceType: z.enum(SOURCE_TYPES).optional(),
   maxPacketsPerDay: z.number().int().min(1).max(1000).optional(),
   metadata: z.record(z.unknown()).optional(),
-  tweetTypeMix: z.record(z.enum(TWEET_TYPES), z.number().int().min(0).max(100)).optional(),
+  tweetTypeMix: z.record(z.enum(ALL_TWEET_TYPES), z.number().int().min(0).max(100)).optional(),
   scheduleWindowStart: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   scheduleWindowEnd: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   enabled: z.boolean().optional()
@@ -364,6 +389,7 @@ export type PostJob = z.infer<typeof postJobSchema>;
 export type PostAttempt = z.infer<typeof postAttemptSchema>;
 export type PostHistory = z.infer<typeof postHistorySchema>;
 export type SourcePacket = z.infer<typeof sourcePacketSchema>;
+export type SystemFeedback = z.infer<typeof systemFeedbackSchema>;
 export type CreateDraftRequest = z.infer<typeof createDraftRequestSchema>;
 export type CreateDraftBatchRequest = z.infer<typeof createDraftBatchRequestSchema>;
 export type CreateSourcePacketRequest = z.infer<typeof createSourcePacketRequestSchema>;
@@ -496,7 +522,7 @@ function containsUrl(text: string) {
 }
 
 function sourceNeedsLink(item: PostHistory) {
-  return item.sourceUrl && (item.tweetType === "article_summary" || item.tweetType === "hiring" || item.sourceType === "job");
+  return item.sourceUrl && (item.tweetType === "useful_info" || item.tweetType === "article_summary" || item.tweetType === "hiring" || item.sourceType === "job");
 }
 
 export function analyzePostHistory(
@@ -650,8 +676,8 @@ export function loadDotEnv(filePath?: string) {
 }
 
 export { canTransitionDraft, canTransitionPostJob } from "./state.js";
-export { nextAutopostScheduledFor } from "./spacing.js";
-export type { NextAutopostInput, NextAutopostResult } from "./spacing.js";
+export { evaluatePostGate, nextAutopostScheduledFor } from "./spacing.js";
+export type { NextAutopostInput, NextAutopostResult, PostGateInput, PostGateResult } from "./spacing.js";
 export { resolveDataRoot, dataPath, profilesPath } from "./paths.js";
 export const AI_SLOP_PHRASES = [
   "let's dive in",

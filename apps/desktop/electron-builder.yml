@@ -60,8 +60,8 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   include: build/installer.nsh
-  createDesktopShortcut: false
-  createStartMenuShortcut: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
 
 linux:
   icon: build/icon.png

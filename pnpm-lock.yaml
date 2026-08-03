@@ -122,7 +122,11 @@ importers:
         specifier: workspace:*
         version: link:../core
 
-  packages/adapters: {}
+  packages/adapters:
+    dependencies:
+      '@zyquor/browser':
+        specifier: workspace:*
+        version: link:../browser
 
   packages/automation:
     dependencies:

@@ -47,7 +47,8 @@ export function registerSystemRoutes(app: FastifyInstance, deps: AppDeps): void 
         cdpUrl: deps.browser.cdpUrl ?? null,
         channel: deps.browser.channel ?? null,
         enablePost: deps.browser.enablePost,
-        enablePrepare: deps.browser.enablePrepare
+        enablePrepare: deps.browser.enablePrepare,
+        autoApproveSourcePackets: deps.desktopSettings?.get().autoApproveSourcePackets === true
       },
       worker: {
         lastError: heartbeat?.lastError ?? null,
@@ -61,7 +62,7 @@ export function registerSystemRoutes(app: FastifyInstance, deps: AppDeps): void 
   });
 
   app.post("/system/posting", async (request) => {
-    const body = (request.body ?? {}) as { enablePost?: unknown; enablePrepare?: unknown };
+    const body = (request.body ?? {}) as { enablePost?: unknown; enablePrepare?: unknown; autoApproveSourcePackets?: unknown };
     if (typeof body.enablePrepare === "boolean") {
       deps.browser.enablePrepare = body.enablePrepare;
       deps.desktopSettings?.update({ enableBrowserPrepare: body.enablePrepare });
@@ -70,7 +71,14 @@ export function registerSystemRoutes(app: FastifyInstance, deps: AppDeps): void 
       deps.browser.enablePost = body.enablePost;
       deps.desktopSettings?.update({ enableBrowserPost: body.enablePost });
     }
-    return { enablePost: deps.browser.enablePost, enablePrepare: deps.browser.enablePrepare };
+    if (typeof body.autoApproveSourcePackets === "boolean") {
+      deps.desktopSettings?.update({ autoApproveSourcePackets: body.autoApproveSourcePackets });
+    }
+    return {
+      enablePost: deps.browser.enablePost,
+      enablePrepare: deps.browser.enablePrepare,
+      autoApproveSourcePackets: deps.desktopSettings?.get().autoApproveSourcePackets === true
+    };
   });
 
   app.post("/system/ingest/cancel", async () => {

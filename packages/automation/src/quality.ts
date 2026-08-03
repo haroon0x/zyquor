@@ -1,6 +1,6 @@
 import type { PostHistory, SourcePacket } from "@zyquor/core";
 import { AI_SLOP_PHRASES, X_FREE_POST_CHARACTER_LIMIT, xPostCharacterLength } from "@zyquor/core";
-import { postProcessTweetText } from "@zyquor/generation";
+import { passesTweetQualityFloor, postProcessTweetText } from "@zyquor/generation";
 
 export interface PostQualityInput {
   history?: PostHistory[];
@@ -13,6 +13,19 @@ export interface PostQualityResult {
   ok: boolean;
   reasons: string[];
   text: string;
+}
+
+export function validateGeneratedPostQuality(text: string): PostQualityResult {
+  const normalized = postProcessTweetText(text);
+  const reasons: string[] = [];
+  if (normalized.length === 0) reasons.push("empty_post_text");
+  if (xPostCharacterLength(normalized) > X_FREE_POST_CHARACTER_LIMIT) reasons.push("post_text_too_long");
+  if (!passesTweetQualityFloor(normalized)) reasons.push("post_failed_quality_floor");
+  return {
+    ok: reasons.length === 0,
+    reasons,
+    text: normalized
+  };
 }
 
 const SAME_PACKET_COOLDOWN_MS = 2 * 60 * 60 * 1000;

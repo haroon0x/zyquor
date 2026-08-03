@@ -1,11 +1,24 @@
-import { SOURCE_TYPES, TWEET_TYPES, type SourceType, type TweetType } from "@zyquor/core";
+import { ALL_TWEET_TYPES, SOURCE_TYPES, type SourceType, type TweetType } from "@zyquor/core";
 
 export function isSourceType(value: string): value is SourceType {
   return (SOURCE_TYPES as readonly string[]).includes(value);
 }
 
 export function isTweetType(value: string): value is TweetType {
-  return (TWEET_TYPES as readonly string[]).includes(value);
+  return (ALL_TWEET_TYPES as readonly string[]).includes(value);
+}
+
+const TWEET_TYPE_ALIASES: Record<string, TweetType> = {
+  article_summary: "useful_info",
+  news_context: "useful_info",
+  lesson: "guide",
+  tool: "useful_info",
+  hiring: "useful_info"
+};
+
+export function normalizeTweetType(value: string | undefined, fallback: TweetType = "useful_info"): TweetType {
+  if (!value) return fallback;
+  return TWEET_TYPE_ALIASES[value] ?? (isTweetType(value) ? value : fallback);
 }
 
 export function pickTweetType(mix: Record<string, number>, fallback: TweetType = "useful_info"): TweetType {
@@ -16,7 +29,7 @@ export function pickTweetType(mix: Record<string, number>, fallback: TweetType =
   for (const [type, weight] of Object.entries(mix)) {
     if (typeof weight !== "number" || !isTweetType(type)) continue;
     random -= weight;
-    if (random < 0) return type;
+    if (random < 0) return normalizeTweetType(type, fallback);
   }
 
   return fallback;

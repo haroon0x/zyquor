@@ -147,6 +147,34 @@ export interface CheckXLoginResult {
   url: string;
 }
 
+export interface XFeedTweet {
+  id: string;
+  authorHandle: string;
+  authorName: string;
+  text: string;
+  url: string;
+  publishedAt: string | null;
+  isRetweet: boolean;
+}
+
+export interface FetchXHomeFeedInput {
+  profileDir: string;
+  maxTweets?: number;
+  minTweets?: number;
+  scrolls?: number;
+  browserChannel?: string | null;
+  cdpUrl?: string;
+  headless?: boolean;
+  xHomeUrl?: string;
+  actionDelayMs?: number;
+  artifactsDir?: string;
+}
+
+export interface FetchXHomeFeedResult {
+  tweets: XFeedTweet[];
+  url: string;
+}
+
 export class BrowserPrepareError extends Error {
   constructor(
     message: string,
@@ -155,6 +183,13 @@ export class BrowserPrepareError extends Error {
   ) {
     super(message);
     this.name = "BrowserPrepareError";
+  }
+}
+
+export class BrowserFeedError extends BrowserPrepareError {
+  constructor(message: string, screenshotPath: string | null = null) {
+    super(message, screenshotPath);
+    this.name = "BrowserFeedError";
   }
 }
 
@@ -447,6 +482,90 @@ export async function checkXLogin(input: CheckXLoginInput): Promise<CheckXLoginR
       return { loggedIn: false, url: input.xHomeUrl ?? "https://x.com/home" };
     }
     throw error;
+  }
+}
+
+async function extractFeedTweets(page: Page, maxTweets: number) {
+  const raw = await page.locator('article[data-testid="tweet"]').evaluateAll((articles) =>
+    articles.map((article) => {
+      const statusLink = article.querySelector('a[href*="/status/"]')?.getAttribute("href") ?? null;
+      const text = article.querySelector('[data-testid="tweetText"]')?.textContent?.trim() ?? "";
+      const userName = article.querySelector('[data-testid="User-Name"]')?.textContent ?? "";
+      const socialContext = article.querySelector('[data-testid="socialContext"]')?.textContent ?? "";
+      const publishedAt = article.querySelector("time[datetime]")?.getAttribute("datetime") ?? null;
+      return { statusLink, text, userName, socialContext, publishedAt };
+    })
+  );
+
+  const seen = new Set<string>();
+  const tweets: XFeedTweet[] = [];
+  for (const entry of raw) {
+    if (!entry.statusLink || !entry.text) continue;
+    const url = extractStatusPermalink(entry.statusLink);
+    if (!url || seen.has(url)) continue;
+    const idMatch = /\/(\d+)$/.exec(url);
+    const handleMatch = /^\/([A-Za-z0-9_]{1,15})\/status\//.exec(new URL(url).pathname);
+    if (!idMatch || !handleMatch) continue;
+    seen.add(url);
+    const handle = handleMatch[1]!;
+    const nameLine = (entry.userName.split("\n")[0] ?? "").trim();
+    const authorName = nameLine.split("@")[0]?.trim() || handle;
+    tweets.push({
+      id: idMatch[1]!,
+      authorHandle: handle,
+      authorName,
+      text: entry.text,
+      url,
+      publishedAt: entry.publishedAt,
+      isRetweet: /reposted/i.test(entry.socialContext)
+    });
+    if (tweets.length >= maxTweets) break;
+  }
+  return tweets;
+}
+
+export async function fetchXHomeFeed(input: FetchXHomeFeedInput): Promise<FetchXHomeFeedResult> {
+  const maxTweets = input.maxTweets ?? 20;
+  const minTweets = input.minTweets ?? 15;
+  const scrolls = input.scrolls ?? 3;
+  const actionDelayMs = input.actionDelayMs ?? 1_500;
+  const artifactsDir = input.artifactsDir ?? dataPath("data", "artifacts");
+  mkdirSync(artifactsDir, { recursive: true });
+  const artifactId = new Date().toISOString().replace(/[:.]/g, "-");
+  const screenshotPath = join(artifactsDir, `feed-${artifactId}.png`);
+
+  const { context, ownsContext } = await openPersistentContext({
+    ...input,
+    autoLaunchCdp: false
+  });
+
+  try {
+    context.setDefaultTimeout(30_000);
+    const page = await pageForSessionCheck(context, input);
+    await assertNotLoginPage(page);
+    for (let index = 0; index < scrolls; index += 1) {
+      await page.mouse.wheel(0, 2_400);
+      await page.waitForTimeout(actionDelayMs);
+    }
+
+    const tweets = await extractFeedTweets(page, maxTweets);
+    if (tweets.length < minTweets) {
+      throw new Error(`Only ${tweets.length} tweets extracted from the X home feed (minimum ${minTweets})`);
+    }
+    if (ownsContext) {
+      await context.close();
+    }
+    return { tweets, url: page.url() };
+  } catch (error) {
+    const page = context.pages()[0];
+    if (page) {
+      await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined);
+    }
+    const message = error instanceof Error ? error.message : "Unknown X home feed fetch error";
+    if (ownsContext) {
+      await context.close();
+    }
+    throw new BrowserFeedError(message, screenshotPath);
   }
 }
 

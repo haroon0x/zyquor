@@ -34,6 +34,7 @@ const worker = startWorker({ apiUrl: url, autoSeedDefaultIngest: true, ingestInt
 const deadline = Date.now() + RUN_MINUTES * 60_000;
 let tick = 0;
 let done = false;
+const seen = new Set();
 while (Date.now() < deadline && !done) {
   await new Promise((r) => setTimeout(r, 20_000));
   tick += 1;
@@ -48,14 +49,14 @@ while (Date.now() < deadline && !done) {
   if (firstError) console.log(`  first ingest error: ${firstError.error}`);
 
   for (const job of jobs) {
+    if (seen.has(job.id)) continue;
+    seen.add(job.id);
     const d = await get(`/drafts/${job.draftId}`);
     const text = d.draft?.editedText ?? null;
-    console.log(`  JOB ${job.id.slice(0, 8)} status=${job.status} mode=${job.mode} scheduledFor=${job.scheduledFor}`);
-    console.log(`  TEXT (${(text ?? "").length} chars): ${JSON.stringify(text)}`);
-    const attempts = (await get(`/jobs/${job.id}/attempts`)).attempts ?? [];
-    if (attempts.length) console.log(`  attempts: ${attempts.map((a) => `${a.status}${a.errorMessage ? `(${a.errorMessage})` : ""}`).join(" | ")}`);
-    done = true;
+    console.log(`  JOB ${job.id.slice(0, 8)} status=${job.status} scheduledFor=${job.scheduledFor}`);
+    console.log(`  DRAFT: ${text}`);
   }
+  if (seen.size >= 3) done = true;
 }
 
 console.log(done ? "=== PIPELINE REACHED AN APPROVED JOB ===" : "=== NO JOB PRODUCED IN WINDOW ===");

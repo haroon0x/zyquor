@@ -8,12 +8,15 @@ export interface DesktopSettingsData {
   enableBrowserPost?: boolean;
   closeChromeAfterPost?: boolean;
   commandCodePath?: string;
+  codexPath?: string;
   llmProvider?: string;
   openrouterApiKey?: string;
   geminiApiKey?: string;
   chromePath?: string;
   cdpPort?: number;
   startWithWindows?: boolean;
+  feedbackDir?: string;
+  autoApproveSourcePackets?: boolean;
 }
 
 export interface DesktopSettingsConfig {

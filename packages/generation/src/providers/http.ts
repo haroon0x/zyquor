@@ -6,6 +6,10 @@ const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
 const MAX_ATTEMPTS = 4;
 const BASE_BACKOFF_MS = 2000;
 const MAX_BACKOFF_MS = 70_000;
+// Windows closer than this (per-minute meters) are worth waiting out; longer
+// windows (daily free-tier quotas) are not — sleeping into them only stalls
+// the pipeline before failing anyway.
+const NEAR_RESET_THRESHOLD_MS = 90_000;
 
 // Free tiers commonly meter per minute and report when the window reopens, either
 // as Retry-After seconds or X-RateLimit-Reset (epoch ms). Waiting the stated time
@@ -15,7 +19,11 @@ export function backoffMs(attempt: number, retryAfter: string | null, rateLimitR
   if (Number.isFinite(seconds) && seconds > 0) return Math.min(seconds * 1000, MAX_BACKOFF_MS);
 
   const resetAt = Number(rateLimitReset);
-  if (Number.isFinite(resetAt) && resetAt > now) return Math.min(resetAt - now + 500, MAX_BACKOFF_MS);
+  if (Number.isFinite(resetAt) && resetAt > now) {
+    const waitMs = resetAt - now;
+    if (waitMs <= NEAR_RESET_THRESHOLD_MS) return waitMs + 500;
+    return 0;
+  }
 
   return Math.min(BASE_BACKOFF_MS * 2 ** (attempt - 1), MAX_BACKOFF_MS);
 }

@@ -1,12 +1,12 @@
 import cors from "@fastify/cors";
-import { createAggregatedNewsAdapter, createCrawl4AiService, createRssAdapter, type SourceAdapter } from "@zyquor/adapters";
+import { createAggregatedNewsAdapter, createCrawl4AiService, createModelReleasesAdapter, createRssAdapter, createXFeedAdapter, type SourceAdapter } from "@zyquor/adapters";
 import { createGenerationProviderFromEnv, evaluateTweetQuality } from "@zyquor/generation";
-import { createLocalRepository } from "@zyquor/storage";
+import { createLocalRepository, type ZyquorRepository } from "@zyquor/storage";
 import Fastify from "fastify";
 import { ZodError } from "zod";
 import { type AppDeps, type BuildAppOptions } from "./deps.js";
 import { asError, isConflictError, isGenerationError, HttpError } from "./lib/errors.js";
-import { defaultGenerationConfigPath } from "./lib/paths.js";
+import { defaultGenerationConfigPath, resolveProfileDir } from "./lib/paths.js";
 import { readSavedGenerationEnv } from "./lib/generation.js";
 import { registerWorkerRoutes } from "./routes/worker.js";
 import { registerGenerationRoutes } from "./routes/generation.js";
@@ -15,6 +15,7 @@ import { registerAccountsRoutes } from "./routes/accounts.js";
 import { registerSourcePacketsRoutes } from "./routes/source-packets.js";
 import { registerIngestRoutes } from "./routes/ingest.js";
 import { registerStyleProfilesRoutes } from "./routes/style-profiles.js";
+import { registerSystemFeedbackRoutes } from "./routes/system-feedback.js";
 import { registerDraftsRoutes } from "./routes/drafts.js";
 import { registerBatchesRoutes } from "./routes/batches.js";
 import { registerJobsRoutes } from "./routes/jobs.js";
@@ -29,15 +30,42 @@ function adaptersBySourceType(adapters: SourceAdapter[]) {
   return new Map(adapters.map((adapter) => [adapter.sourceType, adapter]));
 }
 
-function createDefaultSourceAdapters(): SourceAdapter[] {
+function createDefaultSourceAdapters(options: {
+  repository: Promise<ZyquorRepository>;
+  browserChannel?: string | null;
+  cdpUrl?: string;
+}): SourceAdapter[] {
   const crawlService = createCrawl4AiService();
-  return [createAggregatedNewsAdapter({ crawlService }), createRssAdapter()];
+  return [
+    createAggregatedNewsAdapter({ crawlService }),
+    createModelReleasesAdapter(),
+    createRssAdapter(),
+    createXFeedAdapter({
+      resolveProfileDir: async (accountId) => {
+        const repository = await options.repository;
+        const account = await repository.getAccount(accountId);
+        return account?.profileDir ? resolveProfileDir(account.profileDir) : null;
+      },
+      fetchHomeFeed: async (input) => {
+        const browser = await import("@zyquor/browser");
+        return browser.fetchXHomeFeed({
+          ...input,
+          ...(options.browserChannel !== undefined ? { browserChannel: options.browserChannel } : {}),
+          ...(options.cdpUrl !== undefined ? { cdpUrl: options.cdpUrl } : {})
+        });
+      }
+    })
+  ];
 }
 
 export function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({ logger: options.logStream ? { stream: options.logStream as never } : true });
   const repositoryPromise = options.repository ? Promise.resolve(options.repository) : createLocalRepository();
-  const sourceAdapters = adaptersBySourceType(options.sourceAdapters ?? createDefaultSourceAdapters());
+  const sourceAdapters = adaptersBySourceType(options.sourceAdapters ?? createDefaultSourceAdapters({
+    repository: repositoryPromise,
+    ...(options.browserChannel !== undefined ? { browserChannel: options.browserChannel } : {}),
+    ...(options.browserCdpUrl !== undefined ? { cdpUrl: options.browserCdpUrl } : {})
+  }));
   const baseGenerationEnv = options.generationEnv ?? process.env;
   const generationConfigPath =
     options.generationConfigPath === undefined
@@ -138,6 +166,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   registerSourcePacketsRoutes(app, deps);
   registerIngestRoutes(app, deps);
   registerStyleProfilesRoutes(app, deps);
+  registerSystemFeedbackRoutes(app, deps);
   registerDraftsRoutes(app, deps);
   registerBatchesRoutes(app, deps);
   registerJobsRoutes(app, deps);

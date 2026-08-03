@@ -5,6 +5,7 @@ export interface TweetSourceContext {
   publishedAt?: string | null;
   sourceName?: string | null;
   sourceType?: string | null;
+  summary?: string | null;
   title?: string | null;
   topicTags?: string[];
   url?: string | null;
@@ -34,18 +35,26 @@ export function buildSourceTweetInput(input: {
   topicTags?: string[];
   sourceType?: string | null;
 }): TweetGenerationHarnessInput {
-  const facts = [...new Set([input.title, ...(input.facts ?? [])])]
+  const title = compact(input.title).toLowerCase();
+  const isXFeed = input.sourceType === "x-feed";
+  const facts = [...new Set(input.facts ?? [])]
     .map(compact)
-    .filter(Boolean)
-    .slice(0, 8);
+    .filter((fact) => fact && (isXFeed || fact.toLowerCase() !== title))
+    .slice(0, isXFeed ? 10 : 5);
 
   return {
     idea: [
-      input.sourceType === "job" ? `Hiring post: ${compact(input.title)}` : `Source title: ${compact(input.title)}`,
-      input.url ? `Required source link: <source-url>${input.url}</source-url>` : null,
-      `Known summary: ${compact(input.summary)}`,
-      facts.length ? `Verified facts:\n${facts.map((fact) => `- ${fact}`).join("\n")}` : null,
-      "Write a clean standalone tweet from this context. Include the exact source link and reference at least one concrete fact above. Never paste the source title into the post; the link is the attribution. Do not mention internal processing, datasets, packets, summaries, prompts, or metadata."
+      isXFeed
+        ? `Recent posts from the X home feed:\n${facts.join("\n")}`
+        : input.sourceType === "job"
+          ? `Hiring post: ${compact(input.title)}`
+          : `Source title: ${compact(input.title)}`,
+      !isXFeed && input.url ? `Required source link: <source-url>${input.url}</source-url>` : null,
+      !isXFeed ? `Known summary: ${compact(input.summary)}` : null,
+      !isXFeed && facts.length ? `Verified facts:\n${facts.map((fact) => `- ${fact}`).join("\n")}` : null,
+      isXFeed
+        ? "Write a clean standalone observation based on these posts. Do not quote, name, or link any specific post or author; the post must make sense on its own with no reference at all."
+        : "Write a clean standalone tweet from this context. Include the exact source link and reference at least one concrete fact above. Never paste the source title into the post; the link is the attribution."
     ]
       .filter(Boolean)
       .join("\n"),
@@ -55,15 +64,32 @@ export function buildSourceTweetInput(input: {
       publishedAt: input.publishedAt ?? null,
       sourceName: input.sourceName ?? null,
       sourceType: input.sourceType ?? null,
-      title: input.title,
+      summary: compact(input.summary),
+      title: compact(input.title),
       topicTags: input.topicTags ?? [],
       url: input.url ?? null
     }
   };
 }
 
-export function renderSourceContext(source: TweetSourceContext | undefined) {
+export function renderSourceContext(
+  source: TweetSourceContext | undefined,
+  options: { includeMetadata?: boolean } = {}
+) {
   if (!source) return "";
+
+  if (options.includeMetadata === false) {
+    const lines = [
+      source.title ? `Title: ${compact(source.title).slice(0, 240)}` : null,
+      source.url ? `URL: ${source.url}` : null,
+      source.summary ? `Summary: ${compact(source.summary).slice(0, 1200)}` : null,
+      source.facts?.length
+        ? `Facts:\n${source.facts.slice(0, 5).map((fact) => `- ${compact(fact).slice(0, 400)}`).join("\n")}`
+        : null
+    ].filter(Boolean);
+
+    return lines.length ? `\n\nContext:\n${lines.join("\n")}` : "";
+  }
 
   const lines = [
     source.sourceName ? `Source name: ${source.sourceName}` : null,
@@ -72,6 +98,7 @@ export function renderSourceContext(source: TweetSourceContext | undefined) {
     source.url ? `Source URL: ${source.url}` : null,
     source.author ? `Author: ${source.author}` : null,
     source.publishedAt ? `Published: ${source.publishedAt}` : null,
+    source.summary ? `Source summary: ${source.summary}` : null,
     typeof source.engagement === "number" ? `Observed engagement score: ${source.engagement}` : null,
     source.topicTags?.length ? `Topic tags: ${source.topicTags.join(", ")}` : null,
     source.facts?.length ? `Grounded facts:\n${source.facts.map((fact) => `- ${fact}`).join("\n")}` : null

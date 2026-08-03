@@ -55,9 +55,7 @@ export function createOpenRouterGenerationProvider(options: {
       await assertFreeModel();
       const url = `${baseUrl}/chat/completions`;
       const headers = {
-        authorization: `Bearer ${options.apiKey}`,
-        "http-referer": "http://127.0.0.1",
-        "x-title": "Zyquor"
+        authorization: `Bearer ${options.apiKey}`
       };
 
       const send = (messages: Array<{ role: string; content: string }>, withJsonFormat: boolean) =>
@@ -93,10 +91,10 @@ export function createOpenRouterGenerationProvider(options: {
           generationInput: input,
           model,
           providerName: "openrouter",
-          runInitial: () =>
+          runInitial: (generationInput) =>
             chat([
-              { role: "system", content: systemPrompt(input) },
-              { role: "user", content: userPrompt(input) }
+              { role: "system", content: systemPrompt(generationInput) },
+              { role: "user", content: userPrompt(generationInput) }
             ]),
           runPrompt: (prompt) => chat([{ role: "user", content: prompt }])
         });

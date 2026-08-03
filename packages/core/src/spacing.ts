@@ -59,6 +59,61 @@ function pickRandomGap(
   return { gapMs: Math.round((low + high) / 2), reason: "fallback-mid" };
 }
 
+export interface PostGateInput {
+  gapMinMinutes: number;
+  lastPostedAt: string | null;
+  now: string;
+  traceId?: string;
+}
+
+export interface PostGateResult {
+  allowed: boolean;
+  nextEligibleAt: string | null;
+  reason: string;
+  requiredGapMinutes: number;
+  waitMinutes: number;
+}
+
+/**
+ * Decides whether enough time has passed since the account's last real post.
+ * Anchored on post history rather than on a job's scheduledFor, so a stale or
+ * overdue backlog cannot fire back to back.
+ */
+export function evaluatePostGate(input: PostGateInput): PostGateResult {
+  const nowMs = Date.parse(input.now);
+
+  if (!input.lastPostedAt) {
+    return { allowed: true, nextEligibleAt: null, reason: "no-previous-post", requiredGapMinutes: 0, waitMinutes: 0 };
+  }
+
+  const lastMs = Date.parse(input.lastPostedAt);
+  if (!Number.isFinite(lastMs)) {
+    return { allowed: true, nextEligibleAt: null, reason: "unparsable-last-post", requiredGapMinutes: 0, waitMinutes: 0 };
+  }
+
+  const requiredGapMs = Math.max(5, input.gapMinMinutes) * MS_PER_MINUTE;
+  const reason = "minimum-gap";
+
+  const nextEligibleMs = lastMs + requiredGapMs;
+  const allowed = nowMs >= nextEligibleMs;
+  const waitMs = Math.max(0, nextEligibleMs - nowMs);
+
+  console.log(
+    `${input.traceId ? `[trace=${input.traceId}] ` : ""}[post-gate] ` +
+      `lastPostedAt=${input.lastPostedAt} requiredGap=${Math.round(requiredGapMs / MS_PER_MINUTE)}m ` +
+      `nextEligibleAt=${new Date(nextEligibleMs).toISOString()} allowed=${allowed} ` +
+      `wait=${Math.round(waitMs / MS_PER_MINUTE)}m reason=${reason}`
+  );
+
+  return {
+    allowed,
+    nextEligibleAt: new Date(nextEligibleMs).toISOString(),
+    reason,
+    requiredGapMinutes: Math.round((requiredGapMs / MS_PER_MINUTE) * 10) / 10,
+    waitMinutes: Math.round((waitMs / MS_PER_MINUTE) * 10) / 10
+  };
+}
+
 export function nextAutopostScheduledFor(input: NextAutopostInput): NextAutopostResult {
   const tracePrefix = input.traceId ? `[trace=${input.traceId}] ` : "";
   const nowMs = Date.parse(input.timestamp);

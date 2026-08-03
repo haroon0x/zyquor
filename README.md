@@ -92,7 +92,7 @@ If you want bare `zyquor` instead of `./zyquor`, install/link the repo command o
 
 ## Draft Generation
 
-Default provider selection is resolved from saved generation config and environment. Command Code with DeepSeek v4 Pro is the default; OpenRouter, Gemini, and Ollama providers remain available.
+Default provider selection is resolved from saved generation config and environment. Codex with Luna on high reasoning is the default; Command Code, OpenRouter, Gemini, and Ollama providers remain available.
 
 Install and authenticate Command Code once before starting Zyquor:
 
@@ -102,7 +102,16 @@ command-code login
 command-code status
 ```
 
-Zyquor runs Command Code in non-interactive, read-only plan mode with `deepseek/deepseek-v4-pro`. Reasoning stays at the model's default. Candidates that drop or change supplied URLs or introduce unsupported numbers are rejected and regenerated once. On native Windows, install Command Code natively so the Electron app can launch it; a copy installed only inside WSL is not visible to a native Windows app. If it is not on the desktop app's `PATH`, set the full executable path in Settings.
+Zyquor runs Command Code in non-interactive, read-only plan mode with `deepseek/deepseek-v4-pro`. Codex uses `codex exec` with Luna and high reasoning. Candidates that drop or change supplied URLs or introduce unsupported numbers are rejected and regenerated once. On native Windows, install the selected CLI natively so the Electron app can launch it; a copy installed only inside WSL is not visible to a native Windows app. If it is not on the desktop app's `PATH`, set the full executable path in Settings.
+
+Codex CLI is also supported. Authenticate it once, then select it in the Generation panel or set it in `.env`:
+
+```bash
+codex login
+ZYQUOR_LLM_PROVIDER=codex ZYQUOR_CODEX_MODEL=luna ZYQUOR_CODEX_PATH=codex pnpm dev:api
+```
+
+The Zyquor Codex provider uses `luna` with high reasoning by default. The current Codex CLI resolves that alias to `gpt-5.6-luna`. Set `ZYQUOR_CODEX_MODEL` to a different Codex model when needed.
 
 Create a local `.env` before running generation:
 
@@ -149,6 +158,7 @@ Smoke-test selected provider:
 pnpm smoke:generation
 ZYQUOR_LLM_PROVIDER=openrouter ZYQUOR_OPENROUTER_API_KEY=... pnpm smoke:generation
 ZYQUOR_LLM_PROVIDER=ollama pnpm smoke:generation
+ZYQUOR_LLM_PROVIDER=codex pnpm smoke:generation
 ```
 
 Run the tweet quality harness against the active provider:
@@ -156,6 +166,14 @@ Run the tweet quality harness against the active provider:
 ```bash
 pnpm harness:tweets
 ```
+
+Run the full quality eval with the configured generator and an independent Command Code judge:
+
+```bash
+node scripts/tweet-eval.mjs
+```
+
+The eval reports the deterministic quality-floor rate even when the external judge is unavailable.
 
 ## Safety Defaults
 

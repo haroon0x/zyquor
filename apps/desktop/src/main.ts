@@ -162,7 +162,12 @@ async function main() {
   // Load desktop settings and apply to env before packages read process.env.
   const desktopSettings: DesktopSettings = {
     enableBrowserPrepare: true,
-    llmProvider: "command-code",
+    enableBrowserPost: false,
+    closeChromeAfterPost: true,
+    cdpPort: 9222,
+    startWithWindows: false,
+    autoApproveSourcePackets: false,
+    llmProvider: "codex",
     ...loadSettings(process.env.ZYQUOR_DATA_ROOT),
   };
   applySettingsToEnv(desktopSettings);
@@ -347,7 +352,7 @@ async function main() {
     });
   }
 
-  const preloadPath = resolve(__dirname, "preload.js");
+  const preloadPath = resolve(__dirname, "preload.cjs");
   const bundledWebIndexPath = resolve(__dirname, "web/index.html");
   const devWebIndexPath = resolve(__dirname, "../../web/dist/index.html");
   const webIndexPath = existsSync(bundledWebIndexPath)
@@ -384,6 +389,12 @@ async function main() {
 
     win.on("closed", () => {
       win = null;
+    });
+
+    win.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {
+      logLine("error", `web UI failed to load (${errorCode}): ${errorDescription}`);
+      if (!win || win.isDestroyed()) return;
+      void win.loadURL("data:text/html,<h1>Zyquor</h1><p>The desktop UI failed to load. Check the log file and restart Zyquor.</p>");
     });
 
     if (existsSync(webIndexPath)) {
@@ -431,7 +442,9 @@ async function main() {
         workerHandle.setPaused(true);
         await workerHandle.stop();
         await api.close();
-        await closePostingChrome({ cdpPort: getCdpPort() }).catch(() => undefined);
+        if (launchedPostingChromePid() !== null) {
+          await closePostingChrome({ cdpPort: getCdpPort() }).catch(() => undefined);
+        }
         logLine("info", "shutdown complete");
       })();
     }
@@ -626,4 +639,9 @@ app.on("render-process-gone", (_e, _wc, details) =>
 );
 process.on("exit", (code) => logLine("info", "process exit code " + code));
 
-app.whenReady().then(main);
+app.whenReady().then(main).catch((error) => {
+  const message = error instanceof Error ? error.stack ?? error.message : String(error);
+  logLine("error", `startup failed: ${message}`);
+  dialog.showErrorBox("Zyquor could not start", message);
+  app.quit();
+});

@@ -362,6 +362,10 @@ export async function processApprovedJobs(
       processed += 1;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (action === "post" && message.includes("Too soon since the last post")) {
+        // Expected while the spacing gap runs down; not a failure.
+        continue;
+      }
       console.error(`Failed to ${action} job ${job.id}:`, message);
       if (action === "post" && isNonRetryablePostError(message)) {
         state?.blockedAutopostJobIds.add(job.id);
@@ -408,8 +412,7 @@ export async function processNewSourcePackets(options: WorkerOptions) {
         method: "POST",
         body: JSON.stringify({
           autoApprove: true,
-          count: 5,
-          mode: "autopost"
+          count: 1
         })
       });
       processed += 1;

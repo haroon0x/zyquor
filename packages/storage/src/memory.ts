@@ -7,6 +7,7 @@ import type {
   PostJob,
   SourcePacket,
   StyleProfile,
+  SystemFeedback,
   IngestConfig
 } from "@zyquor/core";
 import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor, dataPath, parseReplyTargetUrl, xPostCharacterLength } from "@zyquor/core";
@@ -83,6 +84,9 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
   const ingestConfigs = new Map<string, IngestConfig>(
     (options.snapshot?.ingestConfigs ?? []).map((config) => [config.id, config])
   );
+  const systemFeedback = new Map<string, SystemFeedback>(
+    (options.snapshot?.systemFeedback ?? []).map((item) => [item.id, item])
+  );
   let sequence = options.snapshot?.sequence ?? 0;
 
   function snapshot(): RepositorySnapshot {
@@ -98,6 +102,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       ingestConfigs: [...ingestConfigs.values()],
       sourcePackets: [...sourcePackets.values()],
       styleProfiles: [...styleProfiles.values()],
+      systemFeedback: [...systemFeedback.values()],
       sequence
     };
   }
@@ -317,6 +322,55 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       sourcePackets.set(id, updated);
       persist();
       return updated;
+    },
+
+    async setSourcePacketStatus(id, status) {
+      const packet = sourcePackets.get(id);
+      if (!packet) {
+        throw new Error(`Source packet not found: ${id}`);
+      }
+      const updated: SourcePacket = { ...packet, status, updatedAt: now() };
+      sourcePackets.set(id, updated);
+      persist();
+      return updated;
+    },
+
+    async setSourcePacketFeedback(id, feedback) {
+      const packet = sourcePackets.get(id);
+      if (!packet) {
+        throw new Error(`Source packet not found: ${id}`);
+      }
+      const updated: SourcePacket = { ...packet, feedback, updatedAt: now() };
+      sourcePackets.set(id, updated);
+      persist();
+      return updated;
+    },
+
+    async listSystemFeedback(accountId) {
+      return [...systemFeedback.values()]
+        .filter((item) => item.accountId === accountId)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    },
+
+    async addSystemFeedback(accountId, text) {
+      const account = accounts.get(accountId);
+      if (!account) {
+        throw new Error(`Account not found: ${accountId}`);
+      }
+      const item: SystemFeedback = {
+        id: id("feedback"),
+        accountId,
+        text,
+        createdAt: now()
+      };
+      systemFeedback.set(item.id, item);
+      persist();
+      return item;
+    },
+
+    async deleteSystemFeedback(id) {
+      systemFeedback.delete(id);
+      persist();
     },
 
     async createDraft(input) {

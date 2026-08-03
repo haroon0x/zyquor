@@ -138,6 +138,14 @@ export interface SourcePacket {
   title: string;
   tweetType: string;
   url: string | null;
+  feedback: string | null;
+}
+
+export interface SystemFeedback {
+  id: string;
+  accountId: string;
+  text: string;
+  createdAt: string;
 }
 
 export interface IngestConfig {
@@ -184,6 +192,7 @@ export interface DesktopSettingsData {
   enableBrowserPost?: boolean;
   closeChromeAfterPost?: boolean;
   commandCodePath?: string;
+  codexPath?: string;
   llmProvider?: string;
   openrouterApiKey?: string;
   geminiApiKey?: string;
@@ -234,6 +243,7 @@ export interface SystemStatus {
     channel: string | null;
     enablePost: boolean;
     enablePrepare: boolean;
+    autoApproveSourcePackets?: boolean;
   };
   worker: {
     lastError: string | null;
@@ -262,15 +272,10 @@ export function xPostCharacterLength(text: string) {
 }
 
 export const tweetTypeOptions = [
-  "feed_observation",
-  "news_context",
   "useful_info",
   "guide",
-  "lesson",
-  "tool",
   "opinion",
   "reply",
-  "hiring",
-  "article_summary",
-  "narrative_history"
+  "narrative_history",
+  "feed_observation"
 ];

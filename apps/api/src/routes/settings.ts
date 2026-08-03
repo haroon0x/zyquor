@@ -5,10 +5,11 @@ import { writeSavedGenerationEnv } from "../lib/generation.js";
 
 const SENSITIVE_KEYS = new Set(["openrouterApiKey", "geminiApiKey"]);
 
-const GENERATION_KEYS = new Set(["commandCodePath", "llmProvider", "openrouterApiKey", "geminiApiKey"]);
+const GENERATION_KEYS = new Set(["commandCodePath", "codexPath", "llmProvider", "openrouterApiKey", "geminiApiKey"]);
 
 const GENERATION_ENV_KEYS: Record<string, string> = {
   commandCodePath: "ZYQUOR_COMMAND_CODE_PATH",
+  codexPath: "ZYQUOR_CODEX_PATH",
   geminiApiKey: "ZYQUOR_GEMINI_API_KEY",
   llmProvider: "ZYQUOR_LLM_PROVIDER",
   openrouterApiKey: "ZYQUOR_OPENROUTER_API_KEY",

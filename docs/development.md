@@ -178,8 +178,9 @@ ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
 
 - Resolution priority: saved `data/generation.json` > `.env` file > shell `process.env`.
 - Shell env vars take precedence over `.env` — the dotenv loader skips already-set vars.
-- The default provider is `command-code` with `deepseek/deepseek-v4-pro` and the model's default reasoning effort.
+- The default provider is `command-code` with `deepseek/deepseek-v4-pro` and the model's default reasoning effort. The Codex provider uses `luna` with high reasoning by default; the current Codex CLI resolves it to `gpt-5.6-luna`.
 - Command Code must be installed and authenticated on the same operating system that runs Zyquor. Set `ZYQUOR_COMMAND_CODE_PATH` when it is not available on `PATH`.
+- Codex CLI must be installed and authenticated on the same operating system that runs Zyquor. Set `ZYQUOR_CODEX_PATH` when it is not available on `PATH`.
 - Setting `ZYQUOR_LLM_PROVIDER=openrouter` without `ZYQUOR_OPENROUTER_API_KEY` crashes the API on startup. Use `auto` when the key is not ready.
 - The OpenRouter fallback is restricted to the free-model allowlist in `OPENROUTER_MODELS` in `packages/generation/src/config.ts`. Setting a model not in the list silently coerces to the default.
 
@@ -189,12 +190,13 @@ Provider selection uses environment variables:
 
 ```bash
 ZYQUOR_LLM_PROVIDER=command-code ZYQUOR_COMMAND_CODE_MODEL=deepseek/deepseek-v4-pro
+ZYQUOR_LLM_PROVIDER=codex ZYQUOR_CODEX_MODEL=luna ZYQUOR_CODEX_PATH=codex
 ZYQUOR_LLM_PROVIDER=openrouter ZYQUOR_OPENROUTER_API_KEY=... ZYQUOR_OPENROUTER_MODEL=nvidia/nemotron-3-super-120b-a12b:free
 ZYQUOR_LLM_PROVIDER=ollama ZYQUOR_OLLAMA_BASE_URL=http://127.0.0.1:11434 ZYQUOR_OLLAMA_MODEL=llama3.1
 ZYQUOR_LLM_PROVIDER=gemini ZYQUOR_GEMINI_API_KEY=... ZYQUOR_GEMINI_MODEL=gemini-2.5-flash
 ```
 
-`command-code` pipes the generation prompt to the authenticated CLI in headless, read-only plan mode. `openrouter` uses chat completions. `ollama` calls `/api/generate` with `stream: false` and JSON output. `gemini` calls Gemini `models/{model}:generateContent` with JSON response config.
+`command-code` pipes the generation prompt to the authenticated CLI in headless, read-only plan mode. `codex` uses `codex exec` with the `luna` default and high reasoning in ephemeral, read-only, non-interactive mode. `openrouter` uses chat completions. `ollama` calls `/api/generate` with `stream: false` and JSON output. `gemini` calls Gemini `models/{model}:generateContent` with JSON response config.
 
 ## Desktop app (Windows)
 

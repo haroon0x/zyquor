@@ -23,6 +23,7 @@ export function readSavedGenerationEnv(configPath: string | null): GenerationEnv
     return {
       ZYQUOR_LLM_PROVIDER: provider,
       ...(provider === "command-code" ? { ZYQUOR_COMMAND_CODE_MODEL: model } : {}),
+      ...(provider === "codex" ? { ZYQUOR_CODEX_MODEL: model } : {}),
       ...(provider === "gemini" ? { ZYQUOR_GEMINI_MODEL: model } : {}),
       ...(provider === "openrouter" ? { ZYQUOR_OPENROUTER_MODEL: model } : {}),
       ...(provider === "ollama" ? { ZYQUOR_OLLAMA_MODEL: model } : {})

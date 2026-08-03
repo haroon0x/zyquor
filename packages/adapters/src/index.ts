@@ -12,3 +12,5 @@ export * from "./hiring.js";
 export * from "./crawl4ai.js";
 export * from "./rss.js";
 export * from "./aggregator.js";
+export * from "./model-releases.js";
+export * from "./x-feed.js";

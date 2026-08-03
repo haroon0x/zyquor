@@ -156,7 +156,7 @@ export function OnboardingWizard({
           accountId,
           idea: "Share a practical lesson about why explicit review makes automation safer.",
           count: 1,
-          tweetType: "lesson"
+          tweetType: "guide"
         })
       });
       let generated: DraftResponse;
