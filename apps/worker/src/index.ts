@@ -362,6 +362,31 @@ export async function processApprovedJobs(
       processed += 1;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (action === "post" && message.includes("Too soon since the last post")) {
+        const traceId = `job-${job.id.slice(0, 8)}-post`;
+        const match = message.match(/Next post allowed at ([^\s)]+)/);
+        if (match?.[1]) {
+          const nextEligibleAt = match[1];
+          try {
+            await api(options.apiUrl, `/jobs/${job.id}`, {
+              method: "PATCH",
+              body: JSON.stringify({ scheduledFor: nextEligibleAt })
+            });
+            job.scheduledFor = nextEligibleAt;
+            console.log(`[trace=${traceId}] [worker] post-gate rescheduled job ${job.id} scheduledFor=${nextEligibleAt}`);
+          } catch (patchError) {
+            console.error(
+              `[trace=${traceId}] [worker] failed to reschedule job ${job.id} after post-gate: ` +
+                `${patchError instanceof Error ? patchError.message : patchError}`
+            );
+          }
+        } else {
+          console.log(
+            `[trace=${traceId}] [worker] post-gate rejected job ${job.id} with no parseable nextEligibleAt: ${message}`
+          );
+        }
+        continue;
+      }
       console.error(`Failed to ${action} job ${job.id}:`, message);
       if (action === "post" && isNonRetryablePostError(message)) {
         state?.blockedAutopostJobIds.add(job.id);
@@ -408,8 +433,7 @@ export async function processNewSourcePackets(options: WorkerOptions) {
         method: "POST",
         body: JSON.stringify({
           autoApprove: true,
-          count: 5,
-          mode: "autopost"
+          count: 1
         })
       });
       processed += 1;

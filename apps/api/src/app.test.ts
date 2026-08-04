@@ -6,10 +6,12 @@ import { buildApp } from "./app.js";
 
 beforeEach(() => {
   process.env.ZYQUOR_QUALITY_MIN = "3";
+  process.env.ZYQUOR_POST_GAP_MIN_MINUTES = "0";
 });
 
 afterEach(() => {
   delete process.env.ZYQUOR_QUALITY_MIN;
+  delete process.env.ZYQUOR_POST_GAP_MIN_MINUTES;
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -20,17 +22,17 @@ const testNewsAdapter: SourceAdapter = {
   async fetch() {
     return [
       {
-        title: "TypeScript 6.0: The Future of Static Typing",
+        title: "TypeScript 6.0 Adds Native LLM Type Inference Helpers",
         url: "https://dev.to/typescript/ts-6-preview",
         content:
-          "TypeScript 6.0 introduces higher-order type guards and improved recursive type inference. This release focuses on developer productivity and large codebase performance.",
+          "TypeScript 6.0 introduces higher-order type guards tuned for LLM SDK responses and improved recursive type inference for prompt schemas. This release focuses on developer productivity when building agent tooling.",
         metadata: { published: new Date().toISOString() }
       },
       {
-        title: "Playwright v2.0: Native Mobile Emulation",
+        title: "Playwright v2.0 Ships a Browser Agent Harness for Model Testing",
         url: "https://playwright.dev/blog/v2-roadmap",
         content:
-          "Playwright v2.0 focuses on native mobile emulation, multi-page debugging in a single trace, and a unified API for cross-device testing.",
+          "Playwright v2.0 adds a sandboxed browser agent harness for testing AI-driven automation, multi-page debugging in a single trace, and a unified API for evaluating agentic workflows across devices.",
         metadata: { published: new Date().toISOString() }
       },
       {
@@ -1673,9 +1675,10 @@ describe("api workflow", () => {
         calls.push(metadata);
         return [
           {
-            title: "Live release notes",
+            title: "Live release notes: new LLM agent framework",
             url: "https://example.com/live-release",
-            content: "A live source item from an RSS feed.",
+            content:
+              "A live source item from an RSS feed describing a new open-source LLM agent framework with fine-tuning and inference support.",
             metadata: { published: new Date().toISOString() }
           }
         ];

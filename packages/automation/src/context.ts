@@ -9,6 +9,7 @@ export interface AccountGenerationContext {
   objective?: string;
   recentPostHistory?: string[];
   systemPromptExtra?: string;
+  systemFeedback?: string[];
   tone: string | null;
 }
 
@@ -20,12 +21,14 @@ export async function accountGenerationContext(
   const styleProfile = account ? await repository.getStyleProfile(account.styleProfileId) : null;
   const rules = styleProfile?.rules ?? {};
   const history = await repository.listPostHistory();
+  const systemFeedback = await repository.listSystemFeedback(accountId);
 
   return {
     ...(styleProfile?.bannedPhrases ? { bannedPhrases: styleProfile.bannedPhrases } : {}),
     ...(styleProfile?.examplePosts?.length ? { examplePosts: styleProfile.examplePosts } : {}),
     ...(typeof rules.objective === "string" ? { objective: rules.objective } : {}),
     ...(typeof rules.systemPromptExtra === "string" ? { systemPromptExtra: rules.systemPromptExtra } : {}),
+    ...(systemFeedback.length ? { systemFeedback: systemFeedback.slice(0, 5).map((item) => item.text) } : {}),
     tone: styleProfile?.tone ?? null,
     recentPostHistory: history
       .filter((item) => item.accountId === accountId)
@@ -36,7 +39,19 @@ export async function accountGenerationContext(
 }
 
 export function articleTweetIdea(packet: Pick<SourcePacket, "facts" | "sourceType" | "summary" | "title" | "url">) {
-  return buildSourceTweetInput(packet).idea;
+  const title = cleanSentence(packet.title).slice(0, 240);
+  const facts = [...new Set(packet.facts.map((fact) => cleanSentence(fact)))]
+    .filter((fact) => fact && fact.toLowerCase() !== title.toLowerCase())
+    .slice(0, 5)
+    .map((fact) => fact.slice(0, 400));
+  return [
+    title ? `Title: ${title}` : null,
+    packet.url ? `URL: ${packet.url}` : null,
+    `Summary: ${cleanSentence(packet.summary).slice(0, 1200)}`,
+    facts.length ? `Facts:\n${facts.map((fact) => `- ${fact}`).join("\n")}` : null
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function sourceTweetInput(packet: Pick<SourcePacket, "facts" | "sourceType" | "summary" | "title" | "url">) {
@@ -82,6 +97,28 @@ export function packetFieldsFromItem(item: SourceItem) {
     summary: truncateText(sentences[0] ?? item.content ?? item.title, 600),
     facts: uniqueFacts.slice(0, 5)
   };
+}
+
+export function packetFieldsFromFeedDigest(item: SourceItem) {
+  const lines = item.content
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const uniqueLines = [...new Set(lines)];
+
+  return {
+    title: truncateText(item.title, 240),
+    summary: truncateText(uniqueLines.join(" · "), 2000),
+    facts: uniqueLines.slice(0, 8).map((line) => truncateText(line, 500))
+  };
+}
+
+export function hasEnoughSourceContext(input: { facts: string[]; summary: string; title: string }) {
+  const title = cleanSentence(input.title).toLowerCase();
+  const facts = [...new Set(input.facts.map((fact) => cleanSentence(fact).toLowerCase()))]
+    .filter((fact) => fact.length > 0 && fact !== title);
+  const summary = cleanSentence(input.summary).toLowerCase();
+  return facts.length >= 2 || (summary.length >= 90 && summary !== title);
 }
 
 export function inferTweetTypeFromText(item: SourceItem): TweetType {

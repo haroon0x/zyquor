@@ -4,6 +4,8 @@ export interface GenerationEnvironment {
   ZYQUOR_LLM_PROVIDER?: string;
   ZYQUOR_COMMAND_CODE_MODEL?: string;
   ZYQUOR_COMMAND_CODE_PATH?: string;
+  ZYQUOR_CODEX_MODEL?: string;
+  ZYQUOR_CODEX_PATH?: string;
   ZYQUOR_GEMINI_API_KEY?: string;
   ZYQUOR_GEMINI_BASE_URL?: string;
   ZYQUOR_GEMINI_MODEL?: string;
@@ -16,6 +18,15 @@ export interface GenerationEnvironment {
 
 export const DEFAULT_COMMAND_CODE_MODEL = "deepseek/deepseek-v4-pro";
 export const COMMAND_CODE_MODELS = [DEFAULT_COMMAND_CODE_MODEL] as const;
+
+export const DEFAULT_CODEX_MODEL = "luna";
+export const CODEX_MODELS = [DEFAULT_CODEX_MODEL] as const;
+
+export function safeCodexModel(model: string | undefined) {
+  if (!model || model === DEFAULT_CODEX_MODEL) return DEFAULT_CODEX_MODEL;
+  console.warn(`generation: Codex model "${model}" is not supported; using "${DEFAULT_CODEX_MODEL}"`);
+  return DEFAULT_CODEX_MODEL;
+}
 
 export function safeCommandCodeModel(model: string | undefined) {
   if (!model || model === DEFAULT_COMMAND_CODE_MODEL) return DEFAULT_COMMAND_CODE_MODEL;
@@ -56,6 +67,7 @@ export const OLLAMA_MODELS = [
 ] as const;
 export const GENERATION_MODEL_OPTIONS = {
   "command-code": COMMAND_CODE_MODELS,
+  codex: CODEX_MODELS,
   openrouter: OPENROUTER_MODELS,
   gemini: GEMINI_MODELS,
   ollama: OLLAMA_MODELS
@@ -84,6 +96,14 @@ export function resolveGenerationProviderConfig(env: GenerationEnvironment = pro
     return {
       provider,
       model: safeCommandCodeModel(env.ZYQUOR_COMMAND_CODE_MODEL),
+      configured: true
+    };
+  }
+
+  if (provider === "codex") {
+    return {
+      provider,
+      model: safeCodexModel(env.ZYQUOR_CODEX_MODEL),
       configured: true
     };
   }

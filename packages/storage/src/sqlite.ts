@@ -6,7 +6,8 @@ import type {
   PostHistory,
   PostJob,
   SourcePacket,
-  StyleProfile
+  StyleProfile,
+  SystemFeedback
 } from "@zyquor/core";
 import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor, dataPath, parseReplyTargetUrl, xPostCharacterLength } from "@zyquor/core";
 import { mkdirSync } from "node:fs";
@@ -24,6 +25,7 @@ import {
   toPostHistory,
   toStyleProfile,
   toSourcePacket,
+  toSystemFeedback,
   toIngestConfig,
   serializeReplyTarget,
   accountInsertValues
@@ -74,6 +76,15 @@ CREATE TABLE IF NOT EXISTS style_profiles (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS system_feedback (
+  id TEXT PRIMARY KEY NOT NULL,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  text TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS system_feedback_account_idx ON system_feedback(account_id);
 
 CREATE TABLE IF NOT EXISTS drafts (
   id TEXT PRIMARY KEY NOT NULL,
@@ -238,6 +249,7 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
   ensureColumn(db, "post_jobs", "reply_to_json", "reply_to_json TEXT");
   ensureColumn(db, "post_jobs", "reply_to_url", "reply_to_url TEXT");
   ensureColumn(db, "ingest_configs", "metadata_json", "metadata_json TEXT NOT NULL DEFAULT '{}'");
+  ensureColumn(db, "source_packets", "feedback", "feedback TEXT");
   const historyColumns = rows(db.prepare("PRAGMA table_info(post_history)").all());
   const ensureHistoryColumn = (name: string, definition: string) => {
     if (!historyColumns.some((column) => column.name === name)) {
@@ -379,6 +391,7 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
         db.prepare("DELETE FROM source_packets WHERE account_id = ?").run(accountId);
         db.prepare("DELETE FROM ingest_runs WHERE account_id = ?").run(accountId);
         db.prepare("DELETE FROM ingest_configs WHERE account_id = ?").run(accountId);
+        db.prepare("DELETE FROM system_feedback WHERE account_id = ?").run(accountId);
         db.prepare("DELETE FROM accounts WHERE id = ?").run(accountId);
         return toAccount(accountRow);
       });
@@ -561,6 +574,57 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
       const timestamp = now();
       db.prepare("UPDATE source_packets SET status = ?, updated_at = ? WHERE id = ?").run("new", timestamp, id);
       return toSourcePacket(row(db.prepare("SELECT * FROM source_packets WHERE id = ?").get(id))!);
+    },
+
+    async setSourcePacketStatus(id, status) {
+      const packet = row(db.prepare("SELECT * FROM source_packets WHERE id = ?").get(id));
+      if (!packet) {
+        throw new Error(`Source packet not found: ${id}`);
+      }
+      db.prepare("UPDATE source_packets SET status = ?, updated_at = ? WHERE id = ?").run(status, now(), id);
+      return toSourcePacket(row(db.prepare("SELECT * FROM source_packets WHERE id = ?").get(id))!);
+    },
+
+    async setSourcePacketFeedback(id, feedback) {
+      const packet = row(db.prepare("SELECT * FROM source_packets WHERE id = ?").get(id));
+      if (!packet) {
+        throw new Error(`Source packet not found: ${id}`);
+      }
+
+      const timestamp = now();
+      db.prepare("UPDATE source_packets SET feedback = ?, updated_at = ? WHERE id = ?").run(feedback, timestamp, id);
+      return toSourcePacket(row(db.prepare("SELECT * FROM source_packets WHERE id = ?").get(id))!);
+    },
+
+    async listSystemFeedback(accountId) {
+      return rows(db.prepare("SELECT * FROM system_feedback WHERE account_id = ? ORDER BY created_at DESC").all(accountId)).map(
+        toSystemFeedback
+      );
+    },
+
+    async addSystemFeedback(accountId, text) {
+      const account = row(db.prepare("SELECT id FROM accounts WHERE id = ?").get(accountId));
+      if (!account) {
+        throw new Error(`Account not found: ${accountId}`);
+      }
+
+      const item: SystemFeedback = {
+        id: id("feedback"),
+        accountId,
+        text,
+        createdAt: now()
+      };
+      db.prepare("INSERT INTO system_feedback (id, account_id, text, created_at) VALUES (?, ?, ?, ?)").run(
+        item.id,
+        item.accountId,
+        item.text,
+        item.createdAt
+      );
+      return item;
+    },
+
+    async deleteSystemFeedback(id) {
+      db.prepare("DELETE FROM system_feedback WHERE id = ?").run(id);
     },
 
     async createDraft(input) {

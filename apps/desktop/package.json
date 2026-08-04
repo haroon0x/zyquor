@@ -1,14 +1,16 @@
 {
   "name": "@zyquor/desktop",
   "version": "0.0.0",
+  "description": "Local-first X posting assistant.",
+  "author": "Zyquor",
   "productName": "Zyquor",
   "private": true,
   "type": "module",
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json && pnpm copy:web",
+    "build": "pnpm --filter @zyquor/web build && tsc -p tsconfig.json && tsc -p tsconfig.preload.json && node scripts/emit-preload.mjs && pnpm copy:web",
     "copy:web": "node scripts/copy-web.mjs",
-    "check": "tsc -p tsconfig.json --noEmit",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.preload.json --noEmit",
     "dev": "pnpm build && electron dist/main.js",
     "icons": "node scripts/make-icons.mjs",
     "smoke": "pnpm build && node scripts/logic-smoke.mjs",

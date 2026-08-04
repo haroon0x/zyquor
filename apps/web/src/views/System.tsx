@@ -111,13 +111,13 @@ export function SystemView({ panel }: { panel: PanelProps }) {
     });
   }
 
-  function setPostingFlag(patch: { enablePost?: boolean; enablePrepare?: boolean }) {
+  function setPostingFlag(patch: { enablePost?: boolean; enablePrepare?: boolean; autoApproveSourcePackets?: boolean }) {
     act(async () => {
-      const result = await api<{ enablePost: boolean; enablePrepare: boolean }>("/system/posting", {
+      const result = await api<{ enablePost: boolean; enablePrepare: boolean; autoApproveSourcePackets?: boolean }>("/system/posting", {
         method: "POST",
         body: JSON.stringify(patch)
       });
-      return `Prepare ${result.enablePrepare ? "on" : "off"} · Post ${result.enablePost ? "on" : "off"}`;
+      return `Prepare ${result.enablePrepare ? "on" : "off"} · Post ${result.enablePost ? "on" : "off"} · Automated posting ${result.autoApproveSourcePackets ? "on" : "off"}`;
     });
   }
 
@@ -211,6 +211,7 @@ export function SystemView({ panel }: { panel: PanelProps }) {
           <div><dt>Generation</dt><dd>{status ? `${status.generation.provider} / ${status.generation.model}` : "—"}</dd></div>
           <div><dt>Prepare enabled</dt><dd>{status?.posting.enablePrepare ? "yes" : "no"}</dd></div>
           <div><dt>Post enabled</dt><dd>{status?.posting.enablePost ? "yes" : "no"}</dd></div>
+          <div><dt>Automated posting</dt><dd>{status?.posting.autoApproveSourcePackets ? "sources auto-approve" : "review required"}</dd></div>
           <div><dt>Chrome CDP</dt><dd>{status?.desktop?.cdpUrl ?? status?.posting.cdpUrl ?? "—"}</dd></div>
           <div><dt>Chrome pid</dt><dd>{status?.desktop?.chromePid ?? "not launched by Zyquor"}</dd></div>
           <div><dt>Worker heartbeat</dt><dd>{relativeTime(status?.worker.lastHeartbeatAt ?? null)}</dd></div>
@@ -252,6 +253,9 @@ export function SystemView({ panel }: { panel: PanelProps }) {
           </button>
           <button className={status?.posting.enablePost ? "secondary" : "ghost danger"} disabled={busy} onClick={() => setPostingFlag({ enablePost: !status?.posting.enablePost })}>
             <Busy active={busy} />{status?.posting.enablePost ? "Disable posting" : "Arm posting"}
+          </button>
+          <button className={status?.posting.autoApproveSourcePackets ? "secondary" : "ghost"} disabled={busy || !isDesktop} onClick={() => setPostingFlag({ autoApproveSourcePackets: !status?.posting.autoApproveSourcePackets })}>
+            <Busy active={busy} />{status?.posting.autoApproveSourcePackets ? "Automated posting: on" : "Automated posting: off"}
           </button>
         </div>
         <div className="system-controls system-controls--danger">

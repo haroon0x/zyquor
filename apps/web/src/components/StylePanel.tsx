@@ -1,16 +1,18 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
-import type { PanelProps, StyleProfile } from "../types.js";
+import type { PanelProps, StyleProfile, SystemFeedback } from "../types.js";
 import { Busy, InlineError, PanelIcon, errorMessage } from "./Feedback.js";
 
 export function StylePanel({ panel, styleProfileId }: { panel: PanelProps; styleProfileId: string }) {
-  const { busy, run } = panel;
+  const { busy, run, accountId } = panel;
   const [styleProfile, setStyleProfile] = useState<StyleProfile | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [systemPromptExtra, setSystemPromptExtra] = useState("");
   const [objective, setObjective] = useState("Maximize useful reach, views, and reputation without cheap spam.");
   const [bannedPhrases, setBannedPhrases] = useState("game changer\nunlock\n10x");
   const [examplePosts, setExamplePosts] = useState("");
+  const [systemFeedback, setSystemFeedback] = useState<SystemFeedback[]>([]);
+  const [feedbackText, setFeedbackText] = useState("");
 
   async function loadStyleProfile() {
     setLoadError(null);
@@ -24,11 +26,13 @@ export function StylePanel({ panel, styleProfileId }: { panel: PanelProps; style
     );
     setBannedPhrases(profile.bannedPhrases.join("\n"));
     setExamplePosts(profile.examplePosts.join("\n\n"));
+    const { items } = await api<{ items: SystemFeedback[] }>(`/system-feedback?accountId=${encodeURIComponent(accountId)}`);
+    setSystemFeedback(items);
   }
 
   useEffect(() => {
     void loadStyleProfile().catch((error) => setLoadError(errorMessage(error, "Prompt unavailable")));
-  }, [styleProfileId, panel.refreshToken]);
+  }, [accountId, styleProfileId, panel.refreshToken]);
 
   function saveStyleProfile() {
     if (!styleProfile) return;
@@ -43,6 +47,26 @@ export function StylePanel({ panel, styleProfileId }: { panel: PanelProps; style
         })
       });
       setStyleProfile(profile);
+    });
+  }
+
+  function addSystemFeedback() {
+    if (!feedbackText.trim()) return;
+    run(async () => {
+      await api("/system-feedback", {
+        method: "POST",
+        body: JSON.stringify({ accountId, text: feedbackText.trim() })
+      });
+      setFeedbackText("");
+      const { items } = await api<{ items: SystemFeedback[] }>(`/system-feedback?accountId=${encodeURIComponent(accountId)}`);
+      setSystemFeedback(items);
+    });
+  }
+
+  function deleteSystemFeedback(id: string) {
+    run(async () => {
+      await api(`/system-feedback/${id}`, { method: "DELETE" });
+      setSystemFeedback((items) => items.filter((item) => item.id !== id));
     });
   }
 
@@ -78,7 +102,32 @@ export function StylePanel({ panel, styleProfileId }: { panel: PanelProps; style
           <textarea value={systemPromptExtra} onChange={(event) => setSystemPromptExtra(event.target.value)} rows={5} />
         </label>
       </div>
-      <button disabled={busy} onClick={saveStyleProfile}><Busy active={busy} />Save prompt</button></> : !loadError ? <p className="empty">Loading prompt…</p> : null}
+      <button disabled={busy} onClick={saveStyleProfile}><Busy active={busy} />Save prompt</button>
+      <div className="system-feedback-section">
+        <h3>System feedback</h3>
+        <p className="empty">Standing corrections injected into every generation for this account.</p>
+        {systemFeedback.length ? (
+          <ul className="feedback-list">
+            {systemFeedback.map((item) => (
+              <li key={item.id}>
+                <span>{item.text}</span>
+                <button className="secondary danger compact-button" disabled={busy} onClick={() => deleteSystemFeedback(item.id)}>Remove</button>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="empty">No standing feedback yet.</p>}
+        <div className="source-actions">
+          <textarea
+            aria-label="New system feedback"
+            placeholder="e.g. Never open with the source name — open with the payoff. No 'unlock' or 'game changer' even in quotes."
+            rows={3}
+            value={feedbackText}
+            onChange={(event) => setFeedbackText(event.target.value)}
+          />
+          <button className="secondary" disabled={busy || !feedbackText.trim()} onClick={addSystemFeedback}><Busy active={busy} />Add feedback</button>
+        </div>
+      </div></>
+      : !loadError ? <p className="empty">Loading prompt…</p> : null}
     </section>
   );
 }

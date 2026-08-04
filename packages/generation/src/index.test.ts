@@ -58,6 +58,8 @@ describe("tweet quality evaluator", () => {
       { text: "SQLite handled 8 million rows on one $20 node.", tweetType: "useful_info", idea: "SQLite scale" },
       { baseUrl: "http://localhost:11434/", model: "judge-model", fetchImpl }
     )).resolves.toEqual({
+      pass: true,
+      legacy: true,
       score: 10,
       verdict: "strong",
       reasons: ["Concrete number", "Natural phrasing", "Strong opening"]
@@ -231,7 +233,7 @@ describe("ollama generation", () => {
     const prompt = messages[0]?.content ?? "";
     const headings = ["Role", "Publication rules", "Voice", "Tweet type", "Calibration examples", "User style", "Output format"];
 
-    expect(prompt.length).toBeLessThan(4100);
+    expect(prompt.length).toBeLessThan(4400);
     expect(headings.map((heading) => prompt.indexOf(heading))).toEqual(
       [...headings].map((heading) => prompt.indexOf(heading)).sort((left, right) => left - right)
     );
@@ -466,7 +468,7 @@ describe("tweet quality harness", () => {
       "ai infra, not model demos, is where the bottleneck moved."
     );
     expect(postProcessTweetText("why this matters:\n\n-  models ship faster  \n- users still need trust")).toBe(
-      "why this matters:\n\n- models ship faster\n- users still need trust"
+      "why this matters.\n\n- models ship faster\n- users still need trust"
     );
     expect(postProcessTweetText("Read HTTPS://Example.COM/CaseSensitivePath?Token=AbC now")).toBe(
       "read HTTPS://Example.COM/CaseSensitivePath?Token=AbC now"

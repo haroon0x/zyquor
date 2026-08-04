@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { platform, tmpdir } from "node:os";
 import { generateWithQualityLoop } from "../refine.js";
 import type { DraftGenerationProvider } from "../types.js";
+import { providerProcessEnv } from "./cli-env.js";
 
 const DEFAULT_TIMEOUT_MS = 180_000;
 const MAX_OUTPUT_BYTES = 1_000_000;
@@ -22,6 +23,7 @@ function runCommandCode(input: {
       "--print"
     ], {
       cwd: tmpdir(),
+      env: providerProcessEnv(),
       shell: platform() === "win32",
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true
@@ -93,7 +95,7 @@ export function createCommandCodeGenerationProvider(options: {
         timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS
       });
       return generateWithQualityLoop({
-        generationInput: input,
+        generationInput: { ...input, insightRequired: true },
         model,
         providerName: "command-code",
         runPrompt: run

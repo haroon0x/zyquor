@@ -43,7 +43,7 @@ export function createGeminiGenerationProvider(options: {
         generationInput: input,
         model,
         providerName: "gemini",
-        runInitial: () => generate(userPrompt(input), systemPrompt(input)),
+        runInitial: (generationInput) => generate(userPrompt(generationInput), systemPrompt(generationInput)),
         runPrompt: (prompt) => generate(prompt)
       });
     }

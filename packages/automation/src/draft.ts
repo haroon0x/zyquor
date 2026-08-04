@@ -1,14 +1,30 @@
-import { postProcessTweetText, type DraftGenerationProvider, type GeneratedDraftCandidate } from "@zyquor/generation";
+import {
+  passesTweetQualityFloor,
+  postProcessTweetText,
+  qualityMinimum,
+  scoreTweetQuality,
+  type DraftGenerationProvider,
+  type EvaluateTweetQualityOptions,
+  type GeneratedDraftCandidate,
+  type TweetQualityEvaluator
+} from "@zyquor/generation";
 import type { ZyquorRepository } from "@zyquor/storage";
 import type { Draft, DraftCandidate, PostJob, SourcePacket } from "@zyquor/core";
-import { accountGenerationContext, articleTweetIdea, sourceTweetInput } from "./context.js";
+import { accountGenerationContext, articleTweetIdea, hasEnoughSourceContext, sourceTweetInput } from "./context.js";
 import { validateSourcePostQuality, withRequiredSourceUrl } from "./quality.js";
+import { normalizeTweetType } from "./selection.js";
+
+function generationTweetType(value: SourcePacket["tweetType"]) {
+  return value === "hiring" ? value : normalizeTweetType(value);
+}
 
 export interface PacketDraftOptions {
   autoApprove?: boolean;
   count?: number;
   mediaUrls?: string[];
   mode?: PostJob["mode"];
+  qualityEvaluator?: TweetQualityEvaluator;
+  qualityEvaluatorOptions?: EvaluateTweetQualityOptions;
 }
 
 export interface PacketDraftResult {
@@ -24,15 +40,20 @@ export async function generateCandidatesForPacket(input: {
   repository: ZyquorRepository;
   count?: number;
 }): Promise<GeneratedDraftCandidate[]> {
+  if (!hasEnoughSourceContext(input.packet)) {
+    return [];
+  }
   const context = await accountGenerationContext(input.repository, input.packet.accountId);
   const tweetInput = sourceTweetInput(input.packet);
 
   return input.generationProvider.generateDraftCandidates({
-    idea: tweetInput.idea,
+    idea: input.packet.title,
     ...(tweetInput.source ? { context: tweetInput.source } : {}),
-    count: input.count ?? 3,
+    insightRequired: true,
+    count: input.count ?? 1,
     ...context,
-    tweetType: input.packet.tweetType
+    ...(input.packet.feedback ? { feedback: input.packet.feedback } : {}),
+    tweetType: generationTweetType(input.packet.tweetType)
   });
 }
 
@@ -48,16 +69,63 @@ export async function draftFromSourcePacket(input: {
     repository: input.repository,
     ...(input.options?.count !== undefined ? { count: input.options.count } : {})
   };
-  const candidates = await generateCandidatesForPacket({
+  let candidates: GeneratedDraftCandidate[] = await generateCandidatesForPacket({
     ...candidateInput
   }).then((items) =>
     items.map((candidate) => ({
       ...candidate,
-      text: withRequiredSourceUrl(postProcessTweetText(candidate.text), input.packet)
+      text: withRequiredSourceUrl(postProcessTweetText(candidate.text), input.packet),
+      score: {
+        ...candidate.score,
+        quality: scoreTweetQuality(withRequiredSourceUrl(postProcessTweetText(candidate.text), input.packet))
+      }
     }))
   );
+  let judgeError: string | null = null;
+  const hasQualityJudge = Boolean(input.options?.qualityEvaluator);
+  if (input.options?.autoApprove) {
+    if (input.options.qualityEvaluator) {
+      const judgeIdea = articleTweetIdea(input.packet);
+      const judgeTweetType = generationTweetType(input.packet.tweetType);
+      const judgedAt = new Date().toISOString();
+      try {
+        const judgedCandidates: GeneratedDraftCandidate[] = [];
+        for (const candidate of candidates) {
+          const evaluation = await input.options.qualityEvaluator(
+            {
+              idea: judgeIdea,
+              text: candidate.text,
+              tweetType: judgeTweetType
+            },
+            input.options.qualityEvaluatorOptions
+          );
+          judgedCandidates.push({
+            ...candidate,
+            score: {
+              ...candidate.score,
+              judgePass: evaluation.pass,
+              judgeSpecific: evaluation.specific,
+              judgeGrounded: evaluation.grounded,
+              judgePayoff: evaluation.payoff,
+              judgeStyleFit: evaluation.styleFit,
+              judgeScore: evaluation.score,
+              judgeVerdict: evaluation.verdict,
+              judgeReasons: evaluation.reasons,
+              judgedAt,
+              ...(input.options.qualityEvaluatorOptions?.model
+                ? { judgeModel: input.options.qualityEvaluatorOptions.model }
+                : {})
+            }
+          });
+        }
+        candidates = judgedCandidates;
+      } catch {
+        judgeError = "quality_judge_unavailable";
+      }
+    }
+  }
   const history = input.options?.autoApprove ? await input.repository.listPostHistory() : [];
-  const qualityMin = Number(process.env.ZYQUOR_QUALITY_MIN ?? 3);
+  const qualityMin = qualityMinimum();
   const passingCandidates = input.options?.autoApprove
     ? candidates
         .map((candidate) => ({
@@ -66,10 +134,16 @@ export async function draftFromSourcePacket(input: {
             history,
             packet: input.packet,
             text: candidate.text
-          })
+          }),
+          generatedValidation: passesTweetQualityFloor(candidate.text, qualityMin)
         }))
-        .filter((candidate) => candidate.validation.ok && Number(candidate.score.quality) >= qualityMin)
-        .sort((a, b) => Number(a.score.rank) - Number(b.score.rank))
+        .filter(
+          (candidate) =>
+            candidate.validation.ok &&
+            candidate.generatedValidation &&
+            (!hasQualityJudge || judgeError !== null || candidate.score.judgePass === true)
+        )
+        .sort((a, b) => Number(b.score.quality) - Number(a.score.quality) || Number((a.score as Record<string, unknown>).rank) - Number((b.score as Record<string, unknown>).rank))
     : [];
   const approvedCandidate = passingCandidates[0] ?? null;
   const sourceMetadata = {
@@ -113,11 +187,19 @@ export async function draftFromSourcePacket(input: {
         ? {
             qualityGate: {
               threshold: qualityMin,
-              reason: candidates.length === 0 ? "no_candidates_generated" : passingCandidates.length === 0 ? "all_below_quality_floor" : null,
+              reason:
+                candidates.length === 0
+                  ? "no_candidates_generated"
+                  : judgeError ??
+                    (passingCandidates.length === 0
+                      ? hasQualityJudge
+                        ? "quality_judge_rejected_all"
+                        : "all_below_quality_floor"
+                      : null),
               candidates: candidates.map((candidate) => ({
                 text: candidate.text,
                 score: candidate.score,
-                passedQualityMin: Number(candidate.score.quality) >= qualityMin,
+                passedQualityMin: passesTweetQualityFloor(candidate.text, qualityMin),
                 reasons: validateSourcePostQuality({ history, packet: input.packet, text: candidate.text }).reasons
               }))
             }

@@ -9,6 +9,7 @@ import type {
   ReplyTarget,
   SourcePacket,
   StyleProfile,
+  SystemFeedback,
   IngestConfig
 } from "@zyquor/core";
 
@@ -60,6 +61,11 @@ export interface ZyquorRepository {
   deleteSourcePacket(id: string): Promise<SourcePacket>;
   markSourcePacketDrafted(id: string): Promise<SourcePacket>;
   resetSourcePacket(id: string): Promise<SourcePacket>;
+  setSourcePacketStatus(id: string, status: SourcePacket["status"]): Promise<SourcePacket>;
+  setSourcePacketFeedback(id: string, feedback: string | null): Promise<SourcePacket>;
+  listSystemFeedback(accountId: string): Promise<SystemFeedback[]>;
+  addSystemFeedback(accountId: string, text: string): Promise<SystemFeedback>;
+  deleteSystemFeedback(id: string): Promise<void>;
   listPendingDrafts(): Promise<Draft[]>;
   listQualityGateFailedDrafts(): Promise<DraftWithCandidates[]>;
   getDraft(id: string): Promise<DraftWithCandidates | null>;
@@ -152,5 +158,6 @@ export interface RepositorySnapshot {
   ingestConfigs: IngestConfig[];
   sourcePackets: SourcePacket[];
   styleProfiles: StyleProfile[];
+  systemFeedback: SystemFeedback[];
   sequence: number;
 }

@@ -87,6 +87,7 @@ export function SourcePacketsPanel({ panel, state }: { panel: PanelProps; state:
   const { setDraft, setEditedText } = state;
   const [sourcePackets, setSourcePackets] = useState<SourcePacket[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [feedbackDraft, setFeedbackDraft] = useState<Record<string, string>>({});
 
   async function loadSourcePackets() {
     setLoadError(null);
@@ -110,6 +111,41 @@ export function SourcePacketsPanel({ panel, state }: { panel: PanelProps; state:
       const response = await api<DraftResponse & { packet: SourcePacket }>(`/source-packets/${packet.id}/draft`, { method: "POST" });
       setDraft({ draft: response.draft, candidates: response.candidates });
       setEditedText(response.candidates[0]?.text ?? "");
+      await refresh();
+      window.location.hash = "compose";
+    });
+  }
+
+  function reviewSourcePacket(packet: SourcePacket) {
+    run(async () => {
+      const response = await api<DraftResponse>(`/source-packets/${packet.id}/draft`);
+      setDraft({ draft: response.draft, candidates: response.candidates });
+      setEditedText(response.draft.editedText ?? response.candidates[0]?.text ?? "");
+      await refresh();
+      window.location.hash = "compose";
+    });
+  }
+
+  function setPacketFeedback(packet: SourcePacket, feedback: string) {
+    run(async () => {
+      await api(`/source-packets/${packet.id}/feedback`, {
+        method: "POST",
+        body: JSON.stringify({ feedback: feedback.trim() || null })
+      });
+      setFeedbackDraft(({ [packet.id]: _cleared, ...rest }) => rest);
+      await refresh();
+    });
+  }
+
+  function regenerateSourcePacket(packet: SourcePacket) {
+    run(async () => {
+      const response = await api<DraftResponse & { packet: SourcePacket }>(`/source-packets/${packet.id}/regenerate`, {
+        method: "POST",
+        body: JSON.stringify({ feedback: feedbackDraft[packet.id]?.trim() || packet.feedback?.trim() || null })
+      });
+      setDraft({ draft: response.draft, candidates: response.candidates });
+      setEditedText(response.candidates[0]?.text ?? "");
+      setFeedbackDraft(({ [packet.id]: _cleared, ...rest }) => rest);
       await refresh();
       window.location.hash = "compose";
     });
@@ -171,9 +207,25 @@ export function SourcePacketsPanel({ panel, state }: { panel: PanelProps; state:
             </div>
             <p>{packet.summary}</p>
             {packet.facts.length ? <ul>{packet.facts.slice(0, 3).map((fact) => <li key={fact}>{fact}</li>)}</ul> : null}
+            {packet.status === "drafted" ? (
+              <div className="source-feedback">
+                <textarea
+                  aria-label="Feedback for this post"
+                  placeholder="What was wrong with the last draft? e.g. lead reads like a recap, drop the hype, lead with the mechanism."
+                  rows={3}
+                  value={feedbackDraft[packet.id] ?? packet.feedback ?? ""}
+                  onChange={(event) => setFeedbackDraft({ ...feedbackDraft, [packet.id]: event.target.value })}
+                />
+                <div className="source-actions">
+                  <button className="ghost" disabled={busy || !feedbackDraft[packet.id]?.trim()} onClick={() => setPacketFeedback(packet, feedbackDraft[packet.id] ?? "")}><Busy active={busy} />Save note</button>
+                </div>
+              </div>
+            ) : null}
             <div className="source-actions">
               <button className="secondary" disabled={busy || packet.status === "drafted"} onClick={() => draftFromSourcePacket(packet)}><Busy active={busy} />Draft</button>
-              <button className="secondary danger" disabled={busy || packet.status !== "drafted"} onClick={() => deleteDraftFromSourcePacket(packet)}><Busy active={busy} />Delete draft</button>
+              {packet.status === "drafted" ? <button className="secondary" disabled={busy} onClick={() => reviewSourcePacket(packet)}><Busy active={busy} />Review</button> : null}
+              {packet.status === "drafted" ? <button className="secondary" disabled={busy || !(feedbackDraft[packet.id]?.trim() || packet.feedback?.trim())} onClick={() => regenerateSourcePacket(packet)}><Busy active={busy} />Regenerate</button> : null}
+              {packet.status === "drafted" ? <button className="secondary danger" disabled={busy} onClick={() => deleteDraftFromSourcePacket(packet)}><Busy active={busy} />Delete draft</button> : null}
               <button className="secondary danger" disabled={busy} onClick={() => deleteSourcePacket(packet)}><Busy active={busy} />Delete source</button>
             </div>
           </article>

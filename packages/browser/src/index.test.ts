@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { chromium } from "playwright-core";
 import type { Page } from "playwright-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { checkXLogin, openPostComposer, preparePost, resolveProfileDir } from "./index.js";
+import { checkXLogin, fetchXHomeFeed, openPostComposer, preparePost, resolveProfileDir } from "./index.js";
 
 function htmlUrl(html: string) {
   return `data:text/html,${encodeURIComponent(html)}`;
@@ -222,5 +222,59 @@ describeBrowser("preparePost", () => {
 
     expect(loggedIn.loggedIn).toBe(true);
     expect(loggedOut.loggedIn).toBe(false);
+  }, 30_000);
+
+  it("extracts tweets from the X home feed", async () => {
+    const profileDir = mkdtempSync(join(tmpdir(), "zyquor-browser-profile-"));
+    const artifactsDir = mkdtempSync(join(tmpdir(), "zyquor-browser-artifacts-"));
+    const html = `
+      <!doctype html>
+      <html>
+        <body>
+          <a data-testid="AppTabBar_Profile_Link" href="/me">me</a>
+          <article data-testid="tweet">
+            <div data-testid="User-Name">Alice @alice</div>
+            <div data-testid="tweetText">First observation about a thing</div>
+            <time datetime="2026-08-03T10:00:00.000Z">2h</time>
+            <a href="/alice/status/111">open</a>
+          </article>
+          <article data-testid="tweet">
+            <div data-testid="socialContext">Bob reposted</div>
+            <div data-testid="User-Name">Bob @bob</div>
+            <div data-testid="tweetText">Second observation about another thing</div>
+            <time datetime="2026-08-03T11:00:00.000Z">1h</time>
+            <a href="/bob/status/222">open</a>
+          </article>
+        </body>
+      </html>
+    `;
+
+    const result = await fetchXHomeFeed({
+      profileDir,
+      artifactsDir,
+      actionDelayMs: 10,
+      browserChannel: null,
+      headless: true,
+      maxTweets: 20,
+      minTweets: 2,
+      scrolls: 0,
+      xHomeUrl: htmlUrl(html)
+    });
+
+    expect(result.tweets).toHaveLength(2);
+    expect(result.tweets[0]).toMatchObject({
+      id: "111",
+      authorHandle: "alice",
+      authorName: "Alice",
+      text: "First observation about a thing",
+      url: "https://x.com/alice/status/111",
+      publishedAt: "2026-08-03T10:00:00.000Z",
+      isRetweet: false
+    });
+    expect(result.tweets[1]).toMatchObject({
+      id: "222",
+      authorHandle: "bob",
+      isRetweet: true
+    });
   }, 30_000);
 });

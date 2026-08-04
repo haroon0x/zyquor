@@ -9,14 +9,19 @@ import type { DraftGenerationProvider, FetchLike } from "../types.js";
 import { getJson, postJson } from "./http.js";
 
 function isZeroPrice(value: unknown) {
-  return typeof value === "string" && Number(value) === 0;
+  return (typeof value === "string" || typeof value === "number") && Number(value) === 0;
 }
 
 function assertOpenRouterPricingIsFree(input: {
   model: string;
   pricing?: { completion?: unknown; prompt?: unknown; request?: unknown };
 }) {
-  if (!input.pricing || !isZeroPrice(input.pricing.prompt) || !isZeroPrice(input.pricing.completion)) {
+  if (
+    !input.pricing ||
+    !isZeroPrice(input.pricing.prompt) ||
+    !isZeroPrice(input.pricing.completion) ||
+    (input.pricing.request !== undefined && !isZeroPrice(input.pricing.request))
+  ) {
     throw new Error(`OpenRouter model is not confirmed free: ${input.model}`);
   }
 }
@@ -55,9 +60,7 @@ export function createOpenRouterGenerationProvider(options: {
       await assertFreeModel();
       const url = `${baseUrl}/chat/completions`;
       const headers = {
-        authorization: `Bearer ${options.apiKey}`,
-        "http-referer": "http://127.0.0.1",
-        "x-title": "Zyquor"
+        authorization: `Bearer ${options.apiKey}`
       };
 
       const send = (messages: Array<{ role: string; content: string }>, withJsonFormat: boolean) =>
@@ -93,10 +96,10 @@ export function createOpenRouterGenerationProvider(options: {
           generationInput: input,
           model,
           providerName: "openrouter",
-          runInitial: () =>
+          runInitial: (generationInput) =>
             chat([
-              { role: "system", content: systemPrompt(input) },
-              { role: "user", content: userPrompt(input) }
+              { role: "system", content: systemPrompt(generationInput) },
+              { role: "user", content: userPrompt(generationInput) }
             ]),
           runPrompt: (prompt) => chat([{ role: "user", content: prompt }])
         });

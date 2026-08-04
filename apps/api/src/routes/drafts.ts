@@ -7,11 +7,26 @@ import {
   AI_SLOP_PHRASES,
   parseReplyTargetUrl
 } from "@zyquor/core";
-import { accountGenerationContext, draftFromSourcePacket, packetFieldsFromItem } from "@zyquor/automation";
-import { resolveGenerationProviderConfig } from "@zyquor/generation";
-import { asError, HttpError } from "../lib/errors.js";
+import {
+  accountGenerationContext,
+  articleTweetIdea,
+  draftFromSourcePacket,
+  hasEnoughSourceContext,
+  normalizeTweetType,
+  packetFieldsFromItem,
+  sourceTweetInput,
+  validateGeneratedPostQuality,
+  validateSourcePostQuality
+} from "@zyquor/automation";
+import { passesTweetQualityFloor, qualityMinimum, scoreTweetQuality } from "@zyquor/generation";
+import { HttpError } from "../lib/errors.js";
 import { tracePostProcessTweetText } from "../lib/post-process.js";
 import { isPostingMode } from "../lib/posting.js";
+import { qualityJudgeOptions, runQualityJudge } from "../lib/quality-judge.js";
+
+function generationTweetType(value: string) {
+  return value === "hiring" ? value : normalizeTweetType(value);
+}
 
 export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void {
   app.get("/drafts/pending", async () => {
@@ -43,42 +58,50 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
     }
 
     const metadata = existing.draft.metadata as Record<string, unknown>;
-    const tweetType = typeof metadata.tweetType === "string" ? metadata.tweetType : undefined;
-    const judgeConfig = resolveGenerationProviderConfig({
-      ...deps.generationEnv,
-      ZYQUOR_LLM_PROVIDER: "ollama"
-    });
-    const evaluations = [];
-
-    try {
-      for (const candidate of existing.candidates) {
-        evaluations.push(await deps.tweetQualityEvaluator(
-          {
-            text: candidate.text,
-            ...(tweetType ? { tweetType } : {}),
-            idea: existing.draft.sourceInput
-          },
-          {
-            ...(judgeConfig.baseUrl ? { baseUrl: judgeConfig.baseUrl } : {}),
-            model: judgeConfig.model
-          }
-        ));
-      }
-    } catch (error) {
-      throw new HttpError(503, `Local Ollama quality judge failed: ${asError(error).message}`);
+    const sourcePacketId = typeof metadata.sourcePacketId === "string" ? metadata.sourcePacketId : null;
+    const sourcePacket = sourcePacketId ? await repository.getSourcePacket(sourcePacketId) : null;
+    const judgeIdea = sourcePacket ? articleTweetIdea(sourcePacket) : existing.draft.sourceInput;
+    const judgeTweetType = existing.draft.replyTo
+      ? "reply"
+      : typeof metadata.tweetType === "string"
+        ? generationTweetType(metadata.tweetType)
+        : undefined;
+    const judgeOptions = qualityJudgeOptions(deps.generationEnv);
+    const judgeResult = await runQualityJudge(
+      deps.tweetQualityEvaluator,
+      existing.candidates.map((candidate) => ({
+        text: candidate.text,
+        ...(judgeIdea ? { idea: judgeIdea } : {}),
+        ...(judgeTweetType ? { tweetType: judgeTweetType } : {})
+      })),
+      judgeOptions
+    );
+    if (judgeResult.unavailable) {
+      app.log.warn(`Quality judge unavailable for draft ${id}; skipping evaluation: ${judgeResult.error}`);
+      return reply.code(200).send({
+        draft: existing.draft,
+        candidates: existing.candidates,
+        judgeUnavailable: true,
+        error: judgeResult.error
+      });
     }
 
     const judgedAt = new Date().toISOString();
     const candidates = [];
     for (const [index, candidate] of existing.candidates.entries()) {
-      const evaluation = evaluations[index]!;
+      const evaluation = judgeResult.evaluations![index]!;
       candidates.push(await repository.updateCandidateScore(candidate.id, {
         ...candidate.score,
+        judgePass: evaluation.pass,
+        judgeSpecific: evaluation.specific,
+        judgeGrounded: evaluation.grounded,
+        judgePayoff: evaluation.payoff,
+        judgeStyleFit: evaluation.styleFit,
         judgeScore: evaluation.score,
         judgeVerdict: evaluation.verdict,
         judgeReasons: evaluation.reasons,
         judgedAt,
-        judgeModel: judgeConfig.model
+        judgeModel: judgeOptions.model
       }));
     }
 
@@ -96,58 +119,132 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
     const draft = existing.draft;
     const metadata = draft.metadata as Record<string, unknown>;
     const context = await accountGenerationContext(repository, draft.accountId);
+    const sourcePacketId = typeof metadata.sourcePacketId === "string" ? metadata.sourcePacketId : null;
+    const sourcePacket = sourcePacketId ? await repository.getSourcePacket(sourcePacketId) : null;
+    const sourceContext = sourcePacket ? sourceTweetInput(sourcePacket) : null;
+    const judgeIdea = sourcePacket ? articleTweetIdea(sourcePacket) : draft.sourceInput;
+    const judgeTweetType = draft.replyTo
+      ? "reply"
+      : typeof metadata.tweetType === "string"
+        ? generationTweetType(metadata.tweetType)
+        : undefined;
     const count = metadata.yolo ? 1 : (Number(metadata.count) || 3);
 
     const candidates = await deps.generationProvider.generateDraftCandidates({
-      idea: draft.sourceInput,
+      idea: sourceContext ? "" : draft.sourceInput,
+      ...(sourceContext?.source ? { context: sourceContext.source } : {}),
       count,
       ...context,
       ...(draft.replyTo
         ? { tweetType: "reply" }
         : metadata.tweetType
-          ? { tweetType: metadata.tweetType as string }
+          ? { tweetType: generationTweetType(metadata.tweetType as string) }
           : {}),
       ...(draft.replyTo
         ? { replyContext: { authorHandle: draft.replyTo.authorHandle, url: draft.replyTo.url } }
-        : {})
+        : {}),
+      ...(sourcePacket?.feedback ? { feedback: sourcePacket.feedback } : {})
     });
 
-    const updated = await repository.saveDraftCandidates(
+    let updated = await repository.saveDraftCandidates(
       draft.id,
-      candidates.map((candidate) => ({
-        ...candidate,
-        text: tracePostProcessTweetText("select-candidate", candidate.text)
-      }))
+      candidates.map((candidate) => {
+        const text = tracePostProcessTweetText("select-candidate", candidate.text);
+        return {
+          ...candidate,
+          text,
+          score: {
+            ...candidate.score,
+            quality: scoreTweetQuality(text)
+          }
+        };
+      })
     );
 
+    const qualityMin = qualityMinimum();
     if (metadata.yolo) {
-      const qualityMin = Number(process.env.ZYQUOR_QUALITY_MIN ?? 3);
-      const sortedCandidates = [...updated.candidates].sort(
-        (a, b) => Number(a.score.rank ?? Infinity) - Number(b.score.rank ?? Infinity)
+      const judgeOptions = qualityJudgeOptions(deps.generationEnv);
+      const judgeResult = await runQualityJudge(
+        deps.tweetQualityEvaluator,
+        updated.candidates.map((candidate) => ({
+          idea: judgeIdea,
+          text: candidate.text,
+          ...(judgeTweetType ? { tweetType: judgeTweetType } : {})
+        })),
+        judgeOptions
       );
-      const bestCandidate = sortedCandidates[0];
-      const bestQuality = Number(bestCandidate?.score.quality ?? -Infinity);
-      const slopPhrase = bestCandidate
-        ? AI_SLOP_PHRASES.find((phrase) => bestCandidate.text.toLowerCase().includes(phrase)) ?? null
+      const judgeUnavailable = judgeResult.unavailable;
+      if (judgeUnavailable) {
+        app.log.warn(`Quality judge unavailable for yolo draft ${draft.id}; falling back to score floor: ${judgeResult.error}`);
+      } else {
+        const judgedAt = new Date().toISOString();
+        const judgedCandidates: typeof updated.candidates = [];
+        for (const [index, candidate] of updated.candidates.entries()) {
+          const evaluation = judgeResult.evaluations![index]!;
+          judgedCandidates.push(await repository.updateCandidateScore(candidate.id, {
+            ...candidate.score,
+            judgePass: evaluation.pass,
+            judgeSpecific: evaluation.specific,
+            judgeGrounded: evaluation.grounded,
+            judgePayoff: evaluation.payoff,
+            judgeStyleFit: evaluation.styleFit,
+            judgeScore: evaluation.score,
+            judgeVerdict: evaluation.verdict,
+            judgeReasons: evaluation.reasons,
+            judgedAt,
+            judgeModel: judgeOptions.model
+          }));
+        }
+        updated = { ...updated, candidates: judgedCandidates };
+      }
+
+      const sortedCandidates = [...updated.candidates].sort(
+        (a, b) =>
+          Number(b.score.judgePass === true) - Number(a.score.judgePass === true) ||
+          Number(b.score.judgeScore ?? -Infinity) - Number(a.score.judgeScore ?? -Infinity) ||
+          Number(b.score.quality ?? -Infinity) - Number(a.score.quality ?? -Infinity) ||
+          Number(a.score.rank ?? Infinity) - Number(b.score.rank ?? Infinity)
+      );
+      const topCandidate = sortedCandidates[0];
+      const bestCandidate = judgeUnavailable
+        ? sortedCandidates.find((candidate) => passesTweetQualityFloor(candidate.text, qualityMin))
+        : sortedCandidates.find(
+            (candidate) => candidate.score.judgePass === true && passesTweetQualityFloor(candidate.text, qualityMin)
+          );
+      const bestQuality = Number(topCandidate?.score.quality ?? -Infinity);
+      const judgePassCount = sortedCandidates.filter((candidate) => candidate.score.judgePass === true).length;
+      const slopPhrase = topCandidate
+        ? AI_SLOP_PHRASES.find((phrase) => topCandidate.text.toLowerCase().includes(phrase)) ?? null
         : null;
-      if (!bestCandidate || bestQuality < qualityMin || slopPhrase) {
+      if (!bestCandidate || slopPhrase) {
+        const reason = slopPhrase
+          ? "ai_slop_phrase_detected"
+          : judgePassCount === 0
+            ? judgeUnavailable
+              ? "all_below_quality_floor"
+              : "quality_judge_rejected_all"
+            : "all_below_quality_floor";
         await repository.updateDraftMetadata(draft.id, {
           ...metadata,
           qualityGate: {
             bestQuality: Number.isFinite(bestQuality) ? bestQuality : null,
-            bestCandidateId: bestCandidate?.id ?? null,
+            bestCandidateId: topCandidate?.id ?? null,
             threshold: qualityMin,
+            judgePassCount,
+            judgeModel: judgeOptions.model,
+            judgeReasons: topCandidate?.score.judgeReasons ?? [],
             slopPhrase,
             rejectedAt: new Date().toISOString(),
-            reason: slopPhrase ? "ai_slop_phrase_detected" : "all_below_quality_floor"
+            reason
           }
         });
         return reply.code(201).send({
           draft: (await repository.getDraft(draft.id))?.draft,
           candidates: updated.candidates,
-          reason: slopPhrase ? "ai_slop_phrase_detected" : "all_below_quality_floor",
+          reason,
           bestQuality: Number.isFinite(bestQuality) ? bestQuality : null,
           threshold: qualityMin,
+          judgePassCount,
           slopPhrase
         });
       }
@@ -197,7 +294,7 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
       if (history.some((post) => post.accountId === input.accountId && post.sourceUrl === item.url)) continue;
       if (await repository.getSourcePacketByUrl(item.url, input.accountId)) continue;
       const fields = packetFieldsFromItem(item);
-      if (fields.facts.length < 2 && (fields.summary.length < 90 || fields.summary.toLowerCase() === fields.title.toLowerCase())) continue;
+      if (!hasEnoughSourceContext(fields)) continue;
 
       const packet = await repository.createSourcePacket({
         accountId: input.accountId,
@@ -217,7 +314,13 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
           options: {
             ...(input.yolo ? { autoApprove: true } : {}),
             count: input.count ?? 3,
-            ...(input.yolo ? { mode: input.autopost ? "autopost" : "prepare_only" } : {})
+            ...(input.yolo
+              ? {
+                  mode: input.autopost ? "autopost" : "prepare_only",
+                  qualityEvaluator: deps.tweetQualityEvaluator,
+                  qualityEvaluatorOptions: qualityJudgeOptions(deps.generationEnv)
+                }
+              : {})
           }
         });
         return reply.code(201).send(drafted);
@@ -301,9 +404,36 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
       return reply.code(404).send({ error: "Draft not found" });
     }
 
+    let approvedText = tracePostProcessTweetText("update-draft", input.editedText);
+    if (input.mode === "autopost") {
+      const sourcePacketId = typeof existing.draft.metadata.sourcePacketId === "string"
+        ? existing.draft.metadata.sourcePacketId
+        : null;
+      const sourcePacket = sourcePacketId ? await repository.getSourcePacket(sourcePacketId) : null;
+      const sourceQuality = sourcePacket
+        ? validateSourcePostQuality({
+            history: await repository.listPostHistory(),
+            packet: sourcePacket,
+            text: approvedText
+          })
+        : null;
+      const qualityText = sourceQuality?.text ?? approvedText;
+      const generatedQualityRequired =
+        existing.draft.metadata.yolo === true || existing.draft.metadata.generatedScore !== undefined;
+      const generatedQuality = generatedQualityRequired ? validateGeneratedPostQuality(qualityText) : null;
+      const reasons = [
+        ...(sourceQuality?.reasons ?? []),
+        ...(generatedQuality?.reasons ?? [])
+      ];
+      if (reasons.length > 0) {
+        return reply.code(409).send({ error: `Autopost quality gate failed: ${[...new Set(reasons)].join(", ")}` });
+      }
+      approvedText = qualityText;
+    }
+
     const result = await repository.approveDraft({
       draftId: id,
-      editedText: tracePostProcessTweetText("update-draft", input.editedText),
+      editedText: approvedText,
       ...(input.mode ? { mode: input.mode } : {}),
       scheduledFor: input.scheduledFor ?? null,
       ...(existing.draft.replyTo ? { replyTo: existing.draft.replyTo } : {})

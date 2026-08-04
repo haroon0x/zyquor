@@ -4,6 +4,19 @@ import type { IngestConfig, PanelProps } from "../types.js";
 import { tweetTypeOptions } from "../types.js";
 import { Busy, InlineError, PanelIcon, errorMessage } from "./Feedback.js";
 
+const legacyTweetTypeAliases: Record<string, string> = {
+  article_summary: "useful_info",
+  news_context: "useful_info",
+  lesson: "guide",
+  tool: "useful_info",
+  hiring: "useful_info"
+};
+
+function activeTweetType(value: string) {
+  const normalized = legacyTweetTypeAliases[value] ?? value;
+  return tweetTypeOptions.includes(normalized as (typeof tweetTypeOptions)[number]) ? normalized : "useful_info";
+}
+
 function draftFromIngestConfig(config: IngestConfig | null) {
   const usefulWeight = config?.tweetTypeMix.useful_info ?? 0;
   const topTweetType = config && Object.keys(config.tweetTypeMix).length
@@ -12,11 +25,11 @@ function draftFromIngestConfig(config: IngestConfig | null) {
   return {
     enabled: config?.enabled ?? false,
     feedUrl: typeof config?.metadata.feedUrl === "string" ? config.metadata.feedUrl : "",
-    maxPacketsPerDay: config?.maxPacketsPerDay ?? 10,
+    maxPacketsPerDay: config?.maxPacketsPerDay ?? 4,
     scheduleWindowEnd: config?.scheduleWindowEnd ?? "23:59",
     scheduleWindowStart: config?.scheduleWindowStart ?? "00:00",
     sourceType: config?.sourceType ?? "news",
-    tweetType: usefulWeight > 0 ? "useful_info" : topTweetType
+    tweetType: usefulWeight > 0 ? "useful_info" : activeTweetType(topTweetType)
   };
 }
 
@@ -113,6 +126,8 @@ export function AutomationPanel({ panel }: { panel: PanelProps }) {
           <select value={automationDraft.sourceType} onChange={(event) => setAutomationDraft({ ...automationDraft, sourceType: event.target.value })}>
             <option value="news">Aggregated tech/news</option>
             <option value="feed">RSS feed URL</option>
+            <option value="model-releases">Model releases</option>
+            <option value="x-feed">X home feed observations</option>
           </select>
         </label>
         {automationDraft.sourceType === "feed" ? (
@@ -129,7 +144,7 @@ export function AutomationPanel({ panel }: { panel: PanelProps }) {
         </label>
         <label>
           Daily max
-          <input min="1" max="10" type="number" value={automationDraft.maxPacketsPerDay} onChange={(event) => setAutomationDraft({ ...automationDraft, maxPacketsPerDay: Math.min(10, Math.max(1, Number(event.target.value))) })} />
+          <input min="1" max="4" type="number" value={automationDraft.maxPacketsPerDay} onChange={(event) => setAutomationDraft({ ...automationDraft, maxPacketsPerDay: Math.min(4, Math.max(1, Number(event.target.value))) })} />
         </label>
         <div className="time-grid wide-field">
           <label>

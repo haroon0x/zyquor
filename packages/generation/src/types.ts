@@ -1,15 +1,19 @@
-export type GenerationProviderName = "command-code" | "openrouter" | "gemini" | "ollama";
+export type GenerationProviderName = "command-code" | "codex" | "openrouter" | "gemini" | "ollama";
 
 export interface GenerateDraftCandidatesInput {
   bannedPhrases?: string[];
   context?: import("./harness.js").TweetSourceContext;
   examplePosts?: string[];
+  feedback?: string;
   idea: string;
+  insight?: string;
+  insightRequired?: boolean;
   count?: number;
   objective?: string;
   recentPostHistory?: string[];
   replyContext?: { authorHandle: string; url: string };
   systemPromptExtra?: string;
+  systemFeedback?: string[];
   tone?: string | null;
   tweetType?: string;
 }

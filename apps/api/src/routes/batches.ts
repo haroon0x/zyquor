@@ -1,7 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../deps.js";
 import { createDraftBatchRequestSchema } from "@zyquor/core";
-import { isPostingMode } from "../lib/posting.js";
 
 function addMinutes(timestamp: string, minutes: number) {
   return new Date(Date.parse(timestamp) + minutes * 60_000).toISOString();
@@ -29,7 +28,7 @@ export function registerBatchesRoutes(app: FastifyInstance, deps: AppDeps): void
           yolo: input.yolo,
           autopost: input.autopost,
           mode,
-          tweetType: input.tweetType,
+          tweetType: input.tweetType ?? "useful_info",
           scheduleStart: input.scheduleStart ? addMinutes(input.scheduleStart, index * scheduleSpacingMinutes) : null
         }
       });

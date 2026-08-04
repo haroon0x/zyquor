@@ -57,11 +57,11 @@ export function createOllamaGenerationProvider(options: {
           generationInput: input,
           model,
           providerName: "ollama",
-          runInitial: () =>
+          runInitial: (generationInput) =>
             chat(
               [
-                { role: "system", content: systemPrompt(input) },
-                { role: "user", content: userPrompt(input) }
+                { role: "system", content: systemPrompt(generationInput) },
+                { role: "user", content: userPrompt(generationInput) }
               ],
               900
             ),

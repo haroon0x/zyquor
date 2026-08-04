@@ -38,4 +38,8 @@ describe("routeTweetType", () => {
   it("uses the configured mix for other sources", () => {
     expect(routeTweetType({ item, sourceName: "hackernews", sourceType: "news" }, { news_context: 100 })).toBe("news_context");
   });
+
+  it("routes x-feed digests to feed observations", () => {
+    expect(routeTweetType({ item, sourceType: "x-feed" }, { opinion: 100 })).toBe("feed_observation");
+  });
 });

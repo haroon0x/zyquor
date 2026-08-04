@@ -21,7 +21,7 @@ export interface AggregatedItem extends SourceItem {
 export interface AggregatorOptions {
   crawlService?: CrawlService;
   healthCooldownMs?: number;
-  maxItems?: number;
+  includeHackerNews?: boolean;
   includeReddit?: boolean;
   includeTechCrunch?: boolean;
   includeArxiv?: boolean;
@@ -30,8 +30,13 @@ export interface AggregatorOptions {
   includeCompanyRss?: boolean;
   includeExpandedHackerNews?: boolean;
   includeHiring?: boolean;
+  maxItems?: number;
   now?: Date;
+  redditMinScore?: number;
+  redditSort?: "hot" | "new" | "top" | "rising";
+  redditSubreddits?: string[];
   requireTopicMatch?: boolean;
+  sortBy?: "engagement" | "freshness";
   topic?: string;
 }
 
@@ -47,13 +52,19 @@ export interface SourceHealthSnapshot {
 }
 
 const PREFERRED_TOPIC_KEYWORDS = [
-  "ai", "ml", "llm", "gpt", "openai", "anthropic", "google", "microsoft",
+  "llm", "gpt", "openai", "anthropic", "google", "microsoft",
+  "model", "benchmark", "weights", "release", "reasoning",
   "startup", "funding", "product", "api", "developer", "programming",
   "security", "privacy", "crypto", "web3", "saas", "cloud", "rust", "python",
   "science", "research", "paper", "arxiv", "climate", "energy", "battery",
   "biotech", "healthcare", "economy", "markets", "inflation", "rates",
   "policy", "regulation", "geopolitics", "defense", "semiconductor", "chips"
 ];
+
+function topicKeywordRegex(keywords: string[]) {
+  const stems = keywords.filter((kw) => kw.length >= 3);
+  return new RegExp(`\\b(?:${stems.join("|")})\\w*`);
+}
 
 const DEFAULT_HEALTH_COOLDOWN_MS = 15 * 60 * 1000;
 const sourceHealth = new Map<string, SourceHealthSnapshot>();
@@ -69,7 +80,7 @@ export function resetAggregatedSourceHealth() {
 export async function aggregateSources(options: AggregatorOptions = {}): Promise<AggregatedItem[]> {
   const {
     crawlService,
-    maxItems = 20,
+    includeHackerNews = true,
     includeReddit = true,
     includeTechCrunch = true,
     includeArxiv = true,
@@ -78,19 +89,27 @@ export async function aggregateSources(options: AggregatorOptions = {}): Promise
     includeCompanyRss = true,
     includeExpandedHackerNews = true,
     includeHiring = true,
+    maxItems = 20,
     healthCooldownMs = DEFAULT_HEALTH_COOLDOWN_MS,
     now = new Date(),
+    redditMinScore = 10,
+    redditSort = "hot",
+    redditSubreddits = [],
     requireTopicMatch = false,
+    sortBy = "engagement",
     topic
   } = options;
 
   const query = topicQuery(topic);
 
-  const adapters: Array<{ adapter: SourceAdapter; name: string }> = [
-    query
-      ? { adapter: createHackerNewsSearchAdapter({ maxItems: 12, now, topic: query }), name: "hackernews" }
-      : { adapter: createHackerNewsAdapter({ crawlService: crawlService!, maxItems: 10 }), name: "hackernews" }
-  ];
+  const adapters: Array<{ adapter: SourceAdapter; name: string }> = [];
+  if (includeHackerNews) {
+    adapters.push(
+      query
+        ? { adapter: createHackerNewsSearchAdapter({ maxItems: 12, now, topic: query }), name: "hackernews" }
+        : { adapter: createHackerNewsAdapter({ crawlService: crawlService!, maxItems: 10 }), name: "hackernews" }
+    );
+  }
 
   if (query) {
     adapters.unshift({ adapter: createGdeltAdapter({ maxItems: 20, topic: query }), name: "gdelt" });
@@ -105,22 +124,15 @@ export async function aggregateSources(options: AggregatorOptions = {}): Promise
     );
   }
 
-  if (includeReddit && !query) {
+  if (includeReddit) {
+    const subreddits = redditSubreddits.length > 0
+      ? redditSubreddits
+      : ["programming", "technology", "MachineLearning", "LocalLLaMA", "OpenAI"];
     adapters.push(
-      { adapter: createRedditAdapter({ crawlService: crawlService!, subreddit: "programming", maxItems: 5, minScore: 20 }), name: "reddit" },
-      { adapter: createRedditAdapter({ crawlService: crawlService!, subreddit: "technology", maxItems: 5, minScore: 20 }), name: "reddit" },
-      { adapter: createRedditAdapter({ crawlService: crawlService!, subreddit: "MachineLearning", maxItems: 5, minScore: 10 }), name: "reddit" },
-      { adapter: createRedditAdapter({ crawlService: crawlService!, subreddit: "LocalLLaMA", maxItems: 5, minScore: 10 }), name: "reddit" },
-      { adapter: createRedditAdapter({ crawlService: crawlService!, subreddit: "OpenAI", maxItems: 5, minScore: 10 }), name: "reddit" },
-      { adapter: createRedditAdapter({ crawlService: crawlService!, subreddit: "singularity", maxItems: 5, minScore: 20 }), name: "reddit" },
-      { adapter: createRedditAdapter({ crawlService: crawlService!, subreddit: "SaaS", maxItems: 5, minScore: 5 }), name: "reddit" },
-      { adapter: createRedditAdapter({ crawlService: crawlService!, subreddit: "startups", maxItems: 5, minScore: 5 }), name: "reddit" },
-      { adapter: createRedditAdapter({ crawlService: crawlService!, subreddit: "SideProject", maxItems: 5, minScore: 5 }), name: "reddit" },
-      { adapter: createRedditAdapter({ crawlService: crawlService!, subreddit: "webdev", maxItems: 5, minScore: 10 }), name: "reddit" },
-      { adapter: createRedditAdapter({ crawlService: crawlService!, subreddit: "selfhosted", maxItems: 5, minScore: 10 }), name: "reddit" },
-      { adapter: createRedditAdapter({ crawlService: crawlService!, subreddit: "datascience", maxItems: 5, minScore: 10 }), name: "reddit" },
-      { adapter: createRedditAdapter({ crawlService: crawlService!, subreddit: "cybersecurity", maxItems: 5, minScore: 10 }), name: "reddit" },
-      { adapter: createRedditAdapter({ crawlService: crawlService!, subreddit: "Futurology", maxItems: 5, minScore: 20 }), name: "reddit" }
+      ...subreddits.map((subreddit) => ({
+        adapter: createRedditAdapter({ crawlService: crawlService!, maxItems: 6, minScore: redditMinScore, sortBy: redditSort, subreddit }),
+        name: "reddit"
+      }))
     );
   }
 
@@ -186,11 +198,11 @@ export async function aggregateSources(options: AggregatorOptions = {}): Promise
 
     for (const item of items) {
       const text = `${item.title} ${item.content}`.toLowerCase();
-      const hasPreferredTopic = PREFERRED_TOPIC_KEYWORDS.some(kw => text.includes(kw));
+      const hasPreferredTopic = topicKeywordRegex(PREFERRED_TOPIC_KEYWORDS).test(text);
 
       if (query && !isFreshTopicItem(item, now)) continue;
       if (query && !matchesTopic(text, query)) continue;
-      if (requireTopicMatch && !hasPreferredTopic && sourceName !== "hackernews") continue;
+      if (requireTopicMatch && !hasPreferredTopic) continue;
 
       const topicTags = extractTopicTags(text);
       const freshness = calculateFreshness(item, now);
@@ -207,7 +219,8 @@ export async function aggregateSources(options: AggregatorOptions = {}): Promise
     }
   }
 
-  aggregated.sort((a, b) => query
+  const useFreshnessSort = sortBy === "freshness" || query;
+  aggregated.sort((a, b) => useFreshnessSort
     ? b.freshness - a.freshness || b.engagementScore - a.engagementScore
     : b.engagementScore - a.engagementScore);
   return aggregated.slice(0, maxItems);
@@ -263,6 +276,8 @@ export function createAggregatedNewsAdapter(options: AggregatorOptions = {}): So
     name: "aggregated-news",
     sourceType: "news",
     async fetch(metadata = {}) {
+      const includeHackerNews =
+        typeof metadata.includeHackerNews === "boolean" ? metadata.includeHackerNews : options.includeHackerNews;
       const includeReddit = typeof metadata.includeReddit === "boolean" ? metadata.includeReddit : options.includeReddit;
       const includeTechCrunch =
         typeof metadata.includeTechCrunch === "boolean" ? metadata.includeTechCrunch : options.includeTechCrunch;
@@ -277,15 +292,27 @@ export function createAggregatedNewsAdapter(options: AggregatorOptions = {}): So
           ? metadata.includeExpandedHackerNews
           : options.includeExpandedHackerNews;
       const includeHiring = typeof metadata.includeHiring === "boolean" ? metadata.includeHiring : options.includeHiring;
+      const maxItems = typeof metadata.maxItems === "number" ? metadata.maxItems : options.maxItems;
+      const redditMinScore =
+        typeof metadata.redditMinScore === "number" ? metadata.redditMinScore : options.redditMinScore;
+      const redditSort = typeof metadata.redditSort === "string" ? (metadata.redditSort as AggregatorOptions["redditSort"]) : options.redditSort;
+      const redditSubreddits = Array.isArray(metadata.redditSubreddits)
+        ? metadata.redditSubreddits
+        : options.redditSubreddits;
       const requireTopicMatch =
         typeof metadata.requireTopicMatch === "boolean" ? metadata.requireTopicMatch : options.requireTopicMatch;
-      const maxItems = typeof metadata.maxItems === "number" ? metadata.maxItems : options.maxItems;
+      const sortBy = typeof metadata.sortBy === "string" ? (metadata.sortBy as AggregatorOptions["sortBy"]) : options.sortBy;
       const topic = typeof metadata.topic === "string" ? metadata.topic : options.topic;
 
       return aggregateSources({
         ...options,
         ...(topic ? { topic } : {}),
         ...(maxItems ? { maxItems } : {}),
+        ...(redditMinScore !== undefined ? { redditMinScore } : {}),
+        ...(redditSort !== undefined ? { redditSort } : {}),
+        ...(redditSubreddits !== undefined ? { redditSubreddits } : {}),
+        ...(sortBy !== undefined ? { sortBy } : {}),
+        ...(includeHackerNews !== undefined ? { includeHackerNews } : {}),
         ...(includeReddit !== undefined ? { includeReddit } : {}),
         ...(includeTechCrunch !== undefined ? { includeTechCrunch } : {}),
         ...(includeArxiv !== undefined ? { includeArxiv } : {}),
@@ -344,7 +371,7 @@ function extractTopicTags(text: string): string[] {
     policy: ["policy", "regulation", "geopolitics", "defense"]
   };
   for (const [tag, keywords] of Object.entries(tagMap)) {
-    if (keywords.some(kw => text.includes(kw))) tags.push(tag);
+    if (topicKeywordRegex(keywords).test(text)) tags.push(tag);
   }
   return tags.length > 0 ? tags : ["general"];
 }

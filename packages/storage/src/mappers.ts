@@ -8,6 +8,7 @@ import type {
   ReplyTarget,
   SourcePacket,
   StyleProfile,
+  SystemFeedback,
   IngestConfig,
   SourceType,
   TweetType
@@ -173,8 +174,18 @@ export function toSourcePacket(row: Record<string, unknown>): SourcePacket {
     facts: JSON.parse(String(row.facts_json)) as string[],
     tweetType: row.tweet_type as SourcePacket["tweetType"],
     status: row.status as SourcePacket["status"],
+    feedback: row.feedback === null || row.feedback === undefined ? null : String(row.feedback),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
+  };
+}
+
+export function toSystemFeedback(row: Record<string, unknown>): SystemFeedback {
+  return {
+    id: String(row.id),
+    accountId: String(row.account_id),
+    text: String(row.text),
+    createdAt: String(row.created_at)
   };
 }
 

@@ -1,6 +1,6 @@
 import type { ZyquorRepository } from "@zyquor/storage";
 import { assertDedicatedProfileDir, isAccountRunnable } from "@zyquor/accounts";
-import { prepareJobRequestSchema } from "@zyquor/core";
+import { evaluatePostGate, prepareJobRequestSchema } from "@zyquor/core";
 import { browserOptions } from "./browser.js";
 import { isDailyLimitReached } from "./daily-limit.js";
 import { HttpError } from "./errors.js";
@@ -15,7 +15,7 @@ import {
   sourcePacketIdForDraft
 } from "./source-packet.js";
 import { recoverStaleRunningJobs } from "./stale-jobs.js";
-import { validateSourcePostQuality } from "@zyquor/automation";
+import { validateGeneratedPostQuality, validateSourcePostQuality } from "@zyquor/automation";
 import type { AppDeps } from "../deps.js";
 
 function isScheduledForFuture(job: { scheduledFor: string | null }) {
@@ -71,6 +71,22 @@ export async function postBrowserJob(deps: AppDeps, jobId: string) {
   if (await isDailyLimitReached(repository, account.id, account.dailyPostLimit)) {
     throw new HttpError(409, "Daily post limit reached for this account");
   }
+
+  const accountHistory = (await repository.listPostHistory())
+    .filter((item) => item.accountId === account.id)
+    .sort((left, right) => Date.parse(left.postedAt) - Date.parse(right.postedAt));
+  const gate = evaluatePostGate({
+    gapMinMinutes: Number(process.env.ZYQUOR_POST_GAP_MIN_MINUTES ?? 30),
+    lastPostedAt: accountHistory.length > 0 ? accountHistory[accountHistory.length - 1]!.postedAt : null,
+    now: new Date().toISOString(),
+    traceId: `gate-${job.id.slice(0, 8)}`
+  });
+  if (!gate.allowed) {
+    throw new HttpError(
+      429,
+      `Too soon since the last post. Next post allowed at ${gate.nextEligibleAt} (${gate.waitMinutes} min to wait)`
+    );
+  }
   if (await hasPostedTextForAccount(repository, account.id, postedText)) {
     await repository.updateJobStatus(job.id, "cancelled");
     await repository.createAttempt({
@@ -94,24 +110,32 @@ export async function postBrowserJob(deps: AppDeps, jobId: string) {
   }
   const sourcePacketId = await sourcePacketIdForDraft(repository, job.draftId);
   const sourcePacket = sourcePacketId ? await repository.getSourcePacket(sourcePacketId) : null;
-  const qualityText = { value: postedText };
-  if (sourcePacket) {
-    const quality = validateSourcePostQuality({
+  const sourceQuality = sourcePacket
+    ? validateSourcePostQuality({
       history: await repository.listPostHistory(),
       packet: sourcePacket,
       text: postedText
+      })
+    : null;
+  const qualityText = { value: sourceQuality?.text ?? postedText };
+  const generatedQualityRequired =
+    job.mode === "autopost" &&
+    (draftForPost.metadata.yolo === true || draftForPost.metadata.generatedScore !== undefined);
+  const generatedQuality = generatedQualityRequired ? validateGeneratedPostQuality(qualityText.value) : null;
+  const qualityReasons = [
+    ...(sourceQuality?.reasons ?? []),
+    ...(generatedQuality?.reasons ?? [])
+  ];
+  if (qualityReasons.length > 0) {
+    const reasons = [...new Set(qualityReasons)];
+    await repository.updateJobStatus(job.id, "cancelled");
+    await repository.createAttempt({
+      jobId: job.id,
+      status: "failed",
+      errorCode: "post_quality_gate_failed",
+      errorMessage: `Post failed quality gate: ${reasons.join(", ")}`
     });
-    if (!quality.ok) {
-      await repository.updateJobStatus(job.id, "cancelled");
-      await repository.createAttempt({
-        jobId: job.id,
-        status: "failed",
-        errorCode: "post_quality_gate_failed",
-        errorMessage: `Post failed quality gate: ${quality.reasons.join(", ")}`
-      });
-      throw new HttpError(409, `Post failed quality gate: ${quality.reasons.join(", ")}`);
-    }
-    qualityText.value = quality.text;
+    throw new HttpError(409, `Post failed quality gate: ${reasons.join(", ")}`);
   }
   await recoverStaleRunningJobs(repository, { accountId: account.id, currentJobId: job.id });
   if (await hasRunningJobForAccount(repository, account.id, job.id)) {

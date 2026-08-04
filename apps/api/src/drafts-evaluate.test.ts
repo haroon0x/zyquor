@@ -81,7 +81,7 @@ describe("draft candidate quality evaluation", () => {
     await app.close();
   });
 
-  it("returns 503 and stores nothing when the local judge is unreachable", async () => {
+  it("soft-skips evaluation when the local judge is unreachable", async () => {
     const repository = createMemoryRepository();
     const created = await repository.createDraft({
       accountId: "account_personal",
@@ -97,8 +97,8 @@ describe("draft candidate quality evaluation", () => {
 
     const response = await app.inject({ method: "POST", url: `/drafts/${created.draft.id}/evaluate` });
 
-    expect(response.statusCode).toBe(503);
-    expect(response.json()).toEqual({ error: "Local Ollama quality judge failed: fetch failed" });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ judgeUnavailable: true, error: "fetch failed" });
     await expect(repository.getDraft(created.draft.id)).resolves.toEqual(created);
     await app.close();
   });

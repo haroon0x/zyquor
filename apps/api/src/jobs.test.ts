@@ -1,6 +1,6 @@
 import type { DraftGenerationProvider } from "@zyquor/generation";
 import { createMemoryRepository } from "@zyquor/storage";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 
 const generationProvider: DraftGenerationProvider = {
@@ -11,7 +11,12 @@ const generationProvider: DraftGenerationProvider = {
   }
 };
 
+beforeEach(() => {
+  process.env.ZYQUOR_POST_GAP_MIN_MINUTES = "0";
+});
+
 afterEach(() => {
+  delete process.env.ZYQUOR_POST_GAP_MIN_MINUTES;
   vi.restoreAllMocks();
 });
 

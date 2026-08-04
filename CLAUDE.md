@@ -14,7 +14,7 @@ Three creation lanes: `single` (one idea → candidates → approve), `batch` (m
 
 Automated lane: deterministic source ingestion → compact source packet → one generated draft → approved autopost job. LLM never browses, scrapes, schedules, ranks, or decides whether to post.
 
-Draft quality has two layers (2026-07-21): a reader-critic LLM pass inside the command-code provider (generate → fact/editorial audit → reader critique → revise → second critique → drop rejected; all-dropped means no draft), and `scoreTweetQuality` in `packages/generation/src/quality.ts`, a floor (`ZYQUOR_QUALITY_MIN`, default 3) against recaps and slop, not a ranker. Measure prompt/pipeline changes with `node scripts/tweet-eval.mjs` (real command-code calls plus an LLM judge; prints meanJudgeScore).
+Draft quality has two layers (2026-07-21): a Luna insight and reader-critic LLM pass inside the providers (insight → generate → fact/editorial audit → reader critique → revise → final audit → drop rejected; all-dropped means no draft), and `scoreTweetQuality` in `packages/generation/src/quality.ts`, a floor (`ZYQUOR_QUALITY_MIN`, default 7) against recaps and slop, not a ranker. Measure prompt/pipeline changes with `node scripts/tweet-eval.mjs` (real provider calls plus an independent Command Code judge; reports floor rate, judge coverage, and mean scores).
 
 X free-tier character limit enforced at 280. Tweet types: `feed_observation`, `news_context`, `useful_info`, `guide`, `lesson`, `tool`, `opinion`, `reply`, `hiring`, `article_summary`, `narrative_history`.
 
@@ -85,7 +85,17 @@ Persistence: SQLite via `node:sqlite`, fallback JSON at `data/app.json`.
 - `GET /source-packets?accountId=` — list packets
 - `POST /source-packets` — create packet
 - `POST /source-packets/:id/draft` — generate draft from packet → marks drafted
+- `GET /source-packets/:id/draft` — existing draft for a packet (review)
+- `POST /source-packets/:id/regenerate` — save feedback, replace draft, redraft with feedback in prompt
+- `POST /source-packets/:id/feedback` — save/clear packet feedback without redrafting
 - `DELETE /source-packets/:id` — delete packet and safe non-posted draft
+
+### System Feedback (standing corrections injected into every generation)
+- `GET /system-feedback?accountId=` — list
+- `POST /system-feedback` — add `{accountId, text}`
+- `DELETE /system-feedback/:id`
+
+Feedback (post-level and standing) is appended to `feedback/notebook.md` in the project root (path from `feedbackDir` desktop setting; default `process.cwd()/feedback`). Coding agents should read that notebook before changing generation code or prompts.
 
 ### Ingest Configs (CRUD for automated source ingestion)
 - `GET /ingest-configs?accountId=`
@@ -162,7 +172,7 @@ pnpm dist:desktop
 - Worker polls due jobs every 5s
 - Electron desktop app: `apps/desktop/` — Electron 37, tray-resident, runs API/worker in-process. Data root via `ZYQUOR_DATA_ROOT` (defaults to Electron `userData`). Settings kept as `settings.json` in data root instead of `.env`. Logs to `<dataRoot>/logs/main.log` (rotates at 5 MB). Entry points: `src/main.ts` (main process), `src/preload.ts` (context bridge), `src/chrome.ts` (CDP launch), `src/settings.ts` (JSON config), `src/log.ts` (file logging).
 
-Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (disabled by default for safety), `ZYQUOR_LLM_PROVIDER=command-code|openrouter|gemini|ollama|auto`.
+Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (disabled by default for safety), `ZYQUOR_LLM_PROVIDER=command-code|codex|openrouter|gemini|ollama|auto`.
 Source smoke: `pnpm smoke:adapters`. Product Hunt is optional without `ZYQUOR_PRODUCTHUNT_API_TOKEN`.
 
 ### pnpm Setup
@@ -176,7 +186,7 @@ ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
 - Provider is resolved in order: saved `data/generation.json` > `.env` > `process.env`.
 - Setting `ZYQUOR_LLM_PROVIDER=openrouter` without `ZYQUOR_OPENROUTER_API_KEY` crashes the API. Use `auto` if the key is not yet available — it falls back through available providers.
 - Shell env vars take precedence over `.env`; the dotenv loader skips already-set vars.
-- Preferred provider is `command-code` (local CLI, model `deepseek/deepseek-v4-pro`, path/model via `ZYQUOR_COMMAND_CODE_PATH`/`ZYQUOR_COMMAND_CODE_MODEL`); it is the only provider that runs the audit + reader-critic pipeline. OpenRouter default model is `openrouter/owl-alpha`; the free-model allowlist lives in `OPENROUTER_MODELS` in `packages/generation/src/index.ts`, and a model not in the list silently coerces to the default.
+- Preferred provider is `codex` with model `luna` and high reasoning. `command-code` remains available with `deepseek/deepseek-v4-pro`; CLI paths use `ZYQUOR_CODEX_PATH` and `ZYQUOR_COMMAND_CODE_PATH`. Both CLI providers run the audit and reader-critic pipeline. OpenRouter default model is `openrouter/owl-alpha`; the free-model allowlist lives in `OPENROUTER_MODELS` in `packages/generation/src/index.ts`, and a model not in the list silently coerces to the default.
 
 ### Browser Automation Caveats
 - Playwright bundled Chromium (`playwright install chromium`) fails on Ubuntu 26.04+ — it's unsupported on newer distros.
@@ -186,6 +196,11 @@ ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
   sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list'
   sudo apt update && sudo apt install google-chrome-stable
   ```
+
+## Latest Work (2026-08-03)
+
+- Two-level feedback: per-post feedback stored on the source packet, injected into that packet's redraft, regenerates the post for review (`/source-packets/:id/regenerate`); per-account standing feedback injected into every generation's system prompt (`/system-feedback`). Both append entries to `feedback/notebook.md` (repo root) for coding agents to act on.
+- Source packets panel gained Review (open existing draft) and Regenerate (feedback + redraft) actions; Style panel gained a system feedback list.
 
 ## Latest Work (2026-07-21)
 

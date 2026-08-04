@@ -1,7 +1,7 @@
 import type { SourceAdapter, SourceItem } from "@zyquor/adapters";
-import type { DraftGenerationProvider } from "@zyquor/generation";
+import type { DraftGenerationProvider, EvaluateTweetQualityOptions, TweetQualityEvaluator } from "@zyquor/generation";
 import type { ZyquorRepository } from "@zyquor/storage";
-import { packetFieldsFromItem } from "./context.js";
+import { hasEnoughSourceContext, packetFieldsFromFeedDigest, packetFieldsFromItem } from "./context.js";
 import { draftFromSourcePacket } from "./draft.js";
 import { routeTweetType } from "./routing.js";
 import { isSourceType, isWithinScheduleWindow } from "./selection.js";
@@ -20,6 +20,7 @@ export interface IngestSkipSummary {
   duplicatePacket: number;
   duplicatePostedUrl: number;
   hostCap: number;
+  offTopic: number;
   packetCap: number;
   scheduleWindow: number;
   thinContext: number;
@@ -32,6 +33,7 @@ function createSkipSummary(): IngestSkipSummary {
     duplicatePacket: 0,
     duplicatePostedUrl: 0,
     hostCap: 0,
+    offTopic: 0,
     packetCap: 0,
     scheduleWindow: 0,
     thinContext: 0,
@@ -41,105 +43,65 @@ function createSkipSummary(): IngestSkipSummary {
 
 export interface RunAutomaticIngestOptions {
   adapters: Map<string, SourceAdapter>;
+  autoApproveEnabled?: boolean;
   generationProvider: DraftGenerationProvider;
+  qualityEvaluator?: TweetQualityEvaluator;
+  qualityEvaluatorOptions?: EvaluateTweetQualityOptions;
   now?: Date;
-  // Reports counts as the run proceeds. Without it a caller only learns of
-  // errors once the whole run ends, so a failing run looks healthy throughout.
   onProgress?: (progress: { errors: Array<{ configId: string; error: string }>; processed: number }) => void;
   repository: ZyquorRepository;
   shouldContinue?: () => boolean;
 }
 
-const PREFERRED_NEWS_KEYWORDS = [
-  "ai",
-  "artificial intelligence",
-  "llm",
-  "agent",
-  "agents",
-  "automation",
-  "model",
-  "openai",
-  "anthropic",
-  "google",
-  "meta",
-  "microsoft",
-  "apple",
-  "nvidia",
-  "chip",
-  "chips",
-  "semiconductor",
-  "compute",
-  "datacenter",
-  "data center",
-  "developer",
-  "programming",
-  "software",
-  "open source",
-  "database",
-  "infrastructure",
-  "security",
-  "privacy",
-  "cybersecurity",
-  "startup",
-  "saas",
-  "cloud",
-  "robotics",
-  "science",
-  "research",
-  "study",
-  "paper",
-  "arxiv",
-  "physics",
-  "space",
-  "climate",
-  "biotech",
-  "healthcare",
-  "medicine",
-  "drug",
-  "battery",
-  "nuclear",
-  "economy",
-  "economic",
-  "gdp",
-  "inflation",
-  "interest rate",
-  "federal reserve",
-  "fed",
-  "central bank",
-  "jobs report",
-  "unemployment",
-  "markets",
-  "stocks",
-  "bonds",
-  "yield",
-  "crypto",
-  "bitcoin",
-  "tariff",
-  "supply chain",
-  "regulation",
-  "policy",
-  "antitrust",
-  "geopolitical",
-  "geopolitics",
-  "china",
-  "india",
-  "europe",
-  "taiwan",
-  "trade",
-  "energy",
-  "defense",
-  "war",
-  "election",
-  "business",
-  "earnings",
-  "revenue",
-  "profit",
-  "layoffs",
-  "funding",
-  "acquisition",
-  "ipo",
-  "merger"
+const CORE_AI_TERMS = [
+  "ai", "a.i.", "artificial intelligence", "agi",
+  "llm", "llms", "language model", "foundation model", "frontier model",
+  "gpt", "chatgpt", "claude", "gemini", "llama", "mistral", "qwen", "deepseek", "grok",
+  "openai", "anthropic", "huggingface", "hugging face", "ollama", "vllm",
+  "agent", "agents", "agentic", "copilot", "cursor", "codex", "devin",
+  "fine-tune", "fine-tuning", "finetune", "finetuning", "lora", "quantization", "quantized",
+  "inference", "prompt", "prompting", "rag", "retrieval augmented", "embedding", "embeddings",
+  "transformer", "attention", "context window", "token", "tokens", "tokenizer",
+  "mcp", "model context protocol", "tool use", "function calling",
+  "benchmark", "eval", "evals", "hallucination", "alignment", "rlhf",
+  "diffusion", "multimodal", "vision model", "reasoning model", "chain of thought",
+  "vector database", "sandbox", "harness", "vibe coding", "code generation",
+  "machine learning", "deep learning", "neural network", "training run", "pretraining"
 ];
+
+const SUPPORTING_TERMS = [
+  "developer", "programming", "software", "open source", "framework", "sdk", "api",
+  "startup", "funding", "launch", "release", "product", "shipped",
+  "github", "repo", "library", "cli", "terminal", "ide", "editor",
+  "database", "infrastructure", "latency", "throughput", "gpu", "nvidia", "compute"
+];
+
+const OFF_TOPIC_TERMS = [
+  "nuclear", "reactor", "barge", "climate", "carbon", "emissions", "solar farm", "wind farm",
+  "crypto", "bitcoin", "ethereum", "blockchain", "web3", "nft", "token sale",
+  "gdp", "inflation", "interest rate", "federal reserve", "central bank", "jobs report",
+  "unemployment", "stocks", "bonds", "yield", "tariff",
+  "vaccine", "drug trial", "clinical trial", "biotech", "pharma",
+  "rocket", "spacex", "satellite", "asteroid",
+  "election", "senate", "congress", "parliament", "lawsuit filed",
+  "dating app", "sports", "football", "basketball", "olympics"
+];
+
+function termPattern(term: string) {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i");
+}
+
+const CORE_PATTERNS = CORE_AI_TERMS.map(termPattern);
+const SUPPORTING_PATTERNS = SUPPORTING_TERMS.map(termPattern);
+const OFF_TOPIC_PATTERNS = OFF_TOPIC_TERMS.map(termPattern);
+
+export function isOnTopicSourceItem(item: { content: string; title: string }) {
+  const text = `${item.title} ${item.content}`;
+  const hasCore = CORE_PATTERNS.some((pattern) => pattern.test(text));
+  if (!hasCore && OFF_TOPIC_PATTERNS.some((pattern) => pattern.test(text))) return false;
+  return hasCore;
+}
 
 const BLOCKED_SOURCE_HOSTS = new Set([
   "book.stripe.com",
@@ -193,8 +155,10 @@ function sameHostPostCap(host: string) {
 }
 
 function sourceRelevanceScore(item: { content: string; title: string }) {
-  const text = `${item.title} ${item.content}`.toLowerCase();
-  return PREFERRED_NEWS_KEYWORDS.reduce((score, keyword) => score + (text.includes(keyword) ? 1 : 0), 0);
+  const text = `${item.title} ${item.content}`;
+  const core = CORE_PATTERNS.reduce((score, pattern) => score + (pattern.test(text) ? 3 : 0), 0);
+  const supporting = SUPPORTING_PATTERNS.reduce((score, pattern) => score + (pattern.test(text) ? 1 : 0), 0);
+  return core + supporting;
 }
 
 function sourceHost(url: string | null | undefined) {
@@ -229,13 +193,6 @@ function hasTopicOverlap(title: string, recentTitles: string[]) {
     }
     return overlap >= 3;
   });
-}
-
-function hasEnoughSourceContext(input: { facts: string[]; summary: string; title: string }) {
-  const summary = input.summary.toLowerCase();
-  const title = input.title.toLowerCase();
-  if (input.facts.length >= 2) return true;
-  return summary.length >= 90 && summary !== title;
 }
 
 function isAllowedSourceUrl(url: string | null | undefined) {
@@ -283,10 +240,11 @@ function prioritizeSourceItems(items: SourceItem[]) {
   return prioritized;
 }
 
-// Generation failures that every later item in the run would hit identically.
-// Retrying them per item just burns time and floods the run log.
 const PROVIDER_FAILURE_PATTERNS = [
   /insufficient credits/i,
+  /per-day/i,
+  /daily limit/i,
+  /quota exceeded/i,
   /\b(401|403)\b/,
   /unauthorized/i,
   /invalid api key/i,
@@ -298,6 +256,23 @@ const PROVIDER_FAILURE_PATTERNS = [
 
 export function isProviderFailure(message: string) {
   return PROVIDER_FAILURE_PATTERNS.some((pattern) => pattern.test(message));
+}
+
+export function dailyPacketTarget(today: string): number {
+  const minValue = Number(process.env.ZYQUOR_DAILY_PACKET_MIN ?? 6);
+  const maxValue = Number(process.env.ZYQUOR_DAILY_PACKET_MAX ?? 10);
+  const min = Math.min(20, Math.max(1, Number.isFinite(minValue) ? Math.floor(minValue) : 6));
+  const max = Math.min(20, Math.max(min, Number.isFinite(maxValue) ? Math.floor(maxValue) : 10));
+  let hash = 2166136261;
+  for (let i = 0; i < today.length; i += 1) {
+    hash ^= today.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  let state = (hash + 0x6d2b79f5) | 0;
+  let mixed = Math.imul(state ^ (state >>> 15), 1 | state);
+  mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed;
+  const unit = ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+  return min + Math.floor(unit * (max - min + 1));
 }
 
 export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
@@ -321,6 +296,13 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
   const seenHostsThisRun = new Map<string, number>();
   let providerFailed = false;
 
+  const allJobs = await options.repository.listJobs();
+  const carriedOverByAccount = new Map<string, number>();
+  for (const job of allJobs) {
+    if (job.status !== "approved" || job.mode !== "autopost" || !job.createdAt.startsWith(today)) continue;
+    carriedOverByAccount.set(job.accountId, (carriedOverByAccount.get(job.accountId) ?? 0) + 1);
+  }
+
   for (const config of enabled) {
     if (options.shouldContinue && !options.shouldContinue()) break;
     if (providerFailed) break;
@@ -332,7 +314,14 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
 
       const packets = await options.repository.listSourcePackets(config.accountId);
       const todayPackets = packets.filter((packet) => packet.sourceType === config.sourceType && packet.createdAt.startsWith(today));
-      if (todayPackets.length >= config.maxPacketsPerDay) {
+      const target = Math.min(config.maxPacketsPerDay, dailyPacketTarget(today));
+      const carriedOver = Math.min(carriedOverByAccount.get(config.accountId) ?? 0, target - 1);
+      const effectiveCap = target - carriedOver;
+      console.log(
+        `[ingest] account=${config.accountId} dailyTarget=${target} carriedOver=${carriedOver} ` +
+          `effectiveCap=${effectiveCap} packetsToday=${todayPackets.length}`
+      );
+      if (todayPackets.length >= effectiveCap) {
         skippedByReason.packetCap += 1;
         continue;
       }
@@ -342,9 +331,17 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
         continue;
       }
 
-      const remaining = config.maxPacketsPerDay - todayPackets.length;
+      const remaining = effectiveCap - todayPackets.length;
       const now = options.now ?? new Date();
-      const items = prioritizeSourceItems((await adapter.fetch(config.metadata)).filter((item) => isFreshSourceItem(item, now)));
+      const fetchMetadata = config.sourceType === "x-feed"
+        ? { ...config.metadata, accountId: config.accountId }
+        : config.metadata;
+      const fresh = (await adapter.fetch(fetchMetadata)).filter((item) => isFreshSourceItem(item, now));
+      const onTopic = config.sourceType === "job" || config.sourceType === "x-feed" || config.sourceType === "model-releases"
+        ? fresh
+        : fresh.filter((item) => isOnTopicSourceItem(item));
+      skippedByReason.offTopic += fresh.length - onTopic.length;
+      const items = prioritizeSourceItems(onTopic);
       let createdForConfig = 0;
 
       for (const item of items) {
@@ -381,7 +378,8 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
         let packetId: string | null = null;
         try {
           const enriched = adapter.enrich ? await adapter.enrich(item).catch(() => item) : item;
-          const { summary, facts, title } = packetFieldsFromItem(enriched);
+          const { summary, facts, title } =
+            config.sourceType === "x-feed" ? packetFieldsFromFeedDigest(enriched) : packetFieldsFromItem(enriched);
           if (!hasEnoughSourceContext({ facts, summary, title })) {
             skippedByReason.thinContext += 1;
             continue;
@@ -405,10 +403,12 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
             packet,
             repository: options.repository,
             options: {
-              autoApprove: true,
-              count: 3,
+              autoApprove: options.autoApproveEnabled !== false,
+              count: 1,
               ...(enriched.imageUrl ? { mediaUrls: [enriched.imageUrl] } : {}),
-              mode: "autopost"
+              mode: "autopost",
+              ...(options.qualityEvaluator ? { qualityEvaluator: options.qualityEvaluator } : {}),
+              ...(options.qualityEvaluatorOptions ? { qualityEvaluatorOptions: options.qualityEvaluatorOptions } : {})
             }
           });
 

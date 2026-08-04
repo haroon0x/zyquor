@@ -23,18 +23,23 @@ function stableHash(value: string) {
 }
 
 function tweetTypeFromMix(item: SourceItem, mix: Record<string, number>) {
+  const inferred = inferTweetTypeFromText(item);
   const entries = Object.entries(mix).filter(
-    (entry): entry is [TweetType, number] => isTweetType(entry[0]) && Number.isFinite(entry[1]) && entry[1] > 0
+    (entry): entry is [TweetType, number] =>
+      isTweetType(entry[0]) &&
+      Number.isFinite(entry[1]) &&
+      entry[1] > 0 &&
+      (entry[0] !== "narrative_history" || inferred === "narrative_history")
   );
   const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
-  if (total <= 0) return inferTweetTypeFromText(item);
+  if (total <= 0) return inferred;
 
   let selected = stableHash(`${item.url}\n${item.title}`) % total;
   for (const [type, weight] of entries) {
     selected -= weight;
     if (selected < 0) return type;
   }
-  return inferTweetTypeFromText(item);
+  return inferred;
 }
 
 export function routeTweetType(input: TweetTypeRouteInput, configMix: Record<string, number>): TweetType {
@@ -52,6 +57,9 @@ export function routeTweetType(input: TweetTypeRouteInput, configMix: Record<str
   }
   if (sourceType === "feed" || sourceName === "rss" || sourceName === "company-rss" || sourceName === "techcrunch") {
     return "article_summary";
+  }
+  if (sourceType === "x-feed") {
+    return "feed_observation";
   }
   return tweetTypeFromMix(input.item, configMix);
 }

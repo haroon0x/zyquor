@@ -2,6 +2,13 @@ import { AI_SLOP_PHRASES, xPostCharacterLength } from "@zyquor/core";
 import type { GenerateDraftCandidatesInput, GenerationProviderName } from "./types.js";
 
 export const DEFAULT_CHARACTER_LIMIT = 280;
+export const DEFAULT_QUALITY_MIN = 7;
+
+export function qualityMinimum() {
+  const configured = process.env.ZYQUOR_QUALITY_MIN?.trim();
+  const value = configured ? Number(configured) : Number.NaN;
+  return Number.isFinite(value) ? Math.min(10, Math.max(0, value)) : DEFAULT_QUALITY_MIN;
+}
 
 const INTERNAL_LEAK_PATTERNS = [
   /\bSourcePackets?\b/i,
@@ -48,6 +55,7 @@ const GENERIC_SLOP_PATTERNS = [
   /\bthe future is here\b/i,
   /\bhere'?s why\b/i,
   /\bwhy this matters\b/i,
+  /\b(?:more possibilities|new possibilities)\b/i,
   /\bit'?s not [^.!?\n]{1,60}, it'?s\b/i,
   /\b(?:is|are|was|were)n'?t just [^.!?\n]{1,60}, (?:it|they)'?(?:s|re)\b/i,
   /\b(wild|huge|insane)\.$/i
@@ -95,6 +103,7 @@ export function postProcessTweetText(text: string) {
       line
         .replace(/[^\S\n]+/g, " ")
         .replace(/\s+([,.!?;:])/g, "$1")
+        .replace(/:\s*$/g, ".")
         .replace(/([,.!?;:]){2,}/g, "$1")
         .trim()
     )
@@ -135,8 +144,11 @@ const PAYOFF_PATTERNS = [
   /\bwhen\b(?! it comes to)/i,
   /\b(?:which|that) means\b/i,
   /\bbecause\b/i,
+  /\bbut\b/i,
   /\bso (?:you|they|the|it)\b/i,
-  /\b(?:instead of|rather than|not worth|only|the (?:cost|tradeoff|catch|limit|constraint|difference|point|question) is)\b/i,
+  /\b(?:instead of|rather than|not worth|only|by removing|the (?:cost|tradeoff|catch|limit|constraint|difference|point|question) is)\b/i,
+  /\btrade[- ]?offs?\b/i,
+  /\b(?:gave up|replaced|after removing|without)\b/i,
   /\bturns? .{3,40} into\b/i,
   /\bmatters (?:most )?(?:to|when|because)\b/i
 ];
@@ -169,7 +181,7 @@ function containsSourceArtifact(text: string) {
 }
 
 function countSpecificNouns(text: string) {
-  const technical = /\b(model|database|API|kernel|compiler|chip|GPU|CPU|LLM|agent|router|index|cache|queue|token|protocol|framework|library|repo|commit|release|version|patch|benchmark|latency|throughput|dataset|embedding|vector|cluster|node|pod|container|function|service|endpoint|query|transaction|inference|training|fine-tuning|distillation|quantization|attention|transformer|diffusion|RAG|SLM|MoE|dense|sparse)\b/gi;
+  const technical = /\b(model|database|API|kernel|compiler|chip|GPU|CPU|LLM|agent|router|index|cache|queue|token|protocol|framework|library|repo|repository|commit|release|version|patch|benchmark|latency|throughput|dataset|embedding|vector|cluster|node|pod|container|function|service|endpoint|query|transaction|inference|training|fine-tuning|distillation|quantization|attention|transformer|diffusion|RAG|SLM|MoE|dense|sparse|search|symbol|definition|mention|text)\b/gi;
   return (text.match(technical) ?? []).length;
 }
 
@@ -210,6 +222,10 @@ export function isCleanTweetText(text: string) {
     !/^[-*[{]/.test(trimmed) &&
     !trimmed.includes("\uFFFD")
   );
+}
+
+export function passesTweetQualityFloor(text: string, minimum = qualityMinimum()) {
+  return isCleanTweetText(text) && !looksLikeSourceRecap(text) && scoreTweetQuality(text) >= minimum;
 }
 
 export function asText(value: unknown) {
@@ -271,14 +287,14 @@ function suppliedText(input: GenerateDraftCandidatesInput) {
     input.context?.url,
     input.context?.author,
     input.context?.sourceName,
+    input.context?.summary,
     ...(input.context?.facts ?? [])
   ].filter((value): value is string => typeof value === "string").join("\n");
 }
 
-function isGroundedCandidate(text: string, input: GenerateDraftCandidatesInput, provider: GenerationProviderName) {
-  if (provider !== "command-code") return true;
+function isGroundedCandidate(text: string, input: GenerateDraftCandidatesInput) {
   const supplied = suppliedText(input);
-  const requiredUrls = [...new Set(urlsIn(supplied))];
+  const requiredUrls = input.context?.url ? [...new Set(urlsIn(supplied))] : [];
   if (requiredUrls.some((url) => !text.includes(url))) return false;
   const suppliedNumbers = new Set(numberTokensIn(supplied));
   return numberTokensIn(text).every((token) => suppliedNumbers.has(token));
@@ -315,7 +331,7 @@ export function candidatesFromText(
       return (
         xPostCharacterLength(text) <= limit &&
         isCleanTweetText(text) &&
-        isGroundedCandidate(text, input, provider) &&
+        isGroundedCandidate(text, input) &&
         all.findIndex((candidate) => candidate.toLowerCase().replace(/\s+/g, " ") === normalized) === index
       );
     });
