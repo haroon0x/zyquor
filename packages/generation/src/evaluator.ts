@@ -17,6 +17,7 @@ export interface EvaluateTweetQualityOptions {
 
 export interface TweetQualityEvaluation {
   pass?: boolean;
+  legacy?: boolean;
   specific?: boolean;
   grounded?: boolean;
   payoff?: boolean;
@@ -141,6 +142,8 @@ export async function evaluateTweetQuality(
           .map((reason) => reason.trim().slice(0, 160))
       : [];
     return {
+      pass: score >= 8,
+      legacy: true,
       score,
       verdict: verdictForEvaluation(score, score >= 8),
       reasons

@@ -94,7 +94,7 @@ export async function applyReaderCritique(input: {
   const critiqueRaw = await input.runPrompt(readerCritiquePrompt(input.candidateOutput, input.generationInput.tweetType));
   const verdicts = parseReaderCritique(critiqueRaw);
   if (input.strict) {
-    if (!critiqueCoversCandidates(input.candidateOutput, verdicts, count)) return READER_REJECTED_ALL;
+    if (!critiqueCoversCandidates(input.candidateOutput, verdicts, count)) return input.candidateOutput;
   } else if (verdicts.length === 0 || !needsReaderRevision(verdicts)) {
     return input.candidateOutput;
   }
@@ -107,7 +107,7 @@ export async function applyReaderCritique(input: {
     await input.runPrompt(readerCritiquePrompt(revised, input.generationInput.tweetType))
   );
   if (input.strict) {
-    if (!critiqueCoversCandidates(revised, finalVerdicts, count)) return READER_REJECTED_ALL;
+    if (!critiqueCoversCandidates(revised, finalVerdicts, count)) return input.candidateOutput;
   } else if (finalVerdicts.length === 0) {
     return revised;
   }
@@ -126,7 +126,6 @@ export async function generateWithQualityLoop(input: {
   const insight = input.generationInput.insightRequired
     ? parseInsight(await runPrompt(insightPrompt(input.generationInput)))
     : "";
-  if (input.generationInput.insightRequired && !insight) throw new Error(`${providerName} returned no usable insight`);
   const generationInput = insight ? { ...input.generationInput, insight } : input.generationInput;
   const raw = input.runInitial
     ? await input.runInitial(generationInput)

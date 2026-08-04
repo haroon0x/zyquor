@@ -58,6 +58,8 @@ describe("tweet quality evaluator", () => {
       { text: "SQLite handled 8 million rows on one $20 node.", tweetType: "useful_info", idea: "SQLite scale" },
       { baseUrl: "http://localhost:11434/", model: "judge-model", fetchImpl }
     )).resolves.toEqual({
+      pass: true,
+      legacy: true,
       score: 10,
       verdict: "strong",
       reasons: ["Concrete number", "Natural phrasing", "Strong opening"]

@@ -1,7 +1,7 @@
 import type { SourceAdapter } from "@zyquor/adapters";
 import type { DraftGenerationProvider } from "@zyquor/generation";
 import { createMemoryRepository } from "@zyquor/storage";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runAutomaticIngest } from "./index.js";
 import { cleanSentence, inferTweetTypeFromText, packetFieldsFromItem } from "./context.js";
 import { validateSourcePostQuality } from "./quality.js";
@@ -25,7 +25,12 @@ const testProvider: DraftGenerationProvider = {
 };
 
 describe("automatic ingest", () => {
+  beforeEach(() => {
+    process.env.ZYQUOR_QUALITY_MIN = "3";
+  });
+
   afterEach(() => {
+    delete process.env.ZYQUOR_QUALITY_MIN;
     delete process.env.ZYQUOR_MAX_GITHUB_POSTS_PER_DAY;
     delete process.env.ZYQUOR_MAX_SAME_HOST_POSTS_PER_DAY;
   });
@@ -315,13 +320,13 @@ describe("automatic ingest", () => {
             title: "Bad generated source",
             url: "https://example.com/bad-generated",
             metadata: { published: "2026-04-24T16:00:00.000Z" },
-            content: "AI source that will generate an invalid long tweet."
+            content: "AI source that will generate an invalid long tweet. It has enough detail for a solid source packet."
           },
           {
             title: "Good generated source",
             url: "https://example.com/good-generated",
             metadata: { published: "2026-04-24T16:00:00.000Z" },
-            content: "AI source that should still be queued after a bad item."
+            content: "AI source that should still be queued after a bad item. It brings useful automation insights for the feed."
           }
         ];
       }

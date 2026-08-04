@@ -98,8 +98,9 @@ const OFF_TOPIC_PATTERNS = OFF_TOPIC_TERMS.map(termPattern);
 
 export function isOnTopicSourceItem(item: { content: string; title: string }) {
   const text = `${item.title} ${item.content}`;
-  if (OFF_TOPIC_PATTERNS.some((pattern) => pattern.test(text))) return false;
-  return CORE_PATTERNS.some((pattern) => pattern.test(text));
+  const hasCore = CORE_PATTERNS.some((pattern) => pattern.test(text));
+  if (!hasCore && OFF_TOPIC_PATTERNS.some((pattern) => pattern.test(text))) return false;
+  return hasCore;
 }
 
 const BLOCKED_SOURCE_HOSTS = new Set([
@@ -298,7 +299,7 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
   const allJobs = await options.repository.listJobs();
   const carriedOverByAccount = new Map<string, number>();
   for (const job of allJobs) {
-    if (job.status !== "approved" || job.mode !== "autopost") continue;
+    if (job.status !== "approved" || job.mode !== "autopost" || !job.createdAt.startsWith(today)) continue;
     carriedOverByAccount.set(job.accountId, (carriedOverByAccount.get(job.accountId) ?? 0) + 1);
   }
 
@@ -313,9 +314,9 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
 
       const packets = await options.repository.listSourcePackets(config.accountId);
       const todayPackets = packets.filter((packet) => packet.sourceType === config.sourceType && packet.createdAt.startsWith(today));
-      const carriedOver = carriedOverByAccount.get(config.accountId) ?? 0;
       const target = Math.min(config.maxPacketsPerDay, dailyPacketTarget(today));
-      const effectiveCap = Math.max(0, target - carriedOver);
+      const carriedOver = Math.min(carriedOverByAccount.get(config.accountId) ?? 0, target - 1);
+      const effectiveCap = target - carriedOver;
       console.log(
         `[ingest] account=${config.accountId} dailyTarget=${target} carriedOver=${carriedOver} ` +
           `effectiveCap=${effectiveCap} packetsToday=${todayPackets.length}`

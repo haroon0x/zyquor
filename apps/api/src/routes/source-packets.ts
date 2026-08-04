@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../deps.js";
 import { createSourcePacketRequestSchema, setSourcePacketFeedbackRequestSchema } from "@zyquor/core";
-import { draftFromSourcePacket, hasEnoughSourceContext } from "@zyquor/automation";
+import { draftFromSourcePacket } from "@zyquor/automation";
 import { deleteSourcePacketCascade } from "../lib/source-packet-delete.js";
 import { appendNotebookEntry, resolveFeedbackDir } from "../lib/feedback-notebook.js";
 import { qualityJudgeOptions } from "../lib/quality-judge.js";
@@ -58,9 +58,6 @@ export function registerSourcePacketsRoutes(app: FastifyInstance, deps: AppDeps)
 
   app.post("/source-packets", async (request, reply) => {
     const input = createSourcePacketRequestSchema.parse(request.body);
-    if (!hasEnoughSourceContext(input)) {
-      return reply.code(400).send({ error: "Source needs at least one concrete fact beyond the title" });
-    }
     const repository = await deps.repository;
     const packet = await repository.createSourcePacket({
       accountId: input.accountId,
@@ -158,17 +155,27 @@ export function registerSourcePacketsRoutes(app: FastifyInstance, deps: AppDeps)
     }
 
     const existingDraft = await repository.getDraftBySourcePacketId(id);
+    let replacedJobIds: string[] = [];
     if (existingDraft) {
       const jobs = await repository.listJobs();
       const history = await repository.listPostHistory();
       const draftJobs = jobs.filter((job) => job.draftId === existingDraft.draft.id);
       const hasPostedJob = draftJobs.some((job) => job.status === "posted");
       const hasPostHistory = history.some((item) => item.draftId === existingDraft.draft.id);
+      const hasRunningJob = draftJobs.some((job) => job.status === "running");
+      if (hasRunningJob) {
+        return reply.code(409).send({ error: "A post job is still running for this draft" });
+      }
       if (hasPostedJob || hasPostHistory) {
         return reply.code(409).send({ error: "This post was already posted; feedback cannot rewrite it" });
       }
-      await repository.deleteDraft(existingDraft.draft.id);
-      await repository.resetSourcePacket(id);
+      const approvedJobs = draftJobs.filter((job) => job.status === "approved");
+      if (approvedJobs.length > 0) {
+        replacedJobIds = approvedJobs.map((job) => job.id);
+        app.log.warn(
+          `Regenerate ${id}: replacing approved job(s) ${replacedJobIds.join(", ")} for draft ${existingDraft.draft.id}`
+        );
+      }
     }
 
     await repository.setSourcePacketFeedback(id, feedback);
@@ -187,12 +194,33 @@ export function registerSourcePacketsRoutes(app: FastifyInstance, deps: AppDeps)
       ]
     });
 
-    const result = await draftFromSourcePacket({
-      generationProvider: deps.generationProvider,
-      packet: refreshed,
-      repository,
-      options: {}
-    });
+    let result;
+    try {
+      result = await draftFromSourcePacket({
+        generationProvider: deps.generationProvider,
+        packet: refreshed,
+        repository,
+        options: {}
+      });
+    } catch (error) {
+      app.log.error(
+        `Regenerate failed for source packet ${id}; keeping existing draft intact: ` +
+          `${error instanceof Error ? error.message : error}`
+      );
+      throw error;
+    }
+
+    if (existingDraft && existingDraft.draft.id !== result.draft.id) {
+      try {
+        await repository.deleteDraft(existingDraft.draft.id);
+      } catch (error) {
+        app.log.warn(
+          `Regenerate ${id}: failed to remove replaced draft ${existingDraft.draft.id}: ` +
+            `${error instanceof Error ? error.message : error}`
+        );
+      }
+    }
+
     const newText = result.candidates[0]?.text ?? "";
     appendNotebookEntry({
       dir: notebookDir,
@@ -200,7 +228,10 @@ export function registerSourcePacketsRoutes(app: FastifyInstance, deps: AppDeps)
       lines: ["Rewritten after feedback:", `> ${newText}`]
     });
 
-    return reply.code(201).send(result);
+    return reply.code(201).send({
+      ...result,
+      ...(replacedJobIds.length > 0 ? { replacedJobIds } : {})
+    });
   });
 
   app.post("/source-packets/:id/feedback", async (request, reply) => {

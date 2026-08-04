@@ -29,7 +29,7 @@ const PROMPT_AI_SLOP_PHRASES = AI_SLOP_PHRASES.filter(
 );
 
 const PROMPT_BANNED_PHRASE_LIMIT = 10;
-const PRIVATE_ACCOUNT_RULE = /\bzyquo(?:r|er)\b|\bsourcepacket\b|\bsource\s+packets?\b|\bsource\s+ingestion\b|\bcontent\s+memory\b|\bprivate\s+workflow\b/i;
+const PRIVATE_ACCOUNT_RULE = /\bzyquo(?:r|re)\b|\bsourcepacket\b|\bsource\s+packets?\b|\bsource\s+ingestion\b|\bcontent\s+memory\b|\bprivate\s+workflow\b/i;
 
 interface StyleContract {
   name: string;

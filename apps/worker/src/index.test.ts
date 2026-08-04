@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   checkWorkerStartup,
   createWorkerState,
@@ -36,6 +36,14 @@ const baseAccount = {
   createdAt: "2026-04-25T10:00:00.000Z",
   updatedAt: "2026-04-25T10:00:00.000Z"
 };
+
+beforeEach(() => {
+  process.env.ZYQUOR_ENABLE_BROWSER_POST = "1";
+});
+
+afterEach(() => {
+  delete process.env.ZYQUOR_ENABLE_BROWSER_POST;
+});
 
 describe("worker job processing", () => {
   afterEach(() => {

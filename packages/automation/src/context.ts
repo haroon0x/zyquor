@@ -118,7 +118,7 @@ export function hasEnoughSourceContext(input: { facts: string[]; summary: string
   const facts = [...new Set(input.facts.map((fact) => cleanSentence(fact).toLowerCase()))]
     .filter((fact) => fact.length > 0 && fact !== title);
   const summary = cleanSentence(input.summary).toLowerCase();
-  return facts.length >= 1 && summary !== title;
+  return facts.length >= 2 || (summary.length >= 90 && summary !== title);
 }
 
 export function inferTweetTypeFromText(item: SourceItem): TweetType {

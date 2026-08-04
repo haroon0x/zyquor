@@ -22,6 +22,12 @@ export const COMMAND_CODE_MODELS = [DEFAULT_COMMAND_CODE_MODEL] as const;
 export const DEFAULT_CODEX_MODEL = "luna";
 export const CODEX_MODELS = [DEFAULT_CODEX_MODEL] as const;
 
+export function safeCodexModel(model: string | undefined) {
+  if (!model || model === DEFAULT_CODEX_MODEL) return DEFAULT_CODEX_MODEL;
+  console.warn(`generation: Codex model "${model}" is not supported; using "${DEFAULT_CODEX_MODEL}"`);
+  return DEFAULT_CODEX_MODEL;
+}
+
 export function safeCommandCodeModel(model: string | undefined) {
   if (!model || model === DEFAULT_COMMAND_CODE_MODEL) return DEFAULT_COMMAND_CODE_MODEL;
   console.warn(`generation: Command Code model "${model}" is not supported; using "${DEFAULT_COMMAND_CODE_MODEL}"`);
@@ -97,7 +103,7 @@ export function resolveGenerationProviderConfig(env: GenerationEnvironment = pro
   if (provider === "codex") {
     return {
       provider,
-      model: env.ZYQUOR_CODEX_MODEL ?? DEFAULT_CODEX_MODEL,
+      model: safeCodexModel(env.ZYQUOR_CODEX_MODEL),
       configured: true
     };
   }

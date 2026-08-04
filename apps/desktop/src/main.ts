@@ -391,7 +391,8 @@ async function main() {
       win = null;
     });
 
-    win.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {
+    win.webContents.on("did-fail-load", (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
+      if (!isMainFrame) return;
       logLine("error", `web UI failed to load (${errorCode}): ${errorDescription}`);
       if (!win || win.isDestroyed()) return;
       void win.loadURL("data:text/html,<h1>Zyquor</h1><p>The desktop UI failed to load. Check the log file and restart Zyquor.</p>");

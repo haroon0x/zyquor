@@ -41,7 +41,7 @@ export async function generateCandidatesForPacket(input: {
   count?: number;
 }): Promise<GeneratedDraftCandidate[]> {
   if (!hasEnoughSourceContext(input.packet)) {
-    throw new Error("Source needs at least one concrete fact beyond the title");
+    return [];
   }
   const context = await accountGenerationContext(input.repository, input.packet.accountId);
   const tweetInput = sourceTweetInput(input.packet);
@@ -125,7 +125,7 @@ export async function draftFromSourcePacket(input: {
     }
   }
   const history = input.options?.autoApprove ? await input.repository.listPostHistory() : [];
-  const qualityMin = hasQualityJudge || process.env.ZYQUOR_QUALITY_MIN?.trim() ? qualityMinimum() : 3;
+  const qualityMin = qualityMinimum();
   const passingCandidates = input.options?.autoApprove
     ? candidates
         .map((candidate) => ({
@@ -139,7 +139,9 @@ export async function draftFromSourcePacket(input: {
         }))
         .filter(
           (candidate) =>
-            candidate.validation.ok && candidate.generatedValidation && (!hasQualityJudge || candidate.score.judgePass === true)
+            candidate.validation.ok &&
+            candidate.generatedValidation &&
+            (!hasQualityJudge || judgeError !== null || candidate.score.judgePass === true)
         )
         .sort((a, b) => Number(b.score.quality) - Number(a.score.quality) || Number((a.score as Record<string, unknown>).rank) - Number((b.score as Record<string, unknown>).rank))
     : [];

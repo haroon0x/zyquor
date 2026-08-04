@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFile, unlink } from "node:fs/promises";
+import { readFile, stat, unlink } from "node:fs/promises";
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_CODEX_MODEL } from "../config.js";
+import { DEFAULT_CODEX_MODEL, safeCodexModel } from "../config.js";
 import { generateWithQualityLoop } from "../refine.js";
 import type { DraftGenerationProvider } from "../types.js";
 import { providerProcessEnv } from "./cli-env.js";
@@ -28,12 +28,11 @@ async function runCodex(input: {
     "never",
     "-c",
     "model_reasoning_effort=high",
+    "--model",
+    input.model,
     "-o",
     outputPath
   ];
-  if (input.model !== DEFAULT_CODEX_MODEL) {
-    args.splice(args.length - 2, 0, "--model", input.model);
-  }
   args.push("-");
 
   try {
@@ -75,6 +74,11 @@ async function runCodex(input: {
       child.on("close", async (code) => {
         if (code === 0) {
           try {
+            const info = await stat(outputPath);
+            if (info.size > MAX_OUTPUT_BYTES) {
+              finish(new Error("Codex generation exceeded the output limit"));
+              return;
+            }
             const output = (await readFile(outputPath, "utf8")).trim();
             if (Buffer.byteLength(output, "utf8") > MAX_OUTPUT_BYTES) {
               finish(new Error("Codex generation exceeded the output limit"));
@@ -103,7 +107,7 @@ export function createCodexGenerationProvider(options: {
   timeoutMs?: number;
 } = {}): DraftGenerationProvider {
   const command = options.command?.trim() || "codex";
-  const model = options.model?.trim() || DEFAULT_CODEX_MODEL;
+  const model = safeCodexModel(options.model?.trim());
 
   return {
     name: "codex",

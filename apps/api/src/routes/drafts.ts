@@ -19,10 +19,10 @@ import {
   validateSourcePostQuality
 } from "@zyquor/automation";
 import { passesTweetQualityFloor, qualityMinimum, scoreTweetQuality } from "@zyquor/generation";
-import { asError, HttpError } from "../lib/errors.js";
+import { HttpError } from "../lib/errors.js";
 import { tracePostProcessTweetText } from "../lib/post-process.js";
 import { isPostingMode } from "../lib/posting.js";
-import { qualityJudgeOptions } from "../lib/quality-judge.js";
+import { qualityJudgeOptions, runQualityJudge } from "../lib/quality-judge.js";
 
 function generationTweetType(value: string) {
   return value === "hiring" ? value : normalizeTweetType(value);
@@ -67,27 +67,29 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
         ? generationTweetType(metadata.tweetType)
         : undefined;
     const judgeOptions = qualityJudgeOptions(deps.generationEnv);
-    const evaluations = [];
-
-    try {
-      for (const candidate of existing.candidates) {
-        evaluations.push(await deps.tweetQualityEvaluator(
-          {
-            text: candidate.text,
-            idea: judgeIdea,
-            ...(judgeTweetType ? { tweetType: judgeTweetType } : {})
-          },
-          judgeOptions
-        ));
-      }
-    } catch (error) {
-      throw new HttpError(503, `Local Ollama quality judge failed: ${asError(error).message}`);
+    const judgeResult = await runQualityJudge(
+      deps.tweetQualityEvaluator,
+      existing.candidates.map((candidate) => ({
+        text: candidate.text,
+        ...(judgeIdea ? { idea: judgeIdea } : {}),
+        ...(judgeTweetType ? { tweetType: judgeTweetType } : {})
+      })),
+      judgeOptions
+    );
+    if (judgeResult.unavailable) {
+      app.log.warn(`Quality judge unavailable for draft ${id}; skipping evaluation: ${judgeResult.error}`);
+      return reply.code(200).send({
+        draft: existing.draft,
+        candidates: existing.candidates,
+        judgeUnavailable: true,
+        error: judgeResult.error
+      });
     }
 
     const judgedAt = new Date().toISOString();
     const candidates = [];
     for (const [index, candidate] of existing.candidates.entries()) {
-      const evaluation = evaluations[index]!;
+      const evaluation = judgeResult.evaluations![index]!;
       candidates.push(await repository.updateCandidateScore(candidate.id, {
         ...candidate.score,
         judgePass: evaluation.pass,
@@ -162,18 +164,23 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
     const qualityMin = qualityMinimum();
     if (metadata.yolo) {
       const judgeOptions = qualityJudgeOptions(deps.generationEnv);
-      const judgedAt = new Date().toISOString();
-      try {
+      const judgeResult = await runQualityJudge(
+        deps.tweetQualityEvaluator,
+        updated.candidates.map((candidate) => ({
+          idea: judgeIdea,
+          text: candidate.text,
+          ...(judgeTweetType ? { tweetType: judgeTweetType } : {})
+        })),
+        judgeOptions
+      );
+      const judgeUnavailable = judgeResult.unavailable;
+      if (judgeUnavailable) {
+        app.log.warn(`Quality judge unavailable for yolo draft ${draft.id}; falling back to score floor: ${judgeResult.error}`);
+      } else {
+        const judgedAt = new Date().toISOString();
         const judgedCandidates: typeof updated.candidates = [];
-        for (const candidate of updated.candidates) {
-          const evaluation = await deps.tweetQualityEvaluator(
-            {
-              idea: judgeIdea,
-              text: candidate.text,
-              ...(judgeTweetType ? { tweetType: judgeTweetType } : {})
-            },
-            judgeOptions
-          );
+        for (const [index, candidate] of updated.candidates.entries()) {
+          const evaluation = judgeResult.evaluations![index]!;
           judgedCandidates.push(await repository.updateCandidateScore(candidate.id, {
             ...candidate.score,
             judgePass: evaluation.pass,
@@ -189,16 +196,6 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
           }));
         }
         updated = { ...updated, candidates: judgedCandidates };
-      } catch (error) {
-        await repository.updateDraftMetadata(draft.id, {
-          ...metadata,
-          qualityGate: {
-            threshold: qualityMin,
-            reason: "quality_judge_unavailable",
-            rejectedAt: new Date().toISOString()
-          }
-        });
-        throw new HttpError(503, `Local Ollama quality judge failed: ${asError(error).message}`);
       }
 
       const sortedCandidates = [...updated.candidates].sort(
@@ -209,9 +206,11 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
           Number(a.score.rank ?? Infinity) - Number(b.score.rank ?? Infinity)
       );
       const topCandidate = sortedCandidates[0];
-      const bestCandidate = sortedCandidates.find(
-        (candidate) => candidate.score.judgePass === true && passesTweetQualityFloor(candidate.text, qualityMin)
-      );
+      const bestCandidate = judgeUnavailable
+        ? sortedCandidates.find((candidate) => passesTweetQualityFloor(candidate.text, qualityMin))
+        : sortedCandidates.find(
+            (candidate) => candidate.score.judgePass === true && passesTweetQualityFloor(candidate.text, qualityMin)
+          );
       const bestQuality = Number(topCandidate?.score.quality ?? -Infinity);
       const judgePassCount = sortedCandidates.filter((candidate) => candidate.score.judgePass === true).length;
       const slopPhrase = topCandidate
@@ -221,7 +220,9 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
         const reason = slopPhrase
           ? "ai_slop_phrase_detected"
           : judgePassCount === 0
-            ? "quality_judge_rejected_all"
+            ? judgeUnavailable
+              ? "all_below_quality_floor"
+              : "quality_judge_rejected_all"
             : "all_below_quality_floor";
         await repository.updateDraftMetadata(draft.id, {
           ...metadata,

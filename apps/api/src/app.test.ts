@@ -6,10 +6,12 @@ import { buildApp } from "./app.js";
 
 beforeEach(() => {
   process.env.ZYQUOR_QUALITY_MIN = "3";
+  process.env.ZYQUOR_POST_GAP_MIN_MINUTES = "0";
 });
 
 afterEach(() => {
   delete process.env.ZYQUOR_QUALITY_MIN;
+  delete process.env.ZYQUOR_POST_GAP_MIN_MINUTES;
   vi.useRealTimers();
   vi.restoreAllMocks();
 });

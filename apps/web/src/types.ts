@@ -138,7 +138,7 @@ export interface SourcePacket {
   title: string;
   tweetType: string;
   url: string | null;
-  feedback: string | null;
+  feedback: string | null | undefined;
 }
 
 export interface SystemFeedback {
@@ -200,6 +200,8 @@ export interface DesktopSettingsData {
   cdpPort?: number;
   startWithWindows?: boolean;
   restartRequired?: boolean;
+  feedbackDir?: string;
+  autoApproveSourcePackets?: boolean;
 }
 
 export interface SystemStatus {

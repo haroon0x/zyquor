@@ -132,7 +132,7 @@ export function SourcePacketsPanel({ panel, state }: { panel: PanelProps; state:
         method: "POST",
         body: JSON.stringify({ feedback: feedback.trim() || null })
       });
-      setFeedbackDraft({ ...feedbackDraft, [packet.id]: feedback });
+      setFeedbackDraft(({ [packet.id]: _cleared, ...rest }) => rest);
       await refresh();
     });
   }
@@ -145,6 +145,7 @@ export function SourcePacketsPanel({ panel, state }: { panel: PanelProps; state:
       });
       setDraft({ draft: response.draft, candidates: response.candidates });
       setEditedText(response.candidates[0]?.text ?? "");
+      setFeedbackDraft(({ [packet.id]: _cleared, ...rest }) => rest);
       await refresh();
       window.location.hash = "compose";
     });

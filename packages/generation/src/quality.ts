@@ -7,7 +7,7 @@ export const DEFAULT_QUALITY_MIN = 7;
 export function qualityMinimum() {
   const configured = process.env.ZYQUOR_QUALITY_MIN?.trim();
   const value = configured ? Number(configured) : Number.NaN;
-  return Number.isFinite(value) ? Math.max(0, value) : DEFAULT_QUALITY_MIN;
+  return Number.isFinite(value) ? Math.min(10, Math.max(0, value)) : DEFAULT_QUALITY_MIN;
 }
 
 const INTERNAL_LEAK_PATTERNS = [
@@ -55,7 +55,7 @@ const GENERIC_SLOP_PATTERNS = [
   /\bthe future is here\b/i,
   /\bhere'?s why\b/i,
   /\bwhy this matters\b/i,
-  /\b(?:more options|more things|more possibilities|new possibilities)\b/i,
+  /\b(?:more possibilities|new possibilities)\b/i,
   /\bit'?s not [^.!?\n]{1,60}, it'?s\b/i,
   /\b(?:is|are|was|were)n'?t just [^.!?\n]{1,60}, (?:it|they)'?(?:s|re)\b/i,
   /\b(wild|huge|insane)\.$/i

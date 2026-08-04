@@ -254,7 +254,7 @@ export function SystemView({ panel }: { panel: PanelProps }) {
           <button className={status?.posting.enablePost ? "secondary" : "ghost danger"} disabled={busy} onClick={() => setPostingFlag({ enablePost: !status?.posting.enablePost })}>
             <Busy active={busy} />{status?.posting.enablePost ? "Disable posting" : "Arm posting"}
           </button>
-          <button className={status?.posting.autoApproveSourcePackets ? "secondary" : "ghost"} disabled={busy} onClick={() => setPostingFlag({ autoApproveSourcePackets: !status?.posting.autoApproveSourcePackets })}>
+          <button className={status?.posting.autoApproveSourcePackets ? "secondary" : "ghost"} disabled={busy || !isDesktop} onClick={() => setPostingFlag({ autoApproveSourcePackets: !status?.posting.autoApproveSourcePackets })}>
             <Busy active={busy} />{status?.posting.autoApproveSourcePackets ? "Automated posting: on" : "Automated posting: off"}
           </button>
         </div>

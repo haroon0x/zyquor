@@ -17,7 +17,7 @@ export function backoffMs(attempt: number, retryAfter: string | null, rateLimitR
   if (Number.isFinite(resetAt) && resetAt > now) {
     const waitMs = resetAt - now;
     if (waitMs <= NEAR_RESET_THRESHOLD_MS) return waitMs + 500;
-    return 0;
+    return MAX_BACKOFF_MS;
   }
 
   return Math.min(BASE_BACKOFF_MS * 2 ** (attempt - 1), MAX_BACKOFF_MS);

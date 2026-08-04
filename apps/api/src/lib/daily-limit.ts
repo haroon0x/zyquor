@@ -26,11 +26,18 @@ function dailyVarianceCap(): { min: number; max: number; value: number; traceId:
 }
 
 export async function isDailyLimitReached(repository: ZyquorRepository, accountId: string, dailyPostLimit: number | null) {
+  const today = new Date().toISOString().slice(0, 10);
+  if (dailyPostLimit == null || dailyPostLimit <= 0) {
+    console.log(
+      `[trace=${today}] [daily-limit] account=${accountId} accountDailyPostLimit=${dailyPostLimit} ` +
+        `reached=false (no limit configured)`
+    );
+    return false;
+  }
   const variance = dailyVarianceCap();
-  const effectiveLimit = Math.min(dailyPostLimit ?? Number.POSITIVE_INFINITY, variance.value);
+  const effectiveLimit = Math.min(dailyPostLimit, variance.value);
   const traceId = variance.traceId;
 
-  const today = new Date().toISOString().slice(0, 10);
   const history = await repository.listPostHistory();
   const postsToday = history.filter((item) => item.accountId === accountId && item.postedAt.startsWith(today)).length;
   const reached = postsToday >= effectiveLimit;
