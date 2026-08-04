@@ -40,7 +40,7 @@ export interface FetchXHomeFeedInput {
   profileDir: string;
   maxTweets?: number;        // default 20
   minTweets?: number;        // default 15; throw if fewer
-  scrolls?: number;          // default 3
+  scrolls?: number;          // default 8; maximum scroll attempts before one reload retry
   browserChannel?: string | null;
   cdpUrl?: string;
   headless?: boolean;
@@ -59,9 +59,13 @@ Behavior:
 - `openPersistentContext({ profileDir, cdpUrl, browserChannel, headless, autoLaunchCdp: false })`
   — refuse to auto-launch (same policy as `checkXLogin`; error message when CDP is
   configured but down should follow the existing wording "Refusing to launch...").
-- Page: reuse `pageForSessionCheck(context, { xHomeUrl })` then `assertNotLoginPage(page)`.
-- Scroll loop: `scrolls` times → `page.mouse.wheel(0, 2400)` (guard: only if page not
-  at bottom via `window.scrollY` check is optional) + `page.waitForTimeout(actionDelayMs)`.
+- Home-page guard: if the reused X tab is not on `/home`, navigate it to `xHomeUrl` before
+  extracting the feed.
+- Collection loop: extract the visible tweets, then scroll until at least `minTweets` are
+  collected or `scrolls` attempts are used. Keep a URL-keyed collection across scrolls so
+  virtualized feed rows do not discard tweets already seen. If the minimum is still not
+  met, reload the page once and repeat the bounded collection loop.
+- Each scroll uses `page.mouse.wheel(0, 2400)` plus `page.waitForTimeout(actionDelayMs)`.
 - Parse: `page.locator('article[data-testid="tweet"]')` → single `evaluateAll` over
   elements, extracting per article:
   - status URL: first `a[href*="/status/"]` href; skip article if absent. Normalize via
@@ -74,7 +78,8 @@ Behavior:
   - publishedAt: `time[datetime]` attribute value or null.
   - isRetweet: article contains `[data-testid="socialContext"]` or header text matching
     `/reposted/i`; keep retweets in the list but flagged.
-- Dedupe by url (first occurrence wins), slice to maxTweets.
+- Skip promoted, sponsored, and advertisement-labelled articles. Dedupe by url (first
+  occurrence wins), slice to maxTweets.
 - If `tweets.length < minTweets` → throw `BrowserFeedError` (new class extending the
   exported `BrowserPrepareError`, message prefix "X home feed fetch failed") carrying a
   screenshot artifact written to `artifactsDir` named `feed-<ISO>.png` (reuse the

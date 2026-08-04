@@ -274,6 +274,17 @@ function isXPage(page: Page) {
   return url.startsWith("https://x.com/") || url.startsWith("https://twitter.com/");
 }
 
+function isHomeFeedPage(page: Page) {
+  if (!isXPage(page)) {
+    return false;
+  }
+  try {
+    return new URL(page.url()).pathname === "/home";
+  } catch {
+    return false;
+  }
+}
+
 function existingXPage(context: BrowserContext) {
   const pages = context.pages().filter(isXPage);
   return pages.find((item) => item.url().startsWith("https://x.com/compose")) ?? pages[0] ?? null;
@@ -294,6 +305,22 @@ async function pageForSessionCheck(context: BrowserContext, input: CheckXLoginIn
   if (xPage) return xPage;
   const page = context.pages()[0] ?? (await context.newPage());
   await page.goto(input.xHomeUrl ?? "https://x.com/home", { waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => undefined);
+  return page;
+}
+
+async function pageForHomeFeed(context: BrowserContext, input: FetchXHomeFeedInput) {
+  const page = await pageForSessionCheck(context, input);
+  const targetUrl = input.xHomeUrl ?? "https://x.com/home";
+  const alreadyAtHome = input.xHomeUrl ? page.url() === targetUrl : isHomeFeedPage(page);
+  if (alreadyAtHome) {
+    return page;
+  }
+  await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 15_000 }).catch((error) => {
+    const message = error instanceof Error ? error.message : "Unknown X home feed navigation error";
+    if (!message.includes("Timeout") || (input.xHomeUrl ? page.url() !== targetUrl : !isHomeFeedPage(page))) {
+      throw error;
+    }
+  });
   return page;
 }
 
@@ -494,14 +521,20 @@ async function extractFeedTweets(page: Page, maxTweets: number) {
       const socialContext = article.querySelector('[data-testid="socialContext"]')?.textContent ?? "";
       const headerText = article.querySelector("header")?.textContent ?? "";
       const publishedAt = article.querySelector("time[datetime]")?.getAttribute("datetime") ?? null;
-      return { statusLink, text, userName, socialContext, headerText, publishedAt };
+      const placementText = article.closest('[data-testid="placementTracking"]')?.textContent ?? "";
+      const ariaLabels = Array.from(article.querySelectorAll("[aria-label]"))
+        .map((element) => element.getAttribute("aria-label") ?? "")
+        .join(" ");
+      const promotionText = `${socialContext} ${headerText} ${placementText} ${ariaLabels}`;
+      const isPromoted = /\b(promoted|sponsored|advertisement|advertiser)\b/i.test(promotionText);
+      return { statusLink, text, userName, socialContext, headerText, publishedAt, isPromoted };
     })
   );
 
   const seen = new Set<string>();
   const tweets: XFeedTweet[] = [];
   for (const entry of raw) {
-    if (!entry.statusLink || !entry.text) continue;
+    if (entry.isPromoted || !entry.statusLink || !entry.text) continue;
     const url = extractStatusPermalink(entry.statusLink);
     if (!url || seen.has(url)) continue;
     const idMatch = /\/(\d+)$/.exec(url);
@@ -525,10 +558,32 @@ async function extractFeedTweets(page: Page, maxTweets: number) {
   return tweets;
 }
 
+async function collectFeedTweets(page: Page, maxTweets: number, minTweets: number, scrolls: number, actionDelayMs: number) {
+  const collected = new Map<string, XFeedTweet>();
+  const collectVisibleTweets = async () => {
+    const visibleTweets = await extractFeedTweets(page, maxTweets);
+    for (const tweet of visibleTweets) {
+      if (!collected.has(tweet.url)) {
+        collected.set(tweet.url, tweet);
+      }
+    }
+  };
+
+  await page.waitForTimeout(actionDelayMs);
+  await collectVisibleTweets();
+  for (let index = 0; index < scrolls && collected.size < minTweets; index += 1) {
+    await page.mouse.wheel(0, 2_400);
+    await page.waitForTimeout(actionDelayMs);
+    await collectVisibleTweets();
+  }
+
+  return Array.from(collected.values()).slice(0, maxTweets);
+}
+
 export async function fetchXHomeFeed(input: FetchXHomeFeedInput): Promise<FetchXHomeFeedResult> {
   const maxTweets = input.maxTweets ?? 20;
   const minTweets = input.minTweets ?? 15;
-  const scrolls = input.scrolls ?? 3;
+  const scrolls = input.scrolls ?? 8;
   const actionDelayMs = input.actionDelayMs ?? 1_500;
   const artifactsDir = input.artifactsDir ?? dataPath("data", "artifacts");
   mkdirSync(artifactsDir, { recursive: true });
@@ -546,14 +601,14 @@ export async function fetchXHomeFeed(input: FetchXHomeFeedInput): Promise<FetchX
     context = opened.context;
     ownsContext = opened.ownsContext;
     context.setDefaultTimeout(30_000);
-    const page = await pageForSessionCheck(context, input);
+    const page = await pageForHomeFeed(context, input);
     await assertNotLoginPage(page);
-    for (let index = 0; index < scrolls; index += 1) {
-      await page.mouse.wheel(0, 2_400);
-      await page.waitForTimeout(actionDelayMs);
+    let tweets = await collectFeedTweets(page, maxTweets, minTweets, scrolls, actionDelayMs);
+    if (tweets.length < minTweets) {
+      await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => undefined);
+      await assertNotLoginPage(page);
+      tweets = await collectFeedTweets(page, maxTweets, minTweets, scrolls, actionDelayMs);
     }
-
-    const tweets = await extractFeedTweets(page, maxTweets);
     if (tweets.length < minTweets) {
       throw new Error(`Only ${tweets.length} tweets extracted from the X home feed (minimum ${minTweets})`);
     }
