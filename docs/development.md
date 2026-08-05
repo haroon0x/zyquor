@@ -202,6 +202,30 @@ ZYQUOR_LLM_PROVIDER=gemini ZYQUOR_GEMINI_API_KEY=... ZYQUOR_GEMINI_MODEL=gemini-
 
 Zyquor ships as a system-tray Electron desktop app (`apps/desktop`). The API, worker, and web UI run in-process. Starting the app launches or reconnects the dedicated posting Chrome profile.
 
+### Run from native Windows
+
+Run Electron from a native Windows PowerShell session. Do not run the Electron process from WSL or from a `\\wsl$` path.
+
+Use a Windows checkout such as `C:\src\zyquor`. If the source currently lives in WSL, copy it to a Windows path first, then install dependencies there so pnpm installs the Windows Electron binary:
+
+```powershell
+robocopy \\wsl$\Ubuntu\home\asus\dev\projects\zyquor C:\src\zyquor /E /XD .git node_modules dist coverage release
+Set-Location C:\src\zyquor
+pnpm install --frozen-lockfile
+pnpm dev:desktop
+```
+
+`pnpm dev:desktop` builds the web UI and desktop process, then opens the Zyquor window. The API and worker start inside the same desktop process, so do not start `dev:api`, `dev:web`, or `dev:worker` in separate terminals for this mode. The app uses `%APPDATA%\Zyquor` for runtime data and keeps running in the Windows system tray when its window closes.
+
+Install and authenticate the selected generation CLI in Windows as well. A CLI installed only inside WSL is not available to the native desktop process. If the CLI is not on the Windows `PATH`, set its full path in the desktop Settings panel.
+
+To inspect a running development app and its startup log:
+
+```powershell
+Get-Process electron
+Get-Content "$env:APPDATA\Zyquor\logs\main.log" -Tail 50
+```
+
 ```bash
 pnpm dev:desktop        # build and launch
 pnpm smoke:desktop      # headless logic smoke (no GUI required)
