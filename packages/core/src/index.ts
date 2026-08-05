@@ -46,7 +46,12 @@ export const SOURCE_TYPES = [
   "guide",
   "job",
   "model-releases",
-  "x-feed"
+  "x-feed",
+  "deepseek-updates",
+  "cursor-changelog",
+  "xai-news",
+  "anthropic-release-notes",
+  "a16z"
 ] as const;
 
 export const LLM_PROVIDERS = [

@@ -1,5 +1,5 @@
 import cors from "@fastify/cors";
-import { createAggregatedNewsAdapter, createCrawl4AiService, createModelReleasesAdapter, createRssAdapter, createXFeedAdapter, type SourceAdapter } from "@zyquor/adapters";
+import { createA16zAdapter, createAggregatedNewsAdapter, createAnthropicReleaseNotesAdapter, createCrawl4AiService, createCursorChangelogAdapter, createDeepSeekUpdatesAdapter, createModelReleasesAdapter, createRssAdapter, createXFeedAdapter, createXaiNewsAdapter, type SourceAdapter } from "@zyquor/adapters";
 import { createGenerationProviderFromEnv, evaluateTweetQuality } from "@zyquor/generation";
 import { createLocalRepository, type ZyquorRepository } from "@zyquor/storage";
 import Fastify from "fastify";
@@ -39,6 +39,11 @@ function createDefaultSourceAdapters(options: {
   return [
     createAggregatedNewsAdapter({ crawlService }),
     createModelReleasesAdapter(),
+    createDeepSeekUpdatesAdapter(),
+    createCursorChangelogAdapter(),
+    createXaiNewsAdapter(),
+    createAnthropicReleaseNotesAdapter(),
+    createA16zAdapter(),
     createRssAdapter(),
     createXFeedAdapter({
       resolveProfileDir: async (accountId) => {

@@ -14,3 +14,8 @@ export * from "./rss.js";
 export * from "./aggregator.js";
 export * from "./model-releases.js";
 export * from "./x-feed.js";
+export * from "./deepseek-updates.js";
+export * from "./cursor-changelog.js";
+export * from "./xai-news.js";
+export * from "./anthropic-release-notes.js";
+export * from "./a16z.js";

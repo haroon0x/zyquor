@@ -1,13 +1,18 @@
 import {
   aggregateSources,
+  createA16zAdapter,
+  createAnthropicReleaseNotesAdapter,
   createArxivAdapter,
   createCompanyRssAdapter,
+  createCursorChangelogAdapter,
+  createDeepSeekUpdatesAdapter,
   createGitHubTrendingAdapter,
   createHackerNewsAdapter,
   createHiringAdapter,
   createProductHuntAdapter,
   createRedditAdapter,
-  createTechCrunchAdapter
+  createTechCrunchAdapter,
+  createXaiNewsAdapter
 } from "../packages/adapters/dist/index.js";
 import { loadDotEnv } from "./load-env.mjs";
 
@@ -94,6 +99,26 @@ const checks = [
   {
     label: "company-rss",
     fetch: () => createCompanyRssAdapter({ maxItems: 3 }).fetch()
+  },
+  {
+    label: "deepseek-updates",
+    fetch: () => createDeepSeekUpdatesAdapter({ maxItems: 3 }).fetch()
+  },
+  {
+    label: "cursor-changelog",
+    fetch: () => createCursorChangelogAdapter({ maxItems: 3 }).fetch()
+  },
+  {
+    label: "xai-news",
+    fetch: () => createXaiNewsAdapter({ maxItems: 3 }).fetch()
+  },
+  {
+    label: "anthropic-release-notes",
+    fetch: () => createAnthropicReleaseNotesAdapter({ maxItems: 3 }).fetch()
+  },
+  {
+    label: "a16z",
+    fetch: () => createA16zAdapter({ maxItems: 3 }).fetch()
   },
   {
     label: "aggregated-news",

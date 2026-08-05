@@ -1,6 +1,6 @@
 import type { ZyquorRepository } from "@zyquor/storage";
 
-const ABSOLUTE_DAILY_POST_LIMIT = 4;
+const ABSOLUTE_DAILY_POST_LIMIT = 10;
 
 function dailyHash(seed: string) {
   let hash = 0;
@@ -16,8 +16,8 @@ function envInteger(name: string, fallback: number) {
 }
 
 function dailyVarianceCap(): { min: number; max: number; value: number; traceId: string; absolute: number } {
-  const min = Math.min(ABSOLUTE_DAILY_POST_LIMIT, Math.max(1, envInteger("ZYQUOR_DAILY_POST_VARIANCE_MIN", 3)));
-  const requestedMax = Math.max(min, envInteger("ZYQUOR_DAILY_POST_VARIANCE_MAX", 4));
+  const min = Math.min(ABSOLUTE_DAILY_POST_LIMIT, Math.max(1, envInteger("ZYQUOR_DAILY_POST_VARIANCE_MIN", 7)));
+  const requestedMax = Math.max(min, envInteger("ZYQUOR_DAILY_POST_VARIANCE_MAX", 10));
   const max = Math.min(requestedMax, ABSOLUTE_DAILY_POST_LIMIT);
   const seed = new Date().toISOString().slice(0, 10);
   const span = max - min + 1;

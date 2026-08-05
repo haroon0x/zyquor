@@ -573,6 +573,7 @@ async function collectFeedTweets(page: Page, maxTweets: number, minTweets: numbe
   await collectVisibleTweets();
   for (let index = 0; index < scrolls && collected.size < minTweets; index += 1) {
     await page.mouse.wheel(0, 2_400);
+    await page.evaluate(() => window.scrollBy(0, 2_400)).catch(() => undefined);
     await page.waitForTimeout(actionDelayMs);
     await collectVisibleTweets();
   }

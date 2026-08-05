@@ -8,13 +8,16 @@ export interface CompanyRssAdapterOptions {
 
 export const DEFAULT_COMPANY_RSS_FEEDS = [
   { name: "openai", url: "https://openai.com/news/rss.xml" },
+  { name: "openai-dev", url: "https://developers.openai.com/rss.xml" },
   { name: "anthropic", url: "https://www.anthropic.com/news/rss.xml" },
   { name: "deepmind", url: "https://deepmind.google/discover/blog/rss.xml" },
   { name: "github", url: "https://github.blog/feed/" },
   { name: "cloudflare", url: "https://blog.cloudflare.com/rss/" },
   { name: "vercel", url: "https://vercel.com/blog/rss.xml" },
   { name: "supabase", url: "https://supabase.com/blog/rss.xml" },
-  { name: "stripe", url: "https://stripe.com/blog/feed.rss" }
+  { name: "stripe", url: "https://stripe.com/blog/feed.rss" },
+  { name: "mistral", url: "https://mistral.ai/news/rss" },
+  { name: "huggingface", url: "https://hf.co/blog/feed.xml" }
 ] as const;
 
 export function createCompanyRssAdapter(options: CompanyRssAdapterOptions = {}): SourceAdapter {

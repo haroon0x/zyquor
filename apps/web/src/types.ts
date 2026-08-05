@@ -65,6 +65,7 @@ export interface Job {
   mode: string;
   scheduledFor: string | null;
   approvedAt: string | null;
+  createdAt: string;
   replyTo?: ReplyTarget;
 }
 

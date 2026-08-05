@@ -39,7 +39,12 @@ async function removePostedDraftSourcePacket(repository: ZyquorRepository, draft
   return packet ? repository.deleteSourcePacket(sourcePacketId) : null;
 }
 
-export async function postBrowserJob(deps: AppDeps, jobId: string) {
+export interface PostBrowserJobOptions {
+  bypassSchedule?: boolean;
+  bypassSpacing?: boolean;
+}
+
+export async function postBrowserJob(deps: AppDeps, jobId: string, options: PostBrowserJobOptions = {}) {
   const repository = await deps.repository;
   prepareJobRequestSchema.parse({ jobId });
 
@@ -62,7 +67,7 @@ export async function postBrowserJob(deps: AppDeps, jobId: string) {
     throw new HttpError(409, "Job is missing account or approved text");
   }
   const draftForPost = draftWithCandidates!.draft;
-  if (isScheduledForFuture(job)) {
+  if (isScheduledForFuture(job) && !options.bypassSchedule) {
     throw new HttpError(409, `Job is scheduled for ${job.scheduledFor}`);
   }
   if (!isAccountRunnable(account)) {
@@ -81,7 +86,7 @@ export async function postBrowserJob(deps: AppDeps, jobId: string) {
     now: new Date().toISOString(),
     traceId: `gate-${job.id.slice(0, 8)}`
   });
-  if (!gate.allowed) {
+  if (!gate.allowed && !options.bypassSpacing) {
     throw new HttpError(
       429,
       `Too soon since the last post. Next post allowed at ${gate.nextEligibleAt} (${gate.waitMinutes} min to wait)`

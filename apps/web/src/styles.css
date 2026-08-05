@@ -1000,6 +1000,13 @@ label {
   margin-bottom: 12px;
 }
 
+.queue-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .queue-secondary-actions {
   justify-content: flex-end;
   flex-wrap: wrap;
@@ -1962,6 +1969,14 @@ label {
   .queue-toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .queue-toolbar-actions {
+    justify-content: stretch;
+  }
+
+  .queue-toolbar-actions button {
+    flex: 1 1 0;
   }
 
   .segmented-control {

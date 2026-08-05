@@ -123,6 +123,12 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
       if (result.failed > 0) throw new Error(`Post all finished: ${result.posted}/${result.total} posted, ${result.failed} failed.`);
     });
   }
+  function postNextNow() {
+    run(async () => {
+      await api("/jobs/post-next", { method: "POST", body: JSON.stringify({ accountId }) });
+      await refresh();
+    });
+  }
   function deleteCleanupJobs() { run(async () => { await api("/jobs/cleanup", { method: "DELETE" }); await refresh(); }); }
   function deleteAllJobs() {
     run(async () => {
@@ -157,6 +163,13 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
   }
 
   const now = Date.now();
+  const nextAutopostJob = jobs
+    .filter((job) => job.mode === "autopost" && (job.status === "approved" || job.status === "prepared"))
+    .sort((left, right) => {
+      const leftScheduled = left.scheduledFor ? Date.parse(left.scheduledFor) : Number.NEGATIVE_INFINITY;
+      const rightScheduled = right.scheduledFor ? Date.parse(right.scheduledFor) : Number.NEGATIVE_INFINITY;
+      return leftScheduled - rightScheduled || Date.parse(left.createdAt ?? "") - Date.parse(right.createdAt ?? "");
+    })[0] ?? null;
   const filterCounts = jobs.reduce<Record<QueueFilter, number>>((counts, job) => {
     counts[jobFilter(job, now)] += 1;
     return counts;
@@ -182,9 +195,10 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
             </button>
           ))}
         </div>
-        {postableJobs.length ? (
-          <button className="secondary" disabled={busy} onClick={postAllReadyJobs}><Busy active={busy} />Post all ready</button>
-        ) : null}
+        <div className="queue-toolbar-actions">
+          {nextAutopostJob ? <button className="secondary" disabled={busy} onClick={postNextNow}><Busy active={busy} />Post next now</button> : null}
+          {postableJobs.length ? <button className="secondary" disabled={busy} onClick={postAllReadyJobs}><Busy active={busy} />Post all ready</button> : null}
+        </div>
       </div>
       {jobs.length ? (
         <div className="queue-secondary-actions">

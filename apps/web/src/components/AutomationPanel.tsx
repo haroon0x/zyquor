@@ -127,6 +127,11 @@ export function AutomationPanel({ panel }: { panel: PanelProps }) {
             <option value="news">Aggregated tech/news</option>
             <option value="feed">RSS feed URL</option>
             <option value="model-releases">Model releases</option>
+            <option value="deepseek-updates">DeepSeek updates</option>
+            <option value="cursor-changelog">Cursor changelog</option>
+            <option value="xai-news">xAI news</option>
+            <option value="anthropic-release-notes">Anthropic release notes</option>
+            <option value="a16z">a16z</option>
             <option value="x-feed">X home feed observations</option>
           </select>
         </label>

@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppDeps } from "../deps.js";
 import { validateSourcePostQuality } from "@zyquor/automation";
-import { prepareJobRequestSchema } from "@zyquor/core";
+import { prepareJobRequestSchema, type PostJob } from "@zyquor/core";
 import { assertDedicatedProfileDir, isAccountRunnable } from "@zyquor/accounts";
 import { asHttpError, HttpError } from "../lib/errors.js";
 import { tracePostProcessTweetText } from "../lib/post-process.js";
@@ -21,6 +21,21 @@ import { postBrowserJob } from "../lib/post-browser-job.js";
 
 function isScheduledForFuture(job: { scheduledFor: string | null }) {
   return job.scheduledFor ? Date.parse(job.scheduledFor) > Date.now() : false;
+}
+
+function nextAutopostJob(jobs: PostJob[], accountId: string) {
+  return jobs
+    .filter(
+      (job) =>
+        job.accountId === accountId &&
+        job.mode === "autopost" &&
+        (job.status === "approved" || job.status === "prepared")
+    )
+    .sort((left, right) => {
+      const leftScheduled = left.scheduledFor ? Date.parse(left.scheduledFor) : Number.NEGATIVE_INFINITY;
+      const rightScheduled = right.scheduledFor ? Date.parse(right.scheduledFor) : Number.NEGATIVE_INFINITY;
+      return leftScheduled - rightScheduled || Date.parse(left.createdAt) - Date.parse(right.createdAt);
+    })[0] ?? null;
 }
 
 const updateJobScheduleRequestSchema = z.object({
@@ -68,6 +83,27 @@ export function registerJobsRoutes(app: FastifyInstance, deps: AppDeps): void {
       recovered,
       recoveredCount: recovered.length
     };
+  });
+
+  app.post("/jobs/post-next", async (request, reply) => {
+    const { accountId } = request.body as { accountId?: string };
+    if (!accountId) {
+      throw new HttpError(400, "accountId is required");
+    }
+    const repository = await deps.repository;
+    const job = nextAutopostJob(await repository.listJobs(), accountId);
+    if (!job) {
+      return reply.code(404).send({ error: "No approved autopost jobs in queue" });
+    }
+
+    try {
+      return await postBrowserJob(deps, job.id, { bypassSchedule: true, bypassSpacing: true });
+    } catch (error) {
+      const httpError = asHttpError(error);
+      return reply.code(httpError?.statusCode ?? 500).send({
+        error: error instanceof Error ? error.message : "Unknown browser error"
+      });
+    }
   });
 
   app.post("/jobs/post-ready", async (request) => {
