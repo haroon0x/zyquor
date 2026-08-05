@@ -131,9 +131,9 @@ export function applySettingsToEnv(settings: DesktopSettings, options: { overwri
 }
 
 export function applyDesktopEnvDefaults(settings: DesktopSettings): void {
-  process.env.ZYQUOR_LLM_PROVIDER ??= "command-code";
+  process.env.ZYQUOR_LLM_PROVIDER ??= "codex";
   process.env.ZYQUOR_COMMAND_CODE_MODEL ??= "gpt-5.6-luna";
-  process.env.ZYQUOR_CODEX_MODEL ??= "luna";
+  process.env.ZYQUOR_CODEX_MODEL ??= "gpt-5.6-luna";
   process.env.ZYQUOR_CODEX_PATH ??= "codex";
   process.env.ZYQUOR_ENABLE_BROWSER_PREPARE ??= String(Number(settings.enableBrowserPrepare ?? true));
   process.env.ZYQUOR_ENABLE_BROWSER_POST ??= "0";

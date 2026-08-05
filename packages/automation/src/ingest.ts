@@ -1,5 +1,5 @@
 import type { SourceAdapter, SourceItem } from "@zyquor/adapters";
-import type { DraftGenerationProvider, EvaluateTweetQualityOptions, TweetQualityEvaluator } from "@zyquor/generation";
+import type { DraftGenerationProvider } from "@zyquor/generation";
 import type { ZyquorRepository } from "@zyquor/storage";
 import { hasEnoughSourceContext, packetFieldsFromFeedDigest, packetFieldsFromItem } from "./context.js";
 import { draftFromSourcePacket } from "./draft.js";
@@ -45,8 +45,6 @@ export interface RunAutomaticIngestOptions {
   adapters: Map<string, SourceAdapter>;
   autoApproveEnabled?: boolean;
   generationProvider: DraftGenerationProvider;
-  qualityEvaluator?: TweetQualityEvaluator;
-  qualityEvaluatorOptions?: EvaluateTweetQualityOptions;
   now?: Date;
   onProgress?: (progress: { errors: Array<{ configId: string; error: string }>; processed: number }) => void;
   repository: ZyquorRepository;
@@ -406,9 +404,7 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
               autoApprove: options.autoApproveEnabled !== false,
               count: 1,
               ...(enriched.imageUrl ? { mediaUrls: [enriched.imageUrl] } : {}),
-              mode: "autopost",
-              ...(options.qualityEvaluator ? { qualityEvaluator: options.qualityEvaluator } : {}),
-              ...(options.qualityEvaluatorOptions ? { qualityEvaluatorOptions: options.qualityEvaluatorOptions } : {})
+              mode: "autopost"
             }
           });
 

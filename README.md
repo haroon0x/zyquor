@@ -92,7 +92,7 @@ If you want bare `zyquor` instead of `./zyquor`, install/link the repo command o
 
 ## Draft Generation
 
-Default provider selection is resolved from saved generation config and environment. Command Code with `gpt-5.6-luna` is the default; Codex, Gemini, and Ollama remain available. OpenRouter is not used by the desktop setup.
+Default provider selection is resolved from saved generation config and environment. Codex with `gpt-5.6-luna` is the default; Command Code, Gemini, and Ollama remain available. OpenRouter is not used by the desktop setup.
 
 Install and authenticate Command Code once before starting Zyquor:
 
@@ -102,16 +102,16 @@ command-code login
 command-code status
 ```
 
-Zyquor runs Command Code in non-interactive, read-only plan mode with `gpt-5.6-luna`. Codex uses `codex exec` with Luna and high reasoning. Candidates that drop or change supplied URLs or introduce unsupported numbers are rejected and regenerated once. On native Windows, install the selected CLI natively so the Electron app can launch it; a copy installed only inside WSL is not visible to a native Windows app. If it is not on the desktop app's `PATH`, set the full executable path in Settings.
+Zyquor runs Codex in ephemeral, read-only, non-interactive mode with `gpt-5.6-luna` and high reasoning. Command Code remains available with the same model. Candidates that drop or change supplied URLs or introduce unsupported numbers are rejected and regenerated once. On native Windows, install the selected CLI natively so the Electron app can launch it; a copy installed only inside WSL is not visible to a native Windows app. If it is not on the desktop app's `PATH`, set the full executable path in Settings.
 
 Codex CLI is also supported. Authenticate it once, then select it in the Generation panel or set it in `.env`:
 
 ```bash
 codex login
-ZYQUOR_LLM_PROVIDER=codex ZYQUOR_CODEX_MODEL=luna ZYQUOR_CODEX_PATH=codex pnpm dev:api
+ZYQUOR_LLM_PROVIDER=codex ZYQUOR_CODEX_MODEL=gpt-5.6-luna ZYQUOR_CODEX_PATH=codex pnpm dev:api
 ```
 
-The Zyquor Codex provider uses `luna` with high reasoning by default. The current Codex CLI resolves that alias to `gpt-5.6-luna`. Set `ZYQUOR_CODEX_MODEL` to a different Codex model when needed.
+The Zyquor Codex provider uses `gpt-5.6-luna` with high reasoning by default. Set `ZYQUOR_CODEX_MODEL` to a different Codex model when needed.
 
 Create a local `.env` before running generation:
 

@@ -2,9 +2,9 @@ import {
   DEFAULT_OPENROUTER_BASE_URL,
   safeOpenRouterModel
 } from "../config.js";
-import { linePrompt, systemPrompt, userPrompt } from "../prompts.js";
-import { asText, candidatesFromText, isNoCandidatesError } from "../quality.js";
-import { generateWithQualityLoop } from "../refine.js";
+import { systemPrompt, userPrompt } from "../prompts.js";
+import { asText } from "../quality.js";
+import { generateDraftCandidates } from "../refine.js";
 import type { DraftGenerationProvider, FetchLike } from "../types.js";
 import { getJson, postJson } from "./http.js";
 
@@ -91,39 +91,17 @@ export function createOpenRouterGenerationProvider(options: {
         }
       };
 
-      try {
-        return await generateWithQualityLoop({
-          generationInput: input,
-          model,
-          providerName: "openrouter",
-          runInitial: (generationInput) =>
-            chat([
-              { role: "system", content: systemPrompt(generationInput) },
-              { role: "user", content: userPrompt(generationInput) }
-            ]),
-          runPrompt: (prompt) => chat([{ role: "user", content: prompt }])
-        });
-      } catch (error) {
-        if (!isNoCandidatesError(error, "openrouter")) {
-          throw error;
-        }
-
-        const retryBody = await postJson<{
-          choices?: Array<{ message?: { content?: unknown } }>;
-        }>(
-          fetchImpl,
-          url,
-          {
-            model,
-            messages: [{ role: "user", content: linePrompt(input) }],
-            temperature: 0.5,
-            max_tokens: 500
-          },
-          headers
-        );
-        const retryText = asText(retryBody.choices?.[0]?.message?.content);
-        return candidatesFromText(retryText, input, "openrouter", model);
-      }
+      return generateDraftCandidates({
+        generationInput: input,
+        model,
+        providerName: "openrouter",
+        runInitial: (generationInput) =>
+          chat([
+            { role: "system", content: systemPrompt(generationInput) },
+            { role: "user", content: userPrompt(generationInput) }
+          ]),
+        runPrompt: (prompt) => chat([{ role: "user", content: prompt }])
+      });
     }
   };
 }

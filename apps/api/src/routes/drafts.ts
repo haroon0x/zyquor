@@ -9,7 +9,6 @@ import {
 } from "@zyquor/core";
 import {
   accountGenerationContext,
-  articleTweetIdea,
   draftFromSourcePacket,
   hasEnoughSourceContext,
   normalizeTweetType,
@@ -23,7 +22,6 @@ import { passesTweetQualityFloor, qualityMinimum, scoreTweetQuality } from "@zyq
 import { HttpError } from "../lib/errors.js";
 import { tracePostProcessTweetText } from "../lib/post-process.js";
 import { isPostingMode } from "../lib/posting.js";
-import { qualityJudgeOptions, runQualityJudge } from "../lib/quality-judge.js";
 
 function generationTweetType(value: string) {
   return value === "hiring" ? value : normalizeTweetType(value);
@@ -58,51 +56,11 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
       return reply.code(404).send({ error: "Draft not found" });
     }
 
-    const metadata = existing.draft.metadata as Record<string, unknown>;
-    const sourcePacketId = typeof metadata.sourcePacketId === "string" ? metadata.sourcePacketId : null;
-    const sourcePacket = sourcePacketId ? await repository.getSourcePacket(sourcePacketId) : null;
-    const judgeIdea = sourcePacket ? articleTweetIdea(sourcePacket) : existing.draft.sourceInput;
-    const judgeTweetType = existing.draft.replyTo
-      ? "reply"
-      : typeof metadata.tweetType === "string"
-        ? generationTweetType(metadata.tweetType)
-        : undefined;
-    const judgeOptions = qualityJudgeOptions(deps.generationEnv);
-    const judgeResult = await runQualityJudge(
-      deps.tweetQualityEvaluator,
-      existing.candidates.map((candidate) => ({
-        text: candidate.text,
-        ...(judgeIdea ? { idea: judgeIdea } : {}),
-        ...(judgeTweetType ? { tweetType: judgeTweetType } : {})
-      })),
-      judgeOptions
-    );
-    if (judgeResult.unavailable) {
-      app.log.warn(`Quality judge unavailable for draft ${id}; skipping evaluation: ${judgeResult.error}`);
-      return reply.code(200).send({
-        draft: existing.draft,
-        candidates: existing.candidates,
-        judgeUnavailable: true,
-        error: judgeResult.error
-      });
-    }
-
-    const judgedAt = new Date().toISOString();
     const candidates = [];
-    for (const [index, candidate] of existing.candidates.entries()) {
-      const evaluation = judgeResult.evaluations![index]!;
+    for (const candidate of existing.candidates) {
       candidates.push(await repository.updateCandidateScore(candidate.id, {
         ...candidate.score,
-        judgePass: evaluation.pass,
-        judgeSpecific: evaluation.specific,
-        judgeGrounded: evaluation.grounded,
-        judgePayoff: evaluation.payoff,
-        judgeStyleFit: evaluation.styleFit,
-        judgeScore: evaluation.score,
-        judgeVerdict: evaluation.verdict,
-        judgeReasons: evaluation.reasons,
-        judgedAt,
-        judgeModel: judgeOptions.model
+        quality: scoreTweetQuality(candidate.text)
       }));
     }
 
@@ -123,13 +81,7 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
     const sourcePacketId = typeof metadata.sourcePacketId === "string" ? metadata.sourcePacketId : null;
     const sourcePacket = sourcePacketId ? await repository.getSourcePacket(sourcePacketId) : null;
     const sourceContext = sourcePacket ? sourceTweetInput(sourcePacket) : null;
-    const judgeIdea = sourcePacket ? articleTweetIdea(sourcePacket) : draft.sourceInput;
-    const judgeTweetType = draft.replyTo
-      ? "reply"
-      : typeof metadata.tweetType === "string"
-        ? generationTweetType(metadata.tweetType)
-        : undefined;
-    const count = metadata.yolo ? 1 : (Number(metadata.count) || 3);
+    const count = metadata.yolo ? 1 : (Number(metadata.count) || 1);
 
     const candidates = await deps.generationProvider.generateDraftCandidates({
       idea: sourceContext ? "" : draft.sourceInput,
@@ -167,76 +119,25 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
 
     const qualityMin = qualityMinimum();
     if (metadata.yolo) {
-      const judgeOptions = qualityJudgeOptions(deps.generationEnv);
-      const judgeResult = await runQualityJudge(
-        deps.tweetQualityEvaluator,
-        updated.candidates.map((candidate) => ({
-          idea: judgeIdea,
-          text: candidate.text,
-          ...(judgeTweetType ? { tweetType: judgeTweetType } : {})
-        })),
-        judgeOptions
-      );
-      const judgeUnavailable = judgeResult.unavailable;
-      if (judgeUnavailable) {
-        app.log.warn(`Quality judge unavailable for yolo draft ${draft.id}; falling back to score floor: ${judgeResult.error}`);
-      } else {
-        const judgedAt = new Date().toISOString();
-        const judgedCandidates: typeof updated.candidates = [];
-        for (const [index, candidate] of updated.candidates.entries()) {
-          const evaluation = judgeResult.evaluations![index]!;
-          judgedCandidates.push(await repository.updateCandidateScore(candidate.id, {
-            ...candidate.score,
-            judgePass: evaluation.pass,
-            judgeSpecific: evaluation.specific,
-            judgeGrounded: evaluation.grounded,
-            judgePayoff: evaluation.payoff,
-            judgeStyleFit: evaluation.styleFit,
-            judgeScore: evaluation.score,
-            judgeVerdict: evaluation.verdict,
-            judgeReasons: evaluation.reasons,
-            judgedAt,
-            judgeModel: judgeOptions.model
-          }));
-        }
-        updated = { ...updated, candidates: judgedCandidates };
-      }
-
       const sortedCandidates = [...updated.candidates].sort(
         (a, b) =>
-          Number(b.score.judgePass === true) - Number(a.score.judgePass === true) ||
-          Number(b.score.judgeScore ?? -Infinity) - Number(a.score.judgeScore ?? -Infinity) ||
           Number(b.score.quality ?? -Infinity) - Number(a.score.quality ?? -Infinity) ||
           Number(a.score.rank ?? Infinity) - Number(b.score.rank ?? Infinity)
       );
       const topCandidate = sortedCandidates[0];
-      const bestCandidate = judgeUnavailable
-        ? sortedCandidates.find((candidate) => passesTweetQualityFloor(candidate.text, qualityMin))
-        : sortedCandidates.find(
-            (candidate) => candidate.score.judgePass === true && passesTweetQualityFloor(candidate.text, qualityMin)
-          );
+      const bestCandidate = sortedCandidates.find((candidate) => passesTweetQualityFloor(candidate.text, qualityMin));
       const bestQuality = Number(topCandidate?.score.quality ?? -Infinity);
-      const judgePassCount = sortedCandidates.filter((candidate) => candidate.score.judgePass === true).length;
       const slopPhrase = topCandidate
         ? AI_SLOP_PHRASES.find((phrase) => topCandidate.text.toLowerCase().includes(phrase)) ?? null
         : null;
       if (!bestCandidate || slopPhrase) {
-        const reason = slopPhrase
-          ? "ai_slop_phrase_detected"
-          : judgePassCount === 0
-            ? judgeUnavailable
-              ? "all_below_quality_floor"
-              : "quality_judge_rejected_all"
-            : "all_below_quality_floor";
+        const reason = slopPhrase ? "ai_slop_phrase_detected" : "all_below_quality_floor";
         await repository.updateDraftMetadata(draft.id, {
           ...metadata,
           qualityGate: {
             bestQuality: Number.isFinite(bestQuality) ? bestQuality : null,
             bestCandidateId: topCandidate?.id ?? null,
             threshold: qualityMin,
-            judgePassCount,
-            judgeModel: judgeOptions.model,
-            judgeReasons: topCandidate?.score.judgeReasons ?? [],
             slopPhrase,
             rejectedAt: new Date().toISOString(),
             reason
@@ -248,7 +149,6 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
           reason,
           bestQuality: Number.isFinite(bestQuality) ? bestQuality : null,
           threshold: qualityMin,
-          judgePassCount,
           slopPhrase
         });
       }
@@ -321,12 +221,10 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
           repository,
           options: {
             ...(input.yolo ? { autoApprove: true } : {}),
-            count: input.count ?? 3,
+            count: input.count ?? 1,
             ...(input.yolo
               ? {
-                  mode: input.autopost ? "autopost" : "prepare_only",
-                  qualityEvaluator: deps.tweetQualityEvaluator,
-                  qualityEvaluatorOptions: qualityJudgeOptions(deps.generationEnv)
+                  mode: input.autopost ? "autopost" : "prepare_only"
                 }
               : {})
           }
@@ -357,7 +255,7 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
       metadata: {
         yolo: input.yolo,
         autopost: input.autopost,
-        count: input.count ?? 3,
+        count: input.count ?? 1,
         tweetType: replyTo ? "reply" : input.tweetType
       }
     });

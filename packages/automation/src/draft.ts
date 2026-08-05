@@ -5,9 +5,7 @@ import {
   qualityMinimum,
   scoreTweetQuality,
   type DraftGenerationProvider,
-  type EvaluateTweetQualityOptions,
-  type GeneratedDraftCandidate,
-  type TweetQualityEvaluator
+  type GeneratedDraftCandidate
 } from "@zyquor/generation";
 import type { ZyquorRepository } from "@zyquor/storage";
 import type { Draft, DraftCandidate, PostJob, SourcePacket } from "@zyquor/core";
@@ -24,8 +22,6 @@ export interface PacketDraftOptions {
   count?: number;
   mediaUrls?: string[];
   mode?: PostJob["mode"];
-  qualityEvaluator?: TweetQualityEvaluator;
-  qualityEvaluatorOptions?: EvaluateTweetQualityOptions;
 }
 
 export interface PacketDraftResult {
@@ -50,7 +46,6 @@ export async function generateCandidatesForPacket(input: {
   const candidates = await input.generationProvider.generateDraftCandidates({
     idea: input.packet.title,
     ...(tweetInput.source ? { context: tweetInput.source } : {}),
-    insightRequired: true,
     count: input.count ?? 1,
     preserveCase: true,
     ...context,
@@ -100,49 +95,6 @@ export async function draftFromSourcePacket(input: {
       };
     })
   );
-  let judgeError: string | null = null;
-  const hasQualityJudge = Boolean(input.options?.qualityEvaluator);
-  if (input.options?.autoApprove) {
-    if (input.options.qualityEvaluator) {
-      const judgeIdea = articleTweetIdea(input.packet);
-      const judgeTweetType = generationTweetType(input.packet.tweetType);
-      const judgedAt = new Date().toISOString();
-      try {
-        const judgedCandidates: GeneratedDraftCandidate[] = [];
-        for (const candidate of candidates) {
-          const evaluation = await input.options.qualityEvaluator(
-            {
-              idea: judgeIdea,
-              text: candidate.text,
-              tweetType: judgeTweetType
-            },
-            input.options.qualityEvaluatorOptions
-          );
-          judgedCandidates.push({
-            ...candidate,
-            score: {
-              ...candidate.score,
-              judgePass: evaluation.pass,
-              judgeSpecific: evaluation.specific,
-              judgeGrounded: evaluation.grounded,
-              judgePayoff: evaluation.payoff,
-              judgeStyleFit: evaluation.styleFit,
-              judgeScore: evaluation.score,
-              judgeVerdict: evaluation.verdict,
-              judgeReasons: evaluation.reasons,
-              judgedAt,
-              ...(input.options.qualityEvaluatorOptions?.model
-                ? { judgeModel: input.options.qualityEvaluatorOptions.model }
-                : {})
-            }
-          });
-        }
-        candidates = judgedCandidates;
-      } catch {
-        judgeError = "quality_judge_unavailable";
-      }
-    }
-  }
   const history = input.options?.autoApprove ? await input.repository.listPostHistory() : [];
   const qualityMin = qualityMinimum();
   const passingCandidates = input.options?.autoApprove
@@ -156,12 +108,7 @@ export async function draftFromSourcePacket(input: {
           }),
           generatedValidation: passesTweetQualityFloor(candidate.text, qualityMin)
         }))
-        .filter(
-          (candidate) =>
-            candidate.validation.ok &&
-            candidate.generatedValidation &&
-            (!hasQualityJudge || judgeError !== null || candidate.score.judgePass === true)
-        )
+        .filter((candidate) => candidate.validation.ok && candidate.generatedValidation)
         .sort((a, b) => Number(b.score.quality) - Number(a.score.quality) || Number((a.score as Record<string, unknown>).rank) - Number((b.score as Record<string, unknown>).rank))
     : [];
   const approvedCandidate = passingCandidates[0] ?? null;
@@ -209,12 +156,9 @@ export async function draftFromSourcePacket(input: {
               reason:
                 candidates.length === 0
                   ? "no_candidates_generated"
-                  : judgeError ??
-                    (passingCandidates.length === 0
-                      ? hasQualityJudge
-                        ? "quality_judge_rejected_all"
-                        : "all_below_quality_floor"
-                      : null),
+                  : passingCandidates.length === 0
+                    ? "all_below_quality_floor"
+                    : null,
               candidates: candidates.map((candidate) => ({
                 text: candidate.text,
                 score: candidate.score,

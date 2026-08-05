@@ -4,7 +4,7 @@ import { readFile, stat, unlink } from "node:fs/promises";
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_CODEX_MODEL, safeCodexModel } from "../config.js";
-import { generateWithQualityLoop } from "../refine.js";
+import { generateDraftCandidates } from "../refine.js";
 import type { DraftGenerationProvider } from "../types.js";
 import { providerProcessEnv } from "./cli-env.js";
 
@@ -119,8 +119,8 @@ export function createCodexGenerationProvider(options: {
         prompt,
         timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS
       });
-      return generateWithQualityLoop({
-        generationInput: { ...input, insightRequired: true },
+      return generateDraftCandidates({
+        generationInput: input,
         model,
         providerName: "codex",
         runPrompt: run

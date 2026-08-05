@@ -78,7 +78,7 @@ const WEAK_ENDING_PATTERN = /(?:\b(?:etc\.?|so|and|but|or|thoughts\??|agree\??|w
 const EM_DASH_OVERUSE_PATTERN = /(?:[—–][^—–]*){2,}/;
 
 export function normalizeCount(count: number | undefined) {
-  return Math.min(Math.max(count ?? 3, 1), 5);
+  return Math.min(Math.max(count ?? 1, 1), 5);
 }
 
 function processTweetText(text: string, preserveCase: boolean) {
@@ -126,21 +126,8 @@ function containsLinkedInVoice(text: string) {
   return LINKEDIN_VOICE_PATTERNS.some((pattern) => pattern.test(text));
 }
 
-function hasWeakEnding(text: string) {
-  return WEAK_ENDING_PATTERN.test(text.trim());
-}
-
 function containsGenericSlop(text: string) {
   return AI_SLOP_PATTERNS.some((pattern) => pattern.test(text)) || GENERIC_SLOP_PATTERNS.some((pattern) => pattern.test(text));
-}
-
-function scoreReadability(text: string) {
-  let score = 0;
-  const characterLength = text.length;
-  if (characterLength >= 90 && characterLength <= 260) score += 1;
-  if (characterLength < 60) score -= 1;
-  if (characterLength > 270) score -= 1;
-  return score;
 }
 
 const PAYOFF_PATTERNS = [
@@ -193,22 +180,14 @@ export function scoreTweetQuality(text: string) {
   const trimmed = text.trim();
   const payoffSignals = countPayoffSignals(trimmed);
   let score = 3;
-  if (/\d/.test(trimmed)) score += 1;
-  if (/https?:\/\//.test(trimmed)) score += 1;
-  score += scoreReadability(trimmed);
-  score += Math.min(countSpecificNouns(trimmed), 3);
-  score += Math.min(payoffSignals, 2) * 2;
-  if (payoffSignals === 0) score -= 2;
+  if (/[0-9]/.test(trimmed)) score += 1;                 // concrete number
+  if (/https?:\/\//.test(trimmed)) score += 1;           // source link
+  score += Math.min(countSpecificNouns(trimmed), 3);     // specific vocabulary
+  if (payoffSignals > 0) score += 2;                     // real consequence/tradeoff/decision
   if (containsSourceArtifact(trimmed)) score -= 3;
   if (looksLikeSourceRecap(trimmed)) score -= 3;
   if (WEAK_OPENER_PATTERN.test(trimmed)) score -= 2;
-  if (/!/.test(trimmed)) score -= 1;
-  if (/\?$/.test(trimmed) && trimmed.length < 60) score -= 1;
-  if (hasWeakEnding(trimmed)) score -= 1;
   if (containsAdjectiveBloat(trimmed)) score -= 2;
-  if (containsLinkedInVoice(trimmed)) score -= 3;
-  if (containsGenericSlop(trimmed)) score -= 2;
-  if (EM_DASH_OVERUSE_PATTERN.test(trimmed)) score -= 2;
   return score;
 }
 

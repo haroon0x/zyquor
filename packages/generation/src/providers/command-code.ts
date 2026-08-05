@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { platform, tmpdir } from "node:os";
-import { generateWithQualityLoop } from "../refine.js";
+import { generateDraftCandidates } from "../refine.js";
 import type { DraftGenerationProvider } from "../types.js";
 import { providerProcessEnv } from "./cli-env.js";
 
@@ -94,8 +94,8 @@ export function createCommandCodeGenerationProvider(options: {
         prompt,
         timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS
       });
-      return generateWithQualityLoop({
-        generationInput: { ...input, insightRequired: true },
+      return generateDraftCandidates({
+        generationInput: input,
         model,
         providerName: "command-code",
         runPrompt: run

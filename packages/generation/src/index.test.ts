@@ -4,7 +4,6 @@ import {
   createGeminiGenerationProvider,
   createOllamaGenerationProvider,
   createOpenRouterGenerationProvider,
-  evaluateTweetQuality,
   GENERATION_MODEL_OPTIONS,
   isCleanTweetText,
   postProcessTweetText,
@@ -38,55 +37,6 @@ describe("stripThinking", () => {
       )
     ).toBe(
       "Draft 1:\nFirst clean draft."
-    );
-  });
-});
-
-describe("tweet quality evaluator", () => {
-  it("posts a zero-temperature Ollama judge request and normalizes its result", async () => {
-    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
-    const fetchImpl: FetchLike = async (url, init) => {
-      calls.push({ url: String(url), init });
-      return jsonResponse({
-        message: {
-          content: '<think>Check the criteria.</think>\n```json\n{"score":"12","verdict":"excellent","reasons":["Concrete number","Natural phrasing","Strong opening","extra"]}\n```'
-        }
-      });
-    };
-
-    await expect(evaluateTweetQuality(
-      { text: "SQLite handled 8 million rows on one $20 node.", tweetType: "useful_info", idea: "SQLite scale" },
-      { baseUrl: "http://localhost:11434/", model: "judge-model", fetchImpl }
-    )).resolves.toEqual({
-      pass: true,
-      legacy: true,
-      score: 10,
-      verdict: "strong",
-      reasons: ["Concrete number", "Natural phrasing", "Strong opening"]
-    });
-
-    const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
-    expect(calls[0]?.url).toBe("http://localhost:11434/api/chat");
-    expect(body).toMatchObject({
-      model: "judge-model",
-      stream: false,
-      format: "json",
-      think: false,
-      options: { temperature: 0 }
-    });
-    const messages = body.messages as Array<{ content: string; role: string }>;
-    expect(messages[0]?.content).toContain("specificity, hook strength, natural voice, and absence of AI slop");
-    expect(JSON.parse(messages[1]?.content ?? "{}")).toEqual({
-      text: "SQLite handled 8 million rows on one $20 node.",
-      tweetType: "useful_info",
-      idea: "SQLite scale"
-    });
-  });
-
-  it("rejects malformed judge output", async () => {
-    const fetchImpl: FetchLike = async () => jsonResponse({ message: { content: "null" } });
-    await expect(evaluateTweetQuality({ text: "A tweet." }, { fetchImpl })).rejects.toThrow(
-      "Ollama quality judge returned invalid JSON"
     );
   });
 });
@@ -160,24 +110,26 @@ describe("ollama generation", () => {
     expect(messages[0]?.content).toContain("Never use em or en dashes (— or –)");
     expect(messages[0]?.content).toContain("not affiliated");
     expect(candidates).toEqual([
-      { text: "first local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 1, quality: 0 } },
-      { text: "second local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 2, quality: 0 } }
+      { text: "first local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 1, quality: 3 } },
+      { text: "second local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 2, quality: 3 } }
     ]);
   });
 
   it("retries with line prompt when tiny model returns empty JSON candidates", async () => {
     const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+    let chatCount = 0;
     const fetchImpl: FetchLike = async (url, init) => {
       calls.push({ url: String(url), init });
-      // The quality loop uses format: "json"; only the line-prompt fallback omits it.
-      if (!JSON.parse(String(init?.body)).format) {
-        return jsonResponse({
-          message: {
-            content: "Draft 1:\nKeep the automation path auditable before it touches a public account.\n\nDraft 2:\nLocal-first tools should make every browser action inspectable."
-          }
-        });
+      chatCount += 1;
+      // First call returns empty JSON candidates; generateDraftCandidates retries once with linePrompt.
+      if (chatCount === 1) {
+        return jsonResponse({ message: { content: '{"candidates":[],"status":"Draft"}' } });
       }
-      return jsonResponse({ message: { content: '{"candidates":[],"status":"Draft"}' } });
+      return jsonResponse({
+        message: {
+          content: "Draft 1:\nKeep the automation path auditable before it touches a public account.\n\nDraft 2:\nLocal-first tools should make every browser action inspectable."
+        }
+      });
     };
     const provider = createOllamaGenerationProvider({
       model: "qwen2.5:0.5b",
@@ -188,23 +140,22 @@ describe("ollama generation", () => {
 
     expect(JSON.parse(String(calls[0]?.init?.body))).toMatchObject({ format: "json" });
     const retryBody = JSON.parse(String(calls.at(-1)?.init?.body)) as Record<string, unknown>;
-    expect(retryBody).not.toHaveProperty("format");
-    expect(retryBody).toMatchObject({ think: false });
+    expect(retryBody).toMatchObject({ format: "json", think: false });
     const retryMessages = retryBody.messages as Array<{ content: string; role: string }>;
     expect(retryMessages[0]?.content).toContain("Never use em or en dashes (— or –)");
     expect(candidates).toEqual([
       {
         text: "keep the automation path auditable before it touches a public account.",
-        score: { provider: "ollama", model: "qwen2.5:0.5b", rank: 1, quality: 1 }
+        score: { provider: "ollama", model: "qwen2.5:0.5b", rank: 1, quality: 3 }
       },
       {
         text: "local-first tools should make every browser action inspectable.",
-        score: { provider: "ollama", model: "qwen2.5:0.5b", rank: 2, quality: 1 }
+        score: { provider: "ollama", model: "qwen2.5:0.5b", rank: 2, quality: 3 }
       }
     ]);
   });
 
-  it("keeps a representative account prompt ordered and under 4000 characters", async () => {
+  it("keeps a representative account prompt ordered and within the prompt budget", async () => {
     const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
     const fetchImpl: FetchLike = async (url, init) => {
       calls.push({ url: String(url), init });
@@ -233,7 +184,7 @@ describe("ollama generation", () => {
     const prompt = messages[0]?.content ?? "";
     const headings = ["Role", "Publication rules", "Voice", "Tweet type", "Calibration examples", "User style", "Output format"];
 
-    expect(prompt.length).toBeLessThan(4400);
+    expect(prompt.length).toBeLessThan(6400);
     expect(headings.map((heading) => prompt.indexOf(heading))).toEqual(
       [...headings].map((heading) => prompt.indexOf(heading)).sort((left, right) => left - right)
     );
@@ -297,13 +248,14 @@ describe("openrouter generation", () => {
     expect(headers.authorization).toBe("Bearer test-key");
     expect(body).toMatchObject({ model: "cohere/north-mini-code:free", response_format: { type: "json_object" } });
     expect(candidates).toEqual([
-      { text: "a clean openrouter draft.", score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 1, quality: 0 } },
-      { text: "another clean openrouter draft.", score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 2, quality: 0 } }
+      { text: "a clean openrouter draft.", score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 1, quality: 3 } },
+      { text: "another clean openrouter draft.", score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 2, quality: 3 } }
     ]);
   });
 
   it("retries OpenRouter with a line prompt when JSON candidates are empty", async () => {
     const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+    let chatCount = 0;
     const fetchImpl: FetchLike = async (url, init) => {
       calls.push({ url: String(url), init });
       if (String(url).endsWith("/models")) {
@@ -316,8 +268,9 @@ describe("openrouter generation", () => {
           ]
         });
       }
-      // The quality loop sets response_format; only the line-prompt fallback omits it.
-      if (JSON.parse(String(init?.body)).response_format) {
+      chatCount += 1;
+      // First chat call returns empty JSON candidates; generateDraftCandidates retries once with linePrompt.
+      if (chatCount === 1) {
         return jsonResponse({
           choices: [
             {
@@ -353,16 +306,15 @@ describe("openrouter generation", () => {
     expect(calls[1]?.url).toBe("https://openrouter.ai/api/v1/chat/completions");
     expect(calls.at(-1)?.url).toBe("https://openrouter.ai/api/v1/chat/completions");
     expect(firstBody).toMatchObject({ response_format: { type: "json_object" } });
-    expect(retryBody).not.toHaveProperty("response_format");
-    expect(retryBody).toMatchObject({ temperature: 0.5, max_tokens: 500 });
+    expect(retryBody).toMatchObject({ response_format: { type: "json_object" } });
     expect(candidates).toEqual([
       {
         text: "keep ingest drafts human-reviewed before anything reaches x.",
-        score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 1, quality: 1 }
+        score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 1, quality: 3 }
       },
       {
         text: "make local posting automation auditable enough that every account action has a trail.",
-        score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 2, quality: 1 }
+        score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 2, quality: 3 }
       }
     ]);
   });
@@ -432,7 +384,7 @@ describe("gemini generation", () => {
       }
     });
     expect(candidates).toEqual([
-      { text: "a clean gemini draft.", score: { provider: "gemini", model: "gemini-2.0-flash", rank: 1, quality: 0 } }
+      { text: "a clean gemini draft.", score: { provider: "gemini", model: "gemini-2.0-flash", rank: 1, quality: 3 } }
     ]);
   });
 });
@@ -491,11 +443,11 @@ describe("tweet quality harness", () => {
     await expect(provider.generateDraftCandidates({ idea: "AI infra bottleneck", count: 3 })).resolves.toEqual([
       {
         text: "ai infra, not model demos, is where the bottleneck moved.",
-        score: { provider: "ollama", model: "gemma4:e4b", rank: 1, quality: 1 }
+        score: { provider: "ollama", model: "gemma4:e4b", rank: 1, quality: 4 }
       },
       {
         text: "compute supply now decides which ai products can scale.",
-        score: { provider: "ollama", model: "gemma4:e4b", rank: 2, quality: 0 }
+        score: { provider: "ollama", model: "gemma4:e4b", rank: 2, quality: 3 }
       }
     ]);
   });

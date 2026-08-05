@@ -167,7 +167,7 @@ async function main() {
     cdpPort: 9222,
     startWithWindows: false,
     autoApproveSourcePackets: false,
-    llmProvider: "command-code",
+    llmProvider: "codex",
     ...loadSettings(process.env.ZYQUOR_DATA_ROOT),
   };
   applySettingsToEnv(desktopSettings);

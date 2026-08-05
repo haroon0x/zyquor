@@ -43,6 +43,12 @@ const RISKY_UNSUPPORTED_PATTERNS = [
   /\bno one\s+(is|was|will|can)\b/i
 ];
 
+// "we"/"our" + an action verb. For non-feed source packets the material is always
+// someone else's work, so first-person ownership phrasing ("we built X", "we dropped
+// Postgres") misattributes it to the account owner and must be rejected.
+const FIRST_PERSON_MISATTRIBUTION =
+  /(?:^|[\s(),;:."'])(?:we|our)\s+(?:team|company|engineering)?\s*(?:built|build|ship(?:s|ped)?|made|make|created?|launch(?:ed)?|wrote|write|developed?|designed?|deploy(?:ed)?|migrat(?:ed|ing)?|moved?|replaced?|switch(?:ed|ing)?|released?|published?|drop(?:ped)?|cut|reduced?|saved?|scal(?:ed)?|handled?|served?|processed?|r[au]n|used?|added?|removed?|introduced?|adopted?|tested?|verified?|maintained?|owned?|operated?|prototyped?)\b/i;
+
 function containsUrl(text: string) {
   return /https?:\/\/\S+/i.test(text);
 }
@@ -129,6 +135,9 @@ export function validateSourcePostQuality(input: PostQualityInput): PostQualityR
   if (recentSamePacketPost(input)) reasons.push("same_source_packet_cooldown");
   if (RISKY_UNSUPPORTED_PATTERNS.some((pattern) => pattern.test(text)) && !RISKY_UNSUPPORTED_PATTERNS.some((pattern) => pattern.test(evidence))) {
     reasons.push("risky_unsupported_absolute_claim");
+  }
+  if (sourceNeedsLink(input.packet) && FIRST_PERSON_MISATTRIBUTION.test(text)) {
+    reasons.push("first_person_misattribution");
   }
   if (hasBrokenQuoteTimeline(text)) reasons.push("broken_quote_timeline_format");
 

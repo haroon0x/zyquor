@@ -1,7 +1,7 @@
 import { DEFAULT_GEMINI_BASE_URL, DEFAULT_GEMINI_MODEL } from "../config.js";
 import { systemPrompt, userPrompt } from "../prompts.js";
 import { asText } from "../quality.js";
-import { generateWithQualityLoop } from "../refine.js";
+import { generateDraftCandidates } from "../refine.js";
 import type { DraftGenerationProvider, FetchLike } from "../types.js";
 import { postJson } from "./http.js";
 
@@ -39,7 +39,7 @@ export function createGeminiGenerationProvider(options: {
         return asText(body.candidates?.[0]?.content?.parts?.map((part) => asText(part.text)).join("\n"));
       };
 
-      return generateWithQualityLoop({
+      return generateDraftCandidates({
         generationInput: input,
         model,
         providerName: "gemini",

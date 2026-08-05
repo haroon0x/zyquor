@@ -234,6 +234,36 @@ describe("automatic ingest", () => {
     });
   });
 
+  it("rejects first-person ownership claims about third-party work", () => {
+    const packet = {
+      accountId: "account_personal",
+      createdAt: "2026-04-24T15:00:00.000Z",
+      facts: ["Acme shipped a faster SQLite build."],
+      id: "packet_2",
+      sourceType: "news" as const,
+      status: "drafted" as const,
+      summary: "Acme shipped a faster SQLite build.",
+      title: "Acme ships faster SQLite",
+      tweetType: "useful_info" as const,
+      updatedAt: "2026-04-24T15:00:00.000Z",
+      url: "https://example.com/acme-sqlite"
+    };
+
+    const misattributed = validateSourcePostQuality({
+      packet,
+      text: "We built the faster SQLite this weekend and cut our query time."
+    });
+    expect(misattributed.ok).toBe(false);
+    expect(misattributed.reasons).toContain("first_person_misattribution");
+
+    const clean = validateSourcePostQuality({
+      packet,
+      text: "Acme's faster SQLite build cut query time. Worth a look for local workloads."
+    });
+    expect(clean.reasons).not.toContain("first_person_misattribution");
+    expect(clean.ok).toBe(true);
+  });
+
   it("prioritizes broader preferred news signals during ingest", async () => {
     const repository = createMemoryRepository({
       now: () => "2026-04-24T17:00:00.000Z"

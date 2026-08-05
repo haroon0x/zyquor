@@ -6,8 +6,6 @@ export interface GenerateDraftCandidatesInput {
   examplePosts?: string[];
   feedback?: string;
   idea: string;
-  insight?: string;
-  insightRequired?: boolean;
   count?: number;
   objective?: string;
   preserveCase?: boolean;

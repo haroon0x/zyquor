@@ -1,5 +1,5 @@
 import type { SourceAdapter } from "@zyquor/adapters";
-import type { DraftGenerationProvider, GenerationEnvironment, TweetQualityEvaluator } from "@zyquor/generation";
+import type { DraftGenerationProvider, GenerationEnvironment } from "@zyquor/generation";
 import type { ZyquorRepository } from "@zyquor/storage";
 import type { ReplyTarget } from "@zyquor/core";
 
@@ -48,7 +48,6 @@ export interface DesktopControl {
 export interface BuildAppOptions {
   repository?: ZyquorRepository;
   generationProvider?: DraftGenerationProvider;
-  tweetQualityEvaluator?: TweetQualityEvaluator;
   generationConfigPath?: string | null;
   generationEnv?: GenerationEnvironment;
   enableBrowserPrepare?: boolean;
@@ -87,7 +86,6 @@ export interface AppDeps {
   sourceAdapters: Map<string, SourceAdapter>;
   generationEnv: GenerationEnvironment;
   generationProvider: DraftGenerationProvider;
-  tweetQualityEvaluator: TweetQualityEvaluator;
   generationConfigPath: string | null;
   launchPostingChrome: ((input: { accountId: string }) => Promise<{ launched: boolean; reason?: string }>) | undefined;
   desktopSettings: DesktopSettingsConfig | undefined;

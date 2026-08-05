@@ -14,9 +14,9 @@ Three creation lanes: `single` (one idea → candidates → approve), `batch` (m
 
 Automated lane: deterministic source ingestion → compact source packet → one generated draft → approved autopost job. LLM never browses, scrapes, schedules, ranks, or decides whether to post.
 
-Draft quality has two layers (2026-07-21): a Luna insight and reader-critic LLM pass inside the providers (insight → generate → fact/editorial audit → reader critique → revise → final audit → drop rejected; all-dropped means no draft), and `scoreTweetQuality` in `packages/generation/src/quality.ts`, a floor (`ZYQUOR_QUALITY_MIN`, default 7) against recaps and slop, not a ranker. Measure prompt/pipeline changes with `node scripts/tweet-eval.mjs` (real provider calls plus an independent Command Code judge; reports floor rate, judge coverage, and mean scores).
+Draft generation is a single LLM call that writes candidates with all anti-slop guidance (voice, punctuation, style contract, banned phrases, source boundary) carried in the system + user prompt, retried once with a simpler line prompt only when the output cannot be parsed. `scoreTweetQuality` in `packages/generation/src/quality.ts` is a deterministic floor (`ZYQUOR_QUALITY_MIN`, default 7) against recaps and slop, not a ranker. There is no separate LLM judge in the pipeline. Measure prompt/pipeline changes with `node scripts/tweet-eval.mjs`.
 
-X free-tier character limit enforced at 280. Tweet types: `feed_observation`, `news_context`, `useful_info`, `guide`, `lesson`, `tool`, `opinion`, `reply`, `hiring`, `article_summary`, `narrative_history`.
+Tweet types: `feed_observation`, `news_context`, `useful_info`, `guide`, `lesson`, `tool`, `opinion`, `reply`, `hiring`, `article_summary`, `narrative_history`.
 
 Controlled posting only behind env flags. Multi-account UI, Tauri, and E2E tests are future work. Reply drafting shipped (plan 007-C).
 
@@ -186,7 +186,7 @@ ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
 - Provider is resolved in order: saved `data/generation.json` > `.env` > `process.env`.
 - Set `ZYQUOR_LLM_PROVIDER` explicitly to `command-code` or `codex`; the desktop setup does not use `auto` or OpenRouter.
 - Shell env vars take precedence over `.env`; the dotenv loader skips already-set vars.
-- Preferred provider is `command-code` with model `gpt-5.6-luna`. Codex remains available with model `luna`; CLI paths use `ZYQUOR_CODEX_PATH` and `ZYQUOR_COMMAND_CODE_PATH`. Both CLI providers run the audit and reader-critic pipeline. OpenRouter is not used by the desktop setup.
+- Preferred provider is `codex` with model `gpt-5.6-luna`. Command Code remains available with the same model; CLI paths use `ZYQUOR_CODEX_PATH` and `ZYQUOR_COMMAND_CODE_PATH`. Both CLI providers use the single generation flow. OpenRouter is not used by the desktop setup.
 
 ### Browser Automation Caveats
 - Playwright bundled Chromium (`playwright install chromium`) fails on Ubuntu 26.04+ — it's unsupported on newer distros.

@@ -1,7 +1,7 @@
 import { DEFAULT_OLLAMA_BASE_URL, DEFAULT_OLLAMA_MODEL } from "../config.js";
-import { linePrompt, systemPrompt, userPrompt } from "../prompts.js";
-import { asText, candidatesFromText, isNoCandidatesError } from "../quality.js";
-import { generateWithQualityLoop } from "../refine.js";
+import { systemPrompt, userPrompt } from "../prompts.js";
+import { asText } from "../quality.js";
+import { generateDraftCandidates } from "../refine.js";
 import type { DraftGenerationProvider, FetchLike } from "../types.js";
 import { postJson } from "./http.js";
 
@@ -52,39 +52,20 @@ export function createOllamaGenerationProvider(options: {
         return stripThinking(asText(body.message?.content));
       };
 
-      try {
-        return await generateWithQualityLoop({
-          generationInput: input,
-          model,
-          providerName: "ollama",
-          runInitial: (generationInput) =>
-            chat(
-              [
-                { role: "system", content: systemPrompt(generationInput) },
-                { role: "user", content: userPrompt(generationInput) }
-              ],
-              900
-            ),
-          runPrompt: (prompt) => chat([{ role: "user", content: prompt }], 900)
-        });
-      } catch (error) {
-        if (!isNoCandidatesError(error, "ollama")) {
-          throw error;
-        }
-
-        const retryBody = await postJson<{ message?: { content?: unknown } }>(fetchImpl, `${baseUrl}/api/chat`, {
-          model,
-          messages: [{ role: "user", content: linePrompt(input) }],
-          stream: false,
-          think: false,
-          options: {
-            temperature: 0.5,
-            num_predict: 500
-          }
-        });
-
-        return candidatesFromText(stripThinking(asText(retryBody.message?.content)), input, "ollama", model);
-      }
+      return generateDraftCandidates({
+        generationInput: input,
+        model,
+        providerName: "ollama",
+        runInitial: (generationInput) =>
+          chat(
+            [
+              { role: "system", content: systemPrompt(generationInput) },
+              { role: "user", content: userPrompt(generationInput) }
+            ],
+            900
+          ),
+        runPrompt: (prompt) => chat([{ role: "user", content: prompt }], 900)
+      });
     }
   };
 }

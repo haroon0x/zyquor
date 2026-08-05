@@ -7,7 +7,6 @@ import {
 import { runAutomaticIngest } from "@zyquor/automation";
 import { getAggregatedSourceHealth } from "@zyquor/adapters";
 import { definedEntries } from "../lib/utils.js";
-import { qualityJudgeOptions } from "../lib/quality-judge.js";
 
 export function registerIngestRoutes(app: FastifyInstance, deps: AppDeps): void {
   const autoApproveEnabled = () =>
@@ -136,14 +135,10 @@ export function registerIngestRoutes(app: FastifyInstance, deps: AppDeps): void 
 
   app.post("/ingest-run", async (request, reply) => {
     const repository = await deps.repository;
-    const judgeOptions = qualityJudgeOptions(deps.generationEnv);
     const result = await runAutomaticIngest({
       adapters: deps.sourceAdapters,
       autoApproveEnabled: autoApproveEnabled(),
       generationProvider: deps.generationProvider,
-      ...(deps.desktopSettings
-        ? { qualityEvaluator: deps.tweetQualityEvaluator, qualityEvaluatorOptions: judgeOptions }
-        : {}),
       repository
     });
 
@@ -160,7 +155,6 @@ export function registerIngestRoutes(app: FastifyInstance, deps: AppDeps): void 
     }
 
     const repository = await deps.repository;
-    const judgeOptions = qualityJudgeOptions(deps.generationEnv);
     const configs = (await repository.listIngestConfigs()).filter((config) => config.enabled);
     const runs = await Promise.all(
       configs.map((config) => repository.createIngestRun({ configId: config.id, accountId: config.accountId }))
@@ -181,9 +175,6 @@ export function registerIngestRoutes(app: FastifyInstance, deps: AppDeps): void 
           adapters: deps.sourceAdapters,
           autoApproveEnabled: autoApproveEnabled(),
           generationProvider: deps.generationProvider,
-          ...(deps.desktopSettings
-            ? { qualityEvaluator: deps.tweetQualityEvaluator, qualityEvaluatorOptions: judgeOptions }
-            : {}),
           onProgress: ({ errors, processed }) => {
             deps.ingestRunState = { ...deps.ingestRunState, errors, processed };
           },

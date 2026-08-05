@@ -19,7 +19,7 @@ export interface GenerationEnvironment {
 export const DEFAULT_COMMAND_CODE_MODEL = "gpt-5.6-luna";
 export const COMMAND_CODE_MODELS = [DEFAULT_COMMAND_CODE_MODEL] as const;
 
-export const DEFAULT_CODEX_MODEL = "luna";
+export const DEFAULT_CODEX_MODEL = "gpt-5.6-luna";
 export const CODEX_MODELS = [DEFAULT_CODEX_MODEL] as const;
 
 export function safeCodexModel(model: string | undefined) {

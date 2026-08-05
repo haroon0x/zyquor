@@ -4,7 +4,6 @@ import { createSourcePacketRequestSchema, setSourcePacketFeedbackRequestSchema }
 import { draftFromSourcePacket } from "@zyquor/automation";
 import { deleteSourcePacketCascade } from "../lib/source-packet-delete.js";
 import { appendNotebookEntry, resolveFeedbackDir } from "../lib/feedback-notebook.js";
-import { qualityJudgeOptions } from "../lib/quality-judge.js";
 
 export function registerSourcePacketsRoutes(app: FastifyInstance, deps: AppDeps): void {
   app.get("/source-packets", async (request) => {
@@ -99,13 +98,7 @@ export function registerSourcePacketsRoutes(app: FastifyInstance, deps: AppDeps)
       ...(autoApprove
         ? {
             autoApprove: true,
-            mode: "autopost" as const,
-            ...(deps.desktopSettings
-              ? {
-                  qualityEvaluator: deps.tweetQualityEvaluator,
-                  qualityEvaluatorOptions: qualityJudgeOptions(deps.generationEnv)
-                }
-              : {})
+            mode: "autopost" as const
           }
         : {})
     };
