@@ -1,5 +1,6 @@
 import {
   passesTweetQualityFloor,
+  formatTweetText,
   postProcessTweetText,
   qualityMinimum,
   scoreTweetQuality,
@@ -46,15 +47,29 @@ export async function generateCandidatesForPacket(input: {
   const context = await accountGenerationContext(input.repository, input.packet.accountId);
   const tweetInput = sourceTweetInput(input.packet);
 
-  return input.generationProvider.generateDraftCandidates({
+  const candidates = await input.generationProvider.generateDraftCandidates({
     idea: input.packet.title,
     ...(tweetInput.source ? { context: tweetInput.source } : {}),
     insightRequired: true,
     count: input.count ?? 1,
+    preserveCase: true,
     ...context,
     ...(input.packet.feedback ? { feedback: input.packet.feedback } : {}),
     tweetType: generationTweetType(input.packet.tweetType)
   });
+
+  if (input.packet.sourceType === "x-feed") {
+    const qualityMin = qualityMinimum();
+    const passing = candidates.filter((candidate) =>
+      passesTweetQualityFloor(formatTweetText(candidate.text), qualityMin)
+    );
+    if (passing.length === 0) {
+      throw new Error(`${input.generationProvider.name} returned no draft candidates`);
+    }
+    return passing;
+  }
+
+  return candidates;
 }
 
 export async function draftFromSourcePacket(input: {
@@ -72,14 +87,18 @@ export async function draftFromSourcePacket(input: {
   let candidates: GeneratedDraftCandidate[] = await generateCandidatesForPacket({
     ...candidateInput
   }).then((items) =>
-    items.map((candidate) => ({
-      ...candidate,
-      text: withRequiredSourceUrl(postProcessTweetText(candidate.text), input.packet),
-      score: {
-        ...candidate.score,
-        quality: scoreTweetQuality(withRequiredSourceUrl(postProcessTweetText(candidate.text), input.packet))
-      }
-    }))
+    items.map((candidate) => {
+      const formatter = candidate.score.provider === input.generationProvider.name ? formatTweetText : postProcessTweetText;
+      const normalized = withRequiredSourceUrl(formatter(candidate.text), input.packet);
+      return {
+        ...candidate,
+        text: normalized,
+        score: {
+          ...candidate.score,
+          quality: scoreTweetQuality(normalized)
+        }
+      };
+    })
   );
   let judgeError: string | null = null;
   const hasQualityJudge = Boolean(input.options?.qualityEvaluator);

@@ -109,7 +109,7 @@ export function packetFieldsFromFeedDigest(item: SourceItem) {
   return {
     title: truncateText(item.title, 240),
     summary: truncateText(uniqueLines.join(" · "), 2000),
-    facts: uniqueLines.slice(0, 8).map((line) => truncateText(line, 500))
+    facts: uniqueLines.slice(0, 20).map((line) => truncateText(line, 500))
   };
 }
 

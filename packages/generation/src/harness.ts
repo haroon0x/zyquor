@@ -40,12 +40,12 @@ export function buildSourceTweetInput(input: {
   const facts = [...new Set(input.facts ?? [])]
     .map(compact)
     .filter((fact) => fact && (isXFeed || fact.toLowerCase() !== title))
-    .slice(0, isXFeed ? 10 : 5);
+    .slice(0, isXFeed ? 20 : 5);
 
   return {
     idea: [
       isXFeed
-        ? `Recent posts from the X home feed:\n${facts.join("\n")}`
+        ? `Recent posts from the X home feed. Each numbered line is a separate post:\n${facts.map((fact, index) => `${index + 1}. ${fact}`).join("\n")}`
         : input.sourceType === "job"
           ? `Hiring post: ${compact(input.title)}`
           : `Source title: ${compact(input.title)}`,
@@ -82,7 +82,7 @@ export function renderSourceContext(
     const lines = [
       source.title ? `Title: ${compact(source.title).slice(0, 240)}` : null,
       source.url ? `URL: ${source.url}` : null,
-      source.summary ? `Summary: ${compact(source.summary).slice(0, 1200)}` : null,
+      source.sourceType === "x-feed" ? null : source.summary ? `Summary: ${compact(source.summary).slice(0, 1200)}` : null,
       source.facts?.length
         ? `Facts:\n${source.facts.slice(0, 5).map((fact) => `- ${compact(fact).slice(0, 400)}`).join("\n")}`
         : null
@@ -98,10 +98,12 @@ export function renderSourceContext(
     source.url ? `Source URL: ${source.url}` : null,
     source.author ? `Author: ${source.author}` : null,
     source.publishedAt ? `Published: ${source.publishedAt}` : null,
-    source.summary ? `Source summary: ${source.summary}` : null,
+    source.sourceType === "x-feed" ? null : source.summary ? `Source summary: ${source.summary}` : null,
     typeof source.engagement === "number" ? `Observed engagement score: ${source.engagement}` : null,
     source.topicTags?.length ? `Topic tags: ${source.topicTags.join(", ")}` : null,
-    source.facts?.length ? `Grounded facts:\n${source.facts.map((fact) => `- ${fact}`).join("\n")}` : null
+    source.facts?.length
+      ? `Grounded facts:\n${source.facts.map((fact, index) => `${source.sourceType === "x-feed" ? `${index + 1}.` : "-"} ${fact}`).join("\n")}`
+      : null
   ].filter(Boolean);
 
   return lines.length ? `\n\nSource context:\n${lines.join("\n")}` : "";

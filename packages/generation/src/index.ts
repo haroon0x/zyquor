@@ -26,6 +26,7 @@ export { createOpenRouterGenerationProvider } from "./providers/openrouter.js";
 export { evaluateTweetQuality } from "./evaluator.js";
 export {
   DEFAULT_QUALITY_MIN,
+  formatTweetText,
   isCleanTweetText,
   passesTweetQualityFloor,
   postProcessTweetText,

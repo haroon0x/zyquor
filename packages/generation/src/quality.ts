@@ -81,7 +81,7 @@ export function normalizeCount(count: number | undefined) {
   return Math.min(Math.max(count ?? 3, 1), 5);
 }
 
-export function postProcessTweetText(text: string) {
+function processTweetText(text: string, preserveCase: boolean) {
   const untagged = text.replace(/<\/?source-(?:title|url)\s*>/gi, "");
   const urls: string[] = [];
   const protectedText = untagged.replace(/https?:\/\/[^\s]+/gi, (url) => {
@@ -90,7 +90,7 @@ export function postProcessTweetText(text: string) {
     return token;
   });
 
-  return protectedText
+  const normalized = protectedText
     .replace(/\r\n?/g, "\n")
     .replace(/\s*[\u2013\u2014]\s*/g, ", ")
     .split("\n")
@@ -104,9 +104,18 @@ export function postProcessTweetText(text: string) {
     )
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
-    .trim()
-    .toLowerCase()
+    .trim();
+
+  return (preserveCase ? normalized : normalized.toLowerCase())
     .replace(/\uE000(\d+)\uE001/g, (_token, index: string) => urls[Number(index)] ?? "");
+}
+
+export function formatTweetText(text: string) {
+  return processTweetText(text, true);
+}
+
+export function postProcessTweetText(text: string) {
+  return processTweetText(text, false);
 }
 
 function containsAdjectiveBloat(text: string) {
@@ -288,8 +297,9 @@ function isGroundedCandidate(text: string, input: GenerateDraftCandidatesInput) 
   return numberTokensIn(text).every((token) => suppliedNumbers.has(token));
 }
 
-function stripGeneratedUrls(text: string) {
-  return postProcessTweetText(
+function stripGeneratedUrls(text: string, preserveCase: boolean) {
+  const normalize = preserveCase ? formatTweetText : postProcessTweetText;
+  return normalize(
     text
       .replace(/\[([^\]]+)\]\(https?:\/\/[^)\s]+\)/gi, "$1")
       .replace(/https?:\/\/[^\s<>]+/gi, "")
@@ -321,8 +331,8 @@ export function candidatesFromText(
 ) {
   const count = normalizeCount(input.count);
   const texts = parseCandidateTexts(raw, count * 2)
-    .map(postProcessTweetText)
-    .map(stripGeneratedUrls)
+    .map((text) => (input.preserveCase ? formatTweetText(text) : postProcessTweetText(text)))
+    .map((text) => stripGeneratedUrls(text, input.preserveCase === true))
     .filter((text, index, all) => {
       const normalized = text.toLowerCase().replace(/\s+/g, " ");
       return (

@@ -16,7 +16,7 @@ export interface GenerationEnvironment {
   ZYQUOR_OLLAMA_MODEL?: string;
 }
 
-export const DEFAULT_COMMAND_CODE_MODEL = "deepseek/deepseek-v4-pro";
+export const DEFAULT_COMMAND_CODE_MODEL = "gpt-5.6-luna";
 export const COMMAND_CODE_MODELS = [DEFAULT_COMMAND_CODE_MODEL] as const;
 
 export const DEFAULT_CODEX_MODEL = "luna";

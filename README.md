@@ -92,7 +92,7 @@ If you want bare `zyquor` instead of `./zyquor`, install/link the repo command o
 
 ## Draft Generation
 
-Default provider selection is resolved from saved generation config and environment. Codex with Luna on high reasoning is the default; Command Code, OpenRouter, Gemini, and Ollama providers remain available.
+Default provider selection is resolved from saved generation config and environment. Command Code with `gpt-5.6-luna` is the default; Codex, Gemini, and Ollama remain available. OpenRouter is not used by the desktop setup.
 
 Install and authenticate Command Code once before starting Zyquor:
 
@@ -102,7 +102,7 @@ command-code login
 command-code status
 ```
 
-Zyquor runs Command Code in non-interactive, read-only plan mode with `deepseek/deepseek-v4-pro`. Codex uses `codex exec` with Luna and high reasoning. Candidates that drop or change supplied URLs or introduce unsupported numbers are rejected and regenerated once. On native Windows, install the selected CLI natively so the Electron app can launch it; a copy installed only inside WSL is not visible to a native Windows app. If it is not on the desktop app's `PATH`, set the full executable path in Settings.
+Zyquor runs Command Code in non-interactive, read-only plan mode with `gpt-5.6-luna`. Codex uses `codex exec` with Luna and high reasoning. Candidates that drop or change supplied URLs or introduce unsupported numbers are rejected and regenerated once. On native Windows, install the selected CLI natively so the Electron app can launch it; a copy installed only inside WSL is not visible to a native Windows app. If it is not on the desktop app's `PATH`, set the full executable path in Settings.
 
 Codex CLI is also supported. Authenticate it once, then select it in the Generation panel or set it in `.env`:
 

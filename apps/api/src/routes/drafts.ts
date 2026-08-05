@@ -135,6 +135,7 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
       idea: sourceContext ? "" : draft.sourceInput,
       ...(sourceContext?.source ? { context: sourceContext.source } : {}),
       count,
+      preserveCase: true,
       ...context,
       ...(draft.replyTo
         ? { tweetType: "reply" }
@@ -150,7 +151,8 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
     let updated = await repository.saveDraftCandidates(
       draft.id,
       candidates.map((candidate) => {
-        const normalizedText = tracePostProcessTweetText("select-candidate", candidate.text);
+        const preserveCase = candidate.score.provider === deps.generationProvider.name;
+        const normalizedText = tracePostProcessTweetText("select-candidate", candidate.text, preserveCase);
         const text = sourcePacket ? withRequiredSourceUrl(normalizedText, sourcePacket) : normalizedText;
         return {
           ...candidate,
@@ -255,7 +257,11 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
         const mode = metadata.autopost ? "autopost" : isPostingMode(metadata.mode) ? metadata.mode : "prepare_only";
         const approved = await repository.approveDraft({
           draftId: draft.id,
-          editedText: tracePostProcessTweetText("manual-select", selectedText),
+          editedText: tracePostProcessTweetText(
+            "manual-select",
+            selectedText,
+            bestCandidate.score.provider === deps.generationProvider.name
+          ),
           mode,
           ...(draft.replyTo ? { replyTo: draft.replyTo } : {}),
           scheduledFor: (metadata.scheduleStart as string | null | undefined) ?? null
@@ -406,7 +412,9 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
       return reply.code(404).send({ error: "Draft not found" });
     }
 
-    let approvedText = tracePostProcessTweetText("update-draft", input.editedText);
+    const selectedCandidate = existing.candidates.find((candidate) => candidate.selected);
+    const preserveCase = selectedCandidate?.score.provider === deps.generationProvider.name;
+    let approvedText = tracePostProcessTweetText("update-draft", input.editedText, preserveCase);
     if (input.mode === "autopost") {
       const sourcePacketId = typeof existing.draft.metadata.sourcePacketId === "string"
         ? existing.draft.metadata.sourcePacketId

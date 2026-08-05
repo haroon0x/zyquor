@@ -126,6 +126,9 @@ export async function generateWithQualityLoop(input: {
   const insight = input.generationInput.insightRequired
     ? parseInsight(await runPrompt(insightPrompt(input.generationInput)))
     : "";
+  if (input.generationInput.insightRequired && input.generationInput.tweetType === "feed_observation" && !insight) {
+    throw new Error(`${providerName} returned no draft candidates`);
+  }
   const generationInput = insight ? { ...input.generationInput, insight } : input.generationInput;
   const raw = input.runInitial
     ? await input.runInitial(generationInput)

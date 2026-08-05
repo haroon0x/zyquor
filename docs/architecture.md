@@ -63,7 +63,7 @@ Only `@zyquor/generation` knows provider wire formats. API selects provider from
 
 Supported providers:
 
-- `command-code`: authenticated local Command Code CLI in non-interactive plan mode; default model `deepseek/deepseek-v4-pro`.
+- `command-code`: authenticated local Command Code CLI in non-interactive plan mode; default model `gpt-5.6-luna`.
 - `codex`: authenticated Codex CLI in ephemeral, read-only, non-interactive mode; default model `luna` with high reasoning.
 - `openrouter`: OpenRouter chat completions.
 - `gemini`: Google Gemini `models/{model}:generateContent`.

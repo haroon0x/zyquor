@@ -62,7 +62,11 @@ export async function postBrowserJob(deps: AppDeps, jobId: string, options: Post
 
   const account = await repository.getAccount(job.accountId);
   const draftWithCandidates = await repository.getDraft(job.draftId);
-  const postedText = draftWithCandidates?.draft.editedText ? tracePostProcessTweetText("post-job", draftWithCandidates.draft.editedText) : null;
+  const selectedCandidate = draftWithCandidates?.candidates.find((candidate) => candidate.selected);
+  const preserveCase = selectedCandidate?.score.provider === deps.generationProvider.name;
+  const postedText = draftWithCandidates?.draft.editedText
+    ? tracePostProcessTweetText("post-job", draftWithCandidates.draft.editedText, preserveCase)
+    : null;
   if (!account || !postedText) {
     throw new HttpError(409, "Job is missing account or approved text");
   }

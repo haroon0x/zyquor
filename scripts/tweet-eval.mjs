@@ -152,7 +152,7 @@ if (judged.length > 0) {
   try {
     const raw = await runCommandCode(
       `${JUDGE_RUBRIC}\n\nPosts:\n${listing}`,
-      process.env.ZYQUOR_COMMAND_CODE_MODEL || "deepseek/deepseek-v4-pro"
+      process.env.ZYQUOR_COMMAND_CODE_MODEL || "gpt-5.6-luna"
     );
     for (const verdict of parseJudge(raw, judged.length)) {
       const row = judged[verdict.n - 1];

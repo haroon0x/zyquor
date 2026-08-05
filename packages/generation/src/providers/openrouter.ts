@@ -36,7 +36,7 @@ export function createOpenRouterGenerationProvider(options: {
   const model = safeOpenRouterModel(options.model);
   const fetchImpl = options.fetch ?? fetch;
   let confirmedFree = false;
-  let supportsJsonFormat = true;
+  let supportsJsonFormat = model !== "inclusionai/ling-3.0-flash:free";
 
   async function assertFreeModel() {
     if (confirmedFree) return;

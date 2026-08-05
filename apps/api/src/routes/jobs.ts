@@ -228,8 +228,10 @@ export function registerJobsRoutes(app: FastifyInstance, deps: AppDeps): void {
 
     const account = await repository.getAccount(job.accountId);
     const draftWithCandidates = await repository.getDraft(job.draftId);
+    const selectedCandidate = draftWithCandidates?.candidates.find((candidate) => candidate.selected);
+    const preserveCase = selectedCandidate?.score.provider === deps.generationProvider.name;
     const draftText = draftWithCandidates?.draft.editedText
-      ? tracePostProcessTweetText("prepare-job", draftWithCandidates.draft.editedText)
+      ? tracePostProcessTweetText("prepare-job", draftWithCandidates.draft.editedText, preserveCase)
       : null;
     const sourcePacketId = draftWithCandidates ? await sourcePacketIdForDraft(repository, job.draftId) : null;
     const sourcePacket = sourcePacketId ? await repository.getSourcePacket(sourcePacketId) : null;

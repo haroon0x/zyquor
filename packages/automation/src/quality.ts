@@ -1,6 +1,6 @@
 import type { PostHistory, SourcePacket } from "@zyquor/core";
 import { AI_SLOP_PHRASES } from "@zyquor/core";
-import { passesTweetQualityFloor, postProcessTweetText } from "@zyquor/generation";
+import { formatTweetText, passesTweetQualityFloor } from "@zyquor/generation";
 
 export interface PostQualityInput {
   history?: PostHistory[];
@@ -16,7 +16,7 @@ export interface PostQualityResult {
 }
 
 export function validateGeneratedPostQuality(text: string): PostQualityResult {
-  const normalized = postProcessTweetText(text);
+  const normalized = formatTweetText(text);
   const reasons: string[] = [];
   if (normalized.length === 0) reasons.push("empty_post_text");
   if (!passesTweetQualityFloor(normalized)) reasons.push("post_failed_quality_floor");
@@ -56,7 +56,7 @@ function sourceEvidence(packet: SourcePacket) {
 }
 
 function stripUrls(text: string) {
-  return postProcessTweetText(
+  return formatTweetText(
     text
       .replace(/\[([^\]]+)\]\(https?:\/\/[^)\s]+\)/gi, "$1")
       .replace(/https?:\/\/[^\s<>]+/gi, "")
@@ -65,12 +65,12 @@ function stripUrls(text: string) {
 }
 
 function repairQuoteTimeline(text: string) {
-  const normalized = postProcessTweetText(text);
+  const normalized = formatTweetText(text);
   if (normalized.includes("\n")) return normalized;
   const quoteCount = (normalized.match(/\s>\s/g) ?? []).length + (normalized.startsWith(">") ? 1 : 0);
   if (quoteCount < 2) return normalized;
 
-  return postProcessTweetText(
+  return formatTweetText(
     normalized
       .replace(/\s+>\s+/g, "\n> ")
       .replace(/^>\s*/, "> ")
@@ -102,11 +102,11 @@ export function withRequiredSourceUrl(text: string, packet: SourcePacket) {
   const body = stripUrls(repaired);
   if (!sourceNeedsLink(packet) || !packet.url) return body;
   const separator = body.includes("\n") ? "\n" : " ";
-  return postProcessTweetText(`${body}${body ? separator : ""}${packet.url}`);
+  return formatTweetText(`${body}${body ? separator : ""}${packet.url}`);
 }
 
 function hasBrokenQuoteTimeline(text: string) {
-  return postProcessTweetText(text)
+  return formatTweetText(text)
     .split("\n")
     .some((line) => /^> .*\s> /.test(line));
 }

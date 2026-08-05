@@ -184,9 +184,9 @@ ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
 
 ### Generation Provider Resolution
 - Provider is resolved in order: saved `data/generation.json` > `.env` > `process.env`.
-- Setting `ZYQUOR_LLM_PROVIDER=openrouter` without `ZYQUOR_OPENROUTER_API_KEY` crashes the API. Use `auto` if the key is not yet available — it falls back through available providers.
+- Set `ZYQUOR_LLM_PROVIDER` explicitly to `command-code` or `codex`; the desktop setup does not use `auto` or OpenRouter.
 - Shell env vars take precedence over `.env`; the dotenv loader skips already-set vars.
-- Preferred provider is `codex` with model `luna` and high reasoning. `command-code` remains available with `deepseek/deepseek-v4-pro`; CLI paths use `ZYQUOR_CODEX_PATH` and `ZYQUOR_COMMAND_CODE_PATH`. Both CLI providers run the audit and reader-critic pipeline. OpenRouter default model is `openrouter/owl-alpha`; the free-model allowlist lives in `OPENROUTER_MODELS` in `packages/generation/src/index.ts`, and a model not in the list silently coerces to the default.
+- Preferred provider is `command-code` with model `gpt-5.6-luna`. Codex remains available with model `luna`; CLI paths use `ZYQUOR_CODEX_PATH` and `ZYQUOR_COMMAND_CODE_PATH`. Both CLI providers run the audit and reader-critic pipeline. OpenRouter is not used by the desktop setup.
 
 ### Browser Automation Caveats
 - Playwright bundled Chromium (`playwright install chromium`) fails on Ubuntu 26.04+ — it's unsupported on newer distros.

@@ -10,6 +10,7 @@ export interface GenerateDraftCandidatesInput {
   insightRequired?: boolean;
   count?: number;
   objective?: string;
+  preserveCase?: boolean;
   recentPostHistory?: string[];
   replyContext?: { authorHandle: string; url: string };
   systemPromptExtra?: string;

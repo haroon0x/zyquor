@@ -79,9 +79,9 @@ const STYLE_CONTRACTS: Record<string, StyleContract> = {
   },
   feed_observation: {
     name: "Feed observation",
-    instruction: "You have recent posts from the X home feed. Find one notable pattern, gap, or shift across them and write a standalone observation about it — your own take, not a reply and not a recap. Never quote, name, or link a specific post or author. The post must make sense on its own, with no reference at all.",
-    qualityBar: "The reader sees something the feed shows but no single post says. A recap, a paraphrase of one post, a headline, or a generic hot take does not pass.",
-    insightDirection: "Find the pattern, tension, or gap across the supplied posts that is worth noticing. Prefer an observation that survives without naming its source."
+    instruction: "You have recent posts from the X home feed. Find one notable pattern, gap, or shift across them and write a standalone observation about it — your own take, not a reply and not a recap. Use a pattern only when at least two separate supplied posts support the same observable subject, behavior, or tension. Do not combine unrelated topics into a fake trend. Never quote, name, or link a specific post or author. The post must make sense on its own, with no reference at all. If no defensible pattern exists, return an empty insight instead of forcing a post.",
+    qualityBar: "The reader sees something at least two supplied posts support but no single post says. A recap, a paraphrase of one post, an inferred group motive, a headline, or a generic hot take does not pass.",
+    insightDirection: "Find one pattern, tension, or gap supported by at least two separate supplied posts. Do not claim what people want, demand, believe, or treat as a product unless the material supports that claim. If the posts do not share a clear pattern, return an empty insight."
   }
 };
 
