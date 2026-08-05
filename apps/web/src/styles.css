@@ -909,10 +909,6 @@ label {
   font-variant-numeric: tabular-nums;
 }
 
-.character-count.over-limit {
-  color: var(--warn);
-}
-
 .approve-row {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) auto;

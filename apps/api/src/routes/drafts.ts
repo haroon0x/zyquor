@@ -16,7 +16,8 @@ import {
   packetFieldsFromItem,
   sourceTweetInput,
   validateGeneratedPostQuality,
-  validateSourcePostQuality
+  validateSourcePostQuality,
+  withRequiredSourceUrl
 } from "@zyquor/automation";
 import { passesTweetQualityFloor, qualityMinimum, scoreTweetQuality } from "@zyquor/generation";
 import { HttpError } from "../lib/errors.js";
@@ -149,7 +150,8 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
     let updated = await repository.saveDraftCandidates(
       draft.id,
       candidates.map((candidate) => {
-        const text = tracePostProcessTweetText("select-candidate", candidate.text);
+        const normalizedText = tracePostProcessTweetText("select-candidate", candidate.text);
+        const text = sourcePacket ? withRequiredSourceUrl(normalizedText, sourcePacket) : normalizedText;
         return {
           ...candidate,
           text,

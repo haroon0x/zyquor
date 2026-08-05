@@ -29,14 +29,6 @@ export const LEGACY_TWEET_TYPES = [
 
 export const ALL_TWEET_TYPES = [...TWEET_TYPES, ...LEGACY_TWEET_TYPES] as const;
 
-export const X_FREE_POST_CHARACTER_LIMIT = 280;
-export const X_URL_CHARACTER_LENGTH = 23;
-
-export function xPostCharacterLength(text: string) {
-  const urls = (text.match(/https?:\/\/[^\s<>]+/gi) ?? []).map((url) => url.replace(/[),.;!?]+$/, ""));
-  return urls.reduce((length, url) => length - url.length + X_URL_CHARACTER_LENGTH, text.length);
-}
-
 export const SOURCE_TYPES = [
   "manual",
   "news",
@@ -177,9 +169,7 @@ export const styleProfileSchema = z.object({
 });
 
 function postTextSchema(minLength = 0) {
-  return z.string().min(minLength).refine((text) => xPostCharacterLength(text) <= X_FREE_POST_CHARACTER_LIMIT, {
-    message: `Post text exceeds ${X_FREE_POST_CHARACTER_LIMIT} weighted characters`
-  });
+  return z.string().min(minLength);
 }
 
 export const draftSchema = z.object({

@@ -1,5 +1,5 @@
 import type { PostHistory, SourcePacket } from "@zyquor/core";
-import { AI_SLOP_PHRASES, X_FREE_POST_CHARACTER_LIMIT, xPostCharacterLength } from "@zyquor/core";
+import { AI_SLOP_PHRASES } from "@zyquor/core";
 import { passesTweetQualityFloor, postProcessTweetText } from "@zyquor/generation";
 
 export interface PostQualityInput {
@@ -19,7 +19,6 @@ export function validateGeneratedPostQuality(text: string): PostQualityResult {
   const normalized = postProcessTweetText(text);
   const reasons: string[] = [];
   if (normalized.length === 0) reasons.push("empty_post_text");
-  if (xPostCharacterLength(normalized) > X_FREE_POST_CHARACTER_LIMIT) reasons.push("post_text_too_long");
   if (!passesTweetQualityFloor(normalized)) reasons.push("post_failed_quality_floor");
   return {
     ok: reasons.length === 0,
@@ -54,6 +53,15 @@ function sourceNeedsLink(packet: SourcePacket) {
 
 function sourceEvidence(packet: SourcePacket) {
   return `${packet.title}\n${packet.summary}\n${packet.facts.join("\n")}`.toLowerCase();
+}
+
+function stripUrls(text: string) {
+  return postProcessTweetText(
+    text
+      .replace(/\[([^\]]+)\]\(https?:\/\/[^)\s]+\)/gi, "$1")
+      .replace(/https?:\/\/[^\s<>]+/gi, "")
+      .replace(/[ \t]+([,.!?;:])/g, "$1")
+  );
 }
 
 function repairQuoteTimeline(text: string) {
@@ -91,9 +99,10 @@ export function stripTrailingTitleEcho(text: string, title: string) {
 
 export function withRequiredSourceUrl(text: string, packet: SourcePacket) {
   const repaired = stripTrailingTitleEcho(stripTrailingSourceLabel(repairQuoteTimeline(text)), packet.title);
-  if (!sourceNeedsLink(packet) || !packet.url || repaired.includes(packet.url)) return repaired;
-  const separator = repaired.includes("\n") ? "\n" : " ";
-  return postProcessTweetText(`${repaired}${separator}${packet.url}`);
+  const body = stripUrls(repaired);
+  if (!sourceNeedsLink(packet) || !packet.url) return body;
+  const separator = body.includes("\n") ? "\n" : " ";
+  return postProcessTweetText(`${body}${body ? separator : ""}${packet.url}`);
 }
 
 function hasBrokenQuoteTimeline(text: string) {
@@ -115,7 +124,6 @@ export function validateSourcePostQuality(input: PostQualityInput): PostQualityR
   const evidence = sourceEvidence(input.packet);
 
   if (text.length === 0) reasons.push("empty_post_text");
-  if (xPostCharacterLength(text) > X_FREE_POST_CHARACTER_LIMIT) reasons.push("post_text_too_long_after_quality_repair");
   if (sourceNeedsLink(input.packet) && !containsUrl(text)) reasons.push("missing_required_source_url");
   if (LOW_SIGNAL_TITLE_PATTERNS.some((pattern) => pattern.test(input.packet.title))) reasons.push("low_signal_promotional_source");
   if (recentSamePacketPost(input)) reasons.push("same_source_packet_cooldown");

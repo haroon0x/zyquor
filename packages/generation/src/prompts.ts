@@ -1,6 +1,6 @@
 import { AI_SLOP_PHRASES } from "@zyquor/core";
 import { renderSourceContext } from "./harness.js";
-import { characterLimit, DEFAULT_CHARACTER_LIMIT, normalizeCount } from "./quality.js";
+import { normalizeCount } from "./quality.js";
 import type { GenerateDraftCandidatesInput } from "./types.js";
 
 const AUTHENTICITY_RULES = [
@@ -104,7 +104,7 @@ export function tweetTypeInstruction(tweetType: string | undefined) {
   if (tweetType === "hiring") {
     return [
       "Style: Hiring.",
-      "Include the role, company, one supplied detail such as stack, location, or compensation, the exact source link, and the disclosure 'sharing, not affiliated'.",
+      "Include the role, company, one supplied detail such as stack, location, or compensation, and the disclosure 'sharing, not affiliated'. The system appends the exact source link at the end.",
       "Style reference only; never copy facts/wording: use the supplied hiring material in the account's own voice."
     ].join(" ");
   }
@@ -122,7 +122,7 @@ export function tweetTypeInstruction(tweetType: string | undefined) {
 
 function tweetTypeInsightDirection(tweetType: string | undefined) {
   if (tweetType === "hiring") {
-    return "Find the role, company, and one concrete supplied detail that makes this opportunity useful to a reader. Keep the sharing disclosure and exact source link.";
+    return "Find the role, company, and one concrete supplied detail that makes this opportunity useful to a reader. Keep the sharing disclosure; the system appends the exact source link at the end.";
   }
   return styleContract(tweetType)?.insightDirection ?? "Find one specific mechanism, consequence, distinction, or decision in the material.";
 }
@@ -142,7 +142,7 @@ function normalizeIdea(idea: string) {
 function formatExamplePosts(examplePosts: string[] | undefined) {
   if (!examplePosts?.length) return "";
   const posts = examplePosts
-    .map((post) => cleanAccountText(post, DEFAULT_CHARACTER_LIMIT))
+    .map((post) => cleanAccountText(post, 1200))
     .filter((post) => post.length > 0)
     .slice(0, 5)
     .map((post) => `> ${post.replace(/\n/g, "\n> ")}`)
@@ -155,7 +155,7 @@ function formatExamplePosts(examplePosts: string[] | undefined) {
 function formatRecentHistory(history: string[] | undefined) {
   if (!history?.length) return "";
   const lines = history
-    .map((post) => cleanAccountText(post, DEFAULT_CHARACTER_LIMIT))
+    .map((post) => cleanAccountText(post, 1200))
     .filter((post) => post.length > 0)
     .slice(0, 5)
     .map((post, index) => `${index + 1}. ${post.slice(0, 40)}${post.length > 40 ? "..." : ""}`)
@@ -196,9 +196,9 @@ function accountVoiceSections(input: GenerateDraftCandidatesInput) {
 
 function urlRule(input: GenerateDraftCandidatesInput) {
   if (input.context?.url) {
-    return "Include the supplied URL exactly in every candidate. Do not alter, shorten, or add a different URL.";
+    return "Keep the supplied source URL out of the post body. The system appends it at the end exactly as supplied. Do not alter or invent URLs.";
   }
-  return "Do not invent a URL. If the supplied idea already contains a URL, preserve it exactly when using it.";
+  return "Do not include URLs. Treat supplied URLs as source material and never invent one.";
 }
 
 function contextBlock(input: GenerateDraftCandidatesInput) {
@@ -219,7 +219,6 @@ function diversityInstruction(input: GenerateDraftCandidatesInput) {
 
 export function systemPrompt(input: GenerateDraftCandidatesInput) {
   const count = normalizeCount(input.count);
-  const limit = characterLimit(input);
   const bannedPhrases = bannedPhraseList(input.bannedPhrases);
   const sourceBoundary = input.context
     ? "The material may describe someone else's work. Describe it as theirs. Never claim that the account owner built, made, shipped, tested, or worked on it, and do not use 'we' or 'our team' for it."
@@ -238,7 +237,7 @@ export function systemPrompt(input: GenerateDraftCandidatesInput) {
     sourceBoundary,
     "Do not claim to have opened a link, browsed, tested, verified, or observed anything unless the material says so.",
     "Publication rules",
-    `Each candidate is a standalone post of at most ${limit} characters. No thread setup, continuation, headline imitation, sales copy, or engagement bait.`,
+    "Write a standalone post. Keep it compact, usually one to three sentences. Stop when complete; do not pad it. No thread setup, continuation, headline imitation, sales copy, or engagement bait.",
     urlRule(input),
     "Do not add hashtags or emojis unless the supplied idea uses them. Never write 'thread 🧵'.",
     bannedRule,
@@ -293,7 +292,6 @@ export function insightPrompt(input: GenerateDraftCandidatesInput) {
 
 export function auditPrompt(input: GenerateDraftCandidatesInput, candidateOutput: string) {
   const count = normalizeCount(input.count);
-  const limit = characterLimit(input);
   return [
     "Role and task",
     "Edit the candidate posts into the strongest publishable versions while preserving every supported thought.",
@@ -309,7 +307,7 @@ export function auditPrompt(input: GenerateDraftCandidatesInput, candidateOutput
     "Keep a real reader payoff. Do not flatten a supported thought into a headline, source recap, vague truism, or generic piece of advice.",
     "Keep plain, direct language. Remove warm-up, hook formulas, filler reactions, sales voice, engagement bait, and em or en dashes.",
     "Publication check",
-    `Return 1 to ${count} candidates, each at most ${limit} characters. ${urlRule(input)}`,
+    `Return 1 to ${count} compact candidates. ${urlRule(input)}`,
     "No internal process language, explanation, or editing note in the posts. Order candidates strongest first and return strict JSON only:",
     `{"candidates":[{"text":"draft"}]}.`,
     accountFeedbackSection(input),
@@ -343,7 +341,6 @@ export function readerRevisePrompt(
   critique: string
 ) {
   const count = normalizeCount(input.count);
-  const limit = characterLimit(input);
   return [
     "Role and task",
     "Rewrite the candidates using the reader's verdicts. Keep the strongest supported thought and change only what lost the reader.",
@@ -353,7 +350,7 @@ export function readerRevisePrompt(
     "Style contract",
     tweetTypeInstruction(input.tweetType),
     "Keep the account voice: plain words, point first, no hook formula, corporate voice, engagement bait, or em dashes.",
-    `Return 1 to ${count} posts, each at most ${limit} characters. ${urlRule(input)}`,
+    `Return 1 to ${count} compact posts. ${urlRule(input)}`,
     'Return strict JSON only: {"candidates":[{"text":"draft"}]}.',
     accountFeedbackSection(input),
     userPrompt(input),
@@ -366,14 +363,13 @@ export function readerRevisePrompt(
 
 export function repairPrompt(input: GenerateDraftCandidatesInput, failedOutput: string) {
   const count = normalizeCount(input.count);
-  const limit = characterLimit(input);
   return [
     "Role and task",
     "Repair only deterministic publication defects in the candidate output. Preserve its supported thought and useful payoff.",
     "Do not add facts or replace a specific thought with a source recap. If a claim could be false while every supplied fact remains true, remove or narrow it.",
     "Style contract",
     tweetTypeInstruction(input.tweetType),
-    `Return 1 to ${count} candidates, each at most ${limit} characters. ${urlRule(input)}`,
+    `Return 1 to ${count} compact candidates. ${urlRule(input)}`,
     'Return strict JSON only with no lead-in or code fence: {"candidates":[{"text":"draft"}]}.',
     userPrompt(input),
     "Failed candidate output:",
@@ -383,12 +379,11 @@ export function repairPrompt(input: GenerateDraftCandidatesInput, failedOutput: 
 
 export function linePrompt(input: GenerateDraftCandidatesInput) {
   const count = normalizeCount(input.count);
-  const limit = characterLimit(input);
   const bannedPhrases = bannedPhraseList(input.bannedPhrases);
   const bannedRule = bannedPhrases ? `Avoid these account or AI phrases and close variants: ${bannedPhrases}.` : "";
   return [
     "Role and task",
-    `Write exactly ${count} concise public X posts, each at most ${limit} characters.`,
+    `Write exactly ${count} concise public X posts. Keep each one compact, usually one to three sentences, and stop when its thought is complete.`,
     "Style contract",
     tweetTypeInstruction(input.tweetType),
     "Shared voice",

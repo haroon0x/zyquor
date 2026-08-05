@@ -278,13 +278,6 @@ export interface PanelProps {
   reportError: (error: unknown, fallback: string) => void;
 }
 
-export const X_FREE_POST_CHARACTER_LIMIT = 280;
-
-export function xPostCharacterLength(text: string) {
-  const urls = (text.match(/https?:\/\/[^\s<>]+/gi) ?? []).map((url) => url.replace(/[),.;!?]+$/, ""));
-  return urls.reduce((length, url) => length - url.length + 23, text.length);
-}
-
 export const tweetTypeOptions = [
   "useful_info",
   "guide",

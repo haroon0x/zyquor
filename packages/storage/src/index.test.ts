@@ -102,29 +102,6 @@ describe("repository workflow", () => {
     );
   });
 
-  it("rejects post text over the X free-tier character limit", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
-
-    await expect(
-      repository.createDraft({
-        accountId: "account_personal",
-        sourceInput: "Too long",
-        candidates: [{ text: "x".repeat(281), score: {} }]
-      })
-    ).rejects.toThrow("Post text exceeds 280 characters");
-
-    const draft = await repository.createDraft({
-      accountId: "account_personal",
-      sourceInput: "Too long approval",
-      candidates: [{ text: "Short enough", score: {} }]
-    });
-    await expect(repository.approveDraft({ draftId: draft.draft.id, editedText: "x".repeat(281) })).rejects.toThrow(
-      "Post text exceeds 280 characters"
-    );
-  });
-
   it("finds source packet drafts from metadata when no candidates were stored", async () => {
     const repository = createMemoryRepository({
       now: () => "2026-04-24T17:00:00.000Z"

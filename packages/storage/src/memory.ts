@@ -10,7 +10,7 @@ import type {
   SystemFeedback,
   IngestConfig
 } from "@zyquor/core";
-import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor, dataPath, parseReplyTargetUrl, xPostCharacterLength } from "@zyquor/core";
+import { canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor, dataPath, parseReplyTargetUrl } from "@zyquor/core";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ZyquorRepository, RepositorySnapshot, ContentFingerprint, IngestRun } from "./types.js";
@@ -24,12 +24,6 @@ export interface MemoryRepositoryOptions {
   now?: () => string;
   snapshot?: Partial<RepositorySnapshot>;
   onChange?: (snapshot: RepositorySnapshot) => void;
-}
-
-function assertTweetTextFitsLimit(text: string) {
-  if (xPostCharacterLength(text) > X_FREE_POST_CHARACTER_LIMIT) {
-    throw new Error(`Post text exceeds ${X_FREE_POST_CHARACTER_LIMIT} characters`);
-  }
 }
 
 export function createMemoryRepository(options: MemoryRepositoryOptions = {}): ZyquorRepository {
@@ -381,8 +375,6 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       if (!account) {
         throw new Error(`Account not found: ${input.accountId}`);
       }
-      (input.candidates ?? []).forEach((candidate) => assertTweetTextFitsLimit(candidate.text));
-
       const timestamp = now();
       const firstCandidate = input.candidates && input.candidates.length > 0 ? (input.candidates[0]?.text ?? null) : null;
       const draft: Draft = {
@@ -496,8 +488,6 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       if (draft.status !== "created") {
         throw new Error(`Cannot save candidates for draft with status: ${draft.status}`);
       }
-      inputCandidates.forEach((candidate) => assertTweetTextFitsLimit(candidate.text));
-
       const timestamp = now();
       const firstCandidate = inputCandidates.length > 0 ? (inputCandidates[0]?.text ?? null) : null;
       const updatedDraft: Draft = {
@@ -554,8 +544,6 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       if (!selected || selected.draftId !== input.draftId) {
         throw new Error(`Candidate not found for draft: ${input.candidateId}`);
       }
-      assertTweetTextFitsLimit(input.editedText ?? selected.text);
-
       for (const candidate of candidatesForDraft(input.draftId)) {
         candidates.set(candidate.id, { ...candidate, selected: candidate.id === selected.id });
       }
@@ -579,8 +567,6 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       if (!canTransitionDraft(draft.status, "approved")) {
         throw new Error(`Cannot approve draft from status: ${draft.status}`);
       }
-      assertTweetTextFitsLimit(input.editedText);
-
       const timestamp = now();
       const normalizedText = normalizePostText(input.editedText);
       const textHash = hashPostText(input.editedText);

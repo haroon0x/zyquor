@@ -54,7 +54,7 @@ export function buildSourceTweetInput(input: {
       !isXFeed && facts.length ? `Verified facts:\n${facts.map((fact) => `- ${fact}`).join("\n")}` : null,
       isXFeed
         ? "Write a clean standalone observation based on these posts. Do not quote, name, or link any specific post or author; the post must make sense on its own with no reference at all."
-        : "Write a clean standalone tweet from this context. Include the exact source link and reference at least one concrete fact above. Never paste the source title into the post; the link is the attribution."
+        : "Write a clean standalone tweet from this context. Do not include the source link in the post body; the system appends the exact link at the end; reference at least one concrete fact above. Never paste the source title into the post."
     ]
       .filter(Boolean)
       .join("\n"),

@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  X_FREE_POST_CHARACTER_LIMIT,
   accountSchema,
-  approveDraftRequestSchema,
   createAccountRequestSchema,
   createDraftBatchRequestSchema,
   createDraftRequestSchema,
@@ -168,11 +166,4 @@ describe("domain schemas", () => {
     ).toMatchObject({ tweetType: "article_summary" });
   });
 
-  it("enforces the X free-tier post character limit", () => {
-    expect(() =>
-      approveDraftRequestSchema.parse({
-        editedText: "x".repeat(X_FREE_POST_CHARACTER_LIMIT + 1)
-      })
-    ).toThrow();
-  });
 });

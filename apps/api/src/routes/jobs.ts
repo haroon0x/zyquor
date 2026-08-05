@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppDeps } from "../deps.js";
-import { validateSourcePostQuality } from "@zyquor/automation";
+import { validateSourcePostQuality, withRequiredSourceUrl } from "@zyquor/automation";
 import { prepareJobRequestSchema, type PostJob } from "@zyquor/core";
 import { assertDedicatedProfileDir, isAccountRunnable } from "@zyquor/accounts";
 import { asHttpError, HttpError } from "../lib/errors.js";
@@ -228,7 +228,12 @@ export function registerJobsRoutes(app: FastifyInstance, deps: AppDeps): void {
 
     const account = await repository.getAccount(job.accountId);
     const draftWithCandidates = await repository.getDraft(job.draftId);
-    const preparedText = draftWithCandidates?.draft.editedText ? tracePostProcessTweetText("prepare-job", draftWithCandidates.draft.editedText) : null;
+    const draftText = draftWithCandidates?.draft.editedText
+      ? tracePostProcessTweetText("prepare-job", draftWithCandidates.draft.editedText)
+      : null;
+    const sourcePacketId = draftWithCandidates ? await sourcePacketIdForDraft(repository, job.draftId) : null;
+    const sourcePacket = sourcePacketId ? await repository.getSourcePacket(sourcePacketId) : null;
+    const preparedText = draftText && sourcePacket ? withRequiredSourceUrl(draftText, sourcePacket) : draftText;
     if (!account || !preparedText) {
       return reply.code(409).send({ error: "Job is missing account or approved text" });
     }

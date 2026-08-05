@@ -1,7 +1,6 @@
-import { AI_SLOP_PHRASES, xPostCharacterLength } from "@zyquor/core";
+import { AI_SLOP_PHRASES } from "@zyquor/core";
 import type { GenerateDraftCandidatesInput, GenerationProviderName } from "./types.js";
 
-export const DEFAULT_CHARACTER_LIMIT = 280;
 export const DEFAULT_QUALITY_MIN = 7;
 
 export function qualityMinimum() {
@@ -82,10 +81,6 @@ export function normalizeCount(count: number | undefined) {
   return Math.min(Math.max(count ?? 3, 1), 5);
 }
 
-export function characterLimit(input: GenerateDraftCandidatesInput) {
-  return DEFAULT_CHARACTER_LIMIT;
-}
-
 export function postProcessTweetText(text: string) {
   const untagged = text.replace(/<\/?source-(?:title|url)\s*>/gi, "");
   const urls: string[] = [];
@@ -132,7 +127,7 @@ function containsGenericSlop(text: string) {
 
 function scoreReadability(text: string) {
   let score = 0;
-  const characterLength = xPostCharacterLength(text);
+  const characterLength = text.length;
   if (characterLength >= 90 && characterLength <= 260) score += 1;
   if (characterLength < 60) score -= 1;
   if (characterLength > 270) score -= 1;
@@ -212,7 +207,6 @@ export function isCleanTweetText(text: string) {
   const trimmed = text.trim();
   return (
     trimmed.length > 0 &&
-    xPostCharacterLength(trimmed) <= DEFAULT_CHARACTER_LIMIT &&
     !INTERNAL_LEAK_PATTERNS.some((pattern) => pattern.test(trimmed)) &&
     !INCOMPLETE_PATTERNS.some((pattern) => pattern.test(trimmed)) &&
     !containsGenericSlop(trimmed) &&
@@ -263,16 +257,12 @@ const REASONING_LINE_PATTERNS = [
   /^(?:let me|let's|first|next|now|okay|ok|so),?\b.{0,20}(?:write|draft|check|make|consider|think)\b/i,
   /^(?:option|candidate|draft|version|variant)\s*\d*\s*[:.-]/i,
   /^(?:here (?:are|is)|the following|these are)\b/i,
-  /\b(?:character count|char count|word count|under 280|within 280)\b/i,
+  /\b(?:character count|char count|word count)\b/i,
   /^(?:note|reasoning|analysis|plan|constraint)s?\s*[:-]/i
 ];
 
 function looksLikeReasoningLine(line: string) {
   return REASONING_LINE_PATTERNS.some((pattern) => pattern.test(line));
-}
-
-function urlsIn(text: string) {
-  return (text.match(/https?:\/\/[^\s<>]+/gi) ?? []).map((url) => url.replace(/[),.;!?]+$/, ""));
 }
 
 function numberTokensIn(text: string) {
@@ -294,10 +284,17 @@ function suppliedText(input: GenerateDraftCandidatesInput) {
 
 function isGroundedCandidate(text: string, input: GenerateDraftCandidatesInput) {
   const supplied = suppliedText(input);
-  const requiredUrls = input.context?.url ? [...new Set(urlsIn(supplied))] : [];
-  if (requiredUrls.some((url) => !text.includes(url))) return false;
   const suppliedNumbers = new Set(numberTokensIn(supplied));
   return numberTokensIn(text).every((token) => suppliedNumbers.has(token));
+}
+
+function stripGeneratedUrls(text: string) {
+  return postProcessTweetText(
+    text
+      .replace(/\[([^\]]+)\]\(https?:\/\/[^)\s]+\)/gi, "$1")
+      .replace(/https?:\/\/[^\s<>]+/gi, "")
+      .replace(/[ \t]+([,.!?;:])/g, "$1")
+  );
 }
 
 export function parseCandidateTexts(raw: string, count: number) {
@@ -323,13 +320,12 @@ export function candidatesFromText(
   model: string
 ) {
   const count = normalizeCount(input.count);
-  const limit = characterLimit(input);
   const texts = parseCandidateTexts(raw, count * 2)
     .map(postProcessTweetText)
+    .map(stripGeneratedUrls)
     .filter((text, index, all) => {
       const normalized = text.toLowerCase().replace(/\s+/g, " ");
       return (
-        xPostCharacterLength(text) <= limit &&
         isCleanTweetText(text) &&
         isGroundedCandidate(text, input) &&
         all.findIndex((candidate) => candidate.toLowerCase().replace(/\s+/g, " ") === normalized) === index

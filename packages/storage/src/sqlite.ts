@@ -9,7 +9,7 @@ import type {
   StyleProfile,
   SystemFeedback
 } from "@zyquor/core";
-import { X_FREE_POST_CHARACTER_LIMIT, canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor, dataPath, parseReplyTargetUrl, xPostCharacterLength } from "@zyquor/core";
+import { canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor, dataPath, parseReplyTargetUrl } from "@zyquor/core";
 import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
@@ -210,12 +210,6 @@ CREATE TABLE IF NOT EXISTS ingest_configs (
 
 CREATE INDEX IF NOT EXISTS idx_ingest_configs_account_id ON ingest_configs(account_id);
 `;
-
-function assertTweetTextFitsLimit(text: string) {
-  if (xPostCharacterLength(text) > X_FREE_POST_CHARACTER_LIMIT) {
-    throw new Error(`Post text exceeds ${X_FREE_POST_CHARACTER_LIMIT} characters`);
-  }
-}
 
 function runTransaction<T>(db: DatabaseSync, fn: () => T): T {
   db.exec("BEGIN IMMEDIATE");
@@ -633,8 +627,6 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
         if (!account) {
           throw new Error(`Account not found: ${input.accountId}`);
         }
-        (input.candidates ?? []).forEach((candidate) => assertTweetTextFitsLimit(candidate.text));
-
         const timestamp = now();
         const firstCandidate = input.candidates && input.candidates.length > 0 ? (input.candidates[0]?.text ?? null) : null;
         const draft: Draft = {
@@ -785,8 +777,6 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
         if (draft.status !== "created") {
           throw new Error(`Cannot save candidates for draft with status: ${draft.status}`);
         }
-        candidates.forEach((candidate) => assertTweetTextFitsLimit(candidate.text));
-
         const timestamp = now();
         const firstCandidate = candidates[0]?.text ?? null;
 
@@ -862,7 +852,6 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
         }
 
         const selected = toCandidate(selectedRow);
-        assertTweetTextFitsLimit(input.editedText ?? selected.text);
         const timestamp = now();
         db.prepare("UPDATE draft_candidates SET selected = 0 WHERE draft_id = ?").run(input.draftId);
         db.prepare("UPDATE draft_candidates SET selected = 1 WHERE id = ?").run(input.candidateId);
@@ -887,8 +876,6 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
         if (!canTransitionDraft(draft.status, "approved")) {
           throw new Error(`Cannot approve draft from status: ${draft.status}`);
         }
-        assertTweetTextFitsLimit(input.editedText);
-
         const timestamp = now();
         const normalizedText = normalizePostText(input.editedText);
         const textHash = hashPostText(input.editedText);

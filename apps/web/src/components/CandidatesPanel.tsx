@@ -1,6 +1,5 @@
 import { api } from "../api.js";
 import type { Candidate, Draft, DraftResponse, Job, PanelProps } from "../types.js";
-import { X_FREE_POST_CHARACTER_LIMIT, xPostCharacterLength } from "../types.js";
 import { Busy, StatusBadge } from "./Feedback.js";
 
 export interface CandidatesState {
@@ -33,7 +32,7 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
     setScheduledFor
   } = state;
   const selectedCandidate = draft?.candidates.find((candidate) => candidate.selected) ?? null;
-  const editedCharacterLength = xPostCharacterLength(editedText);
+  const editedCharacterLength = editedText.length;
 
   function selectCandidate(candidate: Candidate) {
     if (!draft) return;
@@ -114,7 +113,7 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
                   <div className="candidate-copy">
                     <p>{candidate.text}</p>
                     <div className="candidate-meta">
-                      <span><Busy active={busy && !selected} />{xPostCharacterLength(candidate.text)} characters</span>
+                      <span><Busy active={busy && !selected} />{candidate.text.length} characters</span>
                       {candidate.score.judgeVerdict && candidate.score.judgeScore !== undefined ? (
                         <span
                           aria-label={`${candidate.score.judgeVerdict}, ${candidate.score.judgeScore} out of 10`}
@@ -131,9 +130,7 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
                     <div className="candidate-editor" onClick={(event) => event.stopPropagation()}>
                       <div className="editor-meta">
                         <span>Inline editor</span>
-                        <span className={editedCharacterLength > X_FREE_POST_CHARACTER_LIMIT ? "character-count over-limit" : "character-count"}>
-                          {editedCharacterLength}/{X_FREE_POST_CHARACTER_LIMIT}
-                        </span>
+                        <span className="character-count">{editedCharacterLength} characters</span>
                       </div>
                       <textarea aria-label="Edited draft" value={editedText} onChange={(event) => setEditedText(event.target.value)} rows={8} />
                       <div className="approve-row">
@@ -163,7 +160,6 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
                           disabled={
                             !draft ||
                             !editedText.trim() ||
-                            editedCharacterLength > X_FREE_POST_CHARACTER_LIMIT ||
                             draft.draft.status === "approved" ||
                             busy
                           }

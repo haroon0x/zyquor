@@ -440,9 +440,6 @@ export async function processNewSourcePackets(options: WorkerOptions) {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`Failed to draft source packet ${packet.id}:`, message);
-      if (message.includes("Post text exceeds 280 characters")) {
-        await api(options.apiUrl, `/source-packets/${packet.id}`, { method: "DELETE" }).catch(() => null);
-      }
     }
   }
 
