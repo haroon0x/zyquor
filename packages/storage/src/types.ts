@@ -67,6 +67,7 @@ export interface ZyquorRepository {
   addSystemFeedback(accountId: string, text: string): Promise<SystemFeedback>;
   deleteSystemFeedback(id: string): Promise<void>;
   listPendingDrafts(): Promise<Draft[]>;
+  listDrafts(accountId?: string): Promise<Draft[]>;
   listQualityGateFailedDrafts(): Promise<DraftWithCandidates[]>;
   getDraft(id: string): Promise<DraftWithCandidates | null>;
   getDraftBySourcePacketId(sourcePacketId: string): Promise<DraftWithCandidates | null>;

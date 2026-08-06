@@ -700,6 +700,18 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
       return rows(db.prepare("SELECT * FROM drafts WHERE status = 'created' ORDER BY created_at ASC").all()).map(toDraft);
     },
 
+    async listDrafts(accountId) {
+      return rows(
+        db
+          .prepare(
+            accountId
+              ? "SELECT * FROM drafts WHERE account_id = ? ORDER BY created_at DESC"
+              : "SELECT * FROM drafts ORDER BY created_at DESC"
+          )
+          .all(...(accountId ? [accountId] : []))
+      ).map(toDraft);
+    },
+
     async listQualityGateFailedDrafts() {
       return rows(
         db.prepare(

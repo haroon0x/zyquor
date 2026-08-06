@@ -7,6 +7,13 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@zyquor/core':
+        specifier: workspace:*
+        version: link:packages/core
+      '@zyquor/storage':
+        specifier: workspace:*
+        version: link:packages/storage
     devDependencies:
       '@types/node':
         specifier: ^22.10.2

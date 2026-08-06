@@ -2,7 +2,7 @@ import type { SourceAdapter } from "@zyquor/adapters";
 import type { DraftGenerationProvider } from "@zyquor/generation";
 import { createMemoryRepository } from "@zyquor/storage";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runAutomaticIngest } from "./index.js";
+import { runAutomaticIngest, draftFromSourcePacket, TopicDraftExistsError } from "./index.js";
 import { cleanSentence, inferTweetTypeFromText, packetFieldsFromItem } from "./context.js";
 import { validateSourcePostQuality } from "./quality.js";
 
@@ -131,7 +131,7 @@ describe("automatic ingest", () => {
     });
     expect(draft?.candidates).toEqual([]);
     expect(draft?.draft.editedText).toBe(
-      "useful read: hn: automatic workers changes how teams think about automation. https://news.ycombinator.com/item?id=1"
+      "useful read: hn: automatic workers changes how teams think about automation."
     );
   });
 
@@ -439,5 +439,67 @@ describe("automatic ingest", () => {
       results: [{ url: "https://example.org/database-benchmark" }]
     });
     await expect(repository.getSourcePacketByUrl("https://github.com/new/github-agent", "account_personal")).resolves.toBeNull();
+  });
+
+  it("refuses to draft a second packet covering the same topic", async () => {
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z"
+    });
+    const packetA = await repository.createSourcePacket({
+      accountId: "account_personal",
+      sourceType: "news",
+      title: "Celld SQLite sharding for Durable Objects launch",
+      summary: "Celld ships sharding for Durable Objects.",
+      facts: ["Celld uses SQLite sharding."],
+      tweetType: "article_summary",
+      url: "https://example.com/celld-a"
+    });
+    await draftFromSourcePacket({
+      generationProvider: testProvider,
+      packet: packetA,
+      repository,
+      options: { count: 1 }
+    });
+
+    const packetB = await repository.createSourcePacket({
+      accountId: "account_personal",
+      sourceType: "news",
+      title: "Celld SQLite sharding for Durable Objects second look",
+      summary: "Another take on Celld sharding.",
+      facts: ["Celld object databases."],
+      tweetType: "article_summary",
+      url: "https://example.com/celld-b"
+    });
+    await expect(
+      draftFromSourcePacket({
+        generationProvider: testProvider,
+        packet: packetB,
+        repository,
+        options: { count: 1 }
+      })
+    ).rejects.toThrow(TopicDraftExistsError);
+
+    const packetC = await repository.createSourcePacket({
+      accountId: "account_personal",
+      sourceType: "news",
+      title: "DeepSeek cuts pricing again",
+      summary: "Pricing cut announcement.",
+      facts: ["DeepSeek lowered prices."],
+      tweetType: "article_summary",
+      url: "https://example.com/deepseek"
+    });
+    await expect(
+      draftFromSourcePacket({
+        generationProvider: testProvider,
+        packet: packetC,
+        repository,
+        options: { count: 1 }
+      })
+    ).resolves.toMatchObject({
+      draft: { status: "created" }
+    });
+
+    const packets = await repository.listSourcePackets("account_personal");
+    expect(packets.filter((packet) => packet.status === "drafted")).toHaveLength(2);
   });
 });

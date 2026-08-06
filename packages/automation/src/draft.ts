@@ -12,6 +12,40 @@ import type { Draft, DraftCandidate, PostJob, SourcePacket } from "@zyquor/core"
 import { accountGenerationContext, articleTweetIdea, hasEnoughSourceContext, sourceTweetInput } from "./context.js";
 import { validateSourcePostQuality, withRequiredSourceUrl } from "./quality.js";
 import { normalizeTweetType } from "./selection.js";
+import { hasTopicOverlap } from "./topic.js";
+
+const DRAFT_TOPIC_DEDUPE_DAYS = 7;
+
+export class TopicDraftExistsError extends Error {
+  constructor(readonly topicTitle: string, readonly existingTitle: string, readonly accountId: string) {
+    super(`Draft already exists for this topic (${topicTitle})`);
+    this.name = "TopicDraftExistsError";
+  }
+}
+
+async function assertSingleDraftPerTopic(input: {
+  accountId: string;
+  packetId: string;
+  repository: ZyquorRepository;
+  title: string;
+  now?: Date | null;
+}) {
+  const cutoff = new Date((input.now ?? new Date()).getTime() - DRAFT_TOPIC_DEDUPE_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const [drafts, packets] = await Promise.all([
+    input.repository.listDrafts(input.accountId),
+    input.repository.listSourcePackets(input.accountId)
+  ]);
+  const titleByPacketId = new Map(packets.map((packet) => [packet.id, packet.title]));
+  for (const draft of drafts) {
+    if (draft.status === "archived" || draft.createdAt < cutoff) continue;
+    const sourcePacketId = draft.metadata?.sourcePacketId;
+    if (typeof sourcePacketId !== "string" || sourcePacketId === input.packetId) continue;
+    const existingTitle = titleByPacketId.get(sourcePacketId);
+    if (typeof existingTitle === "string" && hasTopicOverlap(input.title, [existingTitle])) {
+      throw new TopicDraftExistsError(input.title, existingTitle, input.accountId);
+    }
+  }
+}
 
 function generationTweetType(value: SourcePacket["tweetType"]) {
   return value === "hiring" ? value : normalizeTweetType(value);
@@ -79,6 +113,13 @@ export async function draftFromSourcePacket(input: {
     repository: input.repository,
     ...(input.options?.count !== undefined ? { count: input.options.count } : {})
   };
+  await assertSingleDraftPerTopic({
+    accountId: input.packet.accountId,
+    packetId: input.packet.id,
+    repository: input.repository,
+    title: input.packet.title,
+    now: input.packet.createdAt ? new Date(input.packet.createdAt) : null
+  });
   let candidates: GeneratedDraftCandidate[] = await generateCandidatesForPacket({
     ...candidateInput
   }).then((items) =>

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../deps.js";
 import { createSourcePacketRequestSchema, setSourcePacketFeedbackRequestSchema } from "@zyquor/core";
-import { draftFromSourcePacket } from "@zyquor/automation";
+import { draftFromSourcePacket, TopicDraftExistsError } from "@zyquor/automation";
 import { deleteSourcePacketCascade } from "../lib/source-packet-delete.js";
 import { appendNotebookEntry, resolveFeedbackDir } from "../lib/feedback-notebook.js";
 
@@ -112,6 +112,9 @@ export function registerSourcePacketsRoutes(app: FastifyInstance, deps: AppDeps)
         options: draftOptions
       });
     } catch (error) {
+      if (error instanceof TopicDraftExistsError) {
+        return reply.code(409).send({ error: error.message });
+      }
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("returned no draft candidates")) {
         await repository.setSourcePacketStatus(id, "archived");

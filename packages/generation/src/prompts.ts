@@ -200,7 +200,10 @@ function accountVoiceSections(input: GenerateDraftCandidatesInput) {
 
 function urlRule(input: GenerateDraftCandidatesInput) {
   if (input.context?.url) {
-    return "Keep the supplied source URL out of the post body. The system appends it at the end exactly as supplied. Do not alter or invent URLs.";
+    if (activeTweetType(input.tweetType) === "article_summary") {
+      return "Keep the supplied source URL out of the post body. The system appends it at the end exactly as supplied. Do not alter or invent URLs.";
+    }
+    return "Do not include any URL in the post. Spend the freed characters on the strongest supported detail. Never invent a URL or hint that one exists.";
   }
   return "Do not include URLs. Treat supplied URLs as source material and never invent one.";
 }

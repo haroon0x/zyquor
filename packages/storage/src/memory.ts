@@ -471,6 +471,12 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     },
 
+    async listDrafts(accountId) {
+      return [...drafts.values()]
+        .filter((draft) => !accountId || draft.accountId === accountId)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    },
+
     async listQualityGateFailedDrafts() {
       return [...drafts.values()]
         .filter((draft) =>

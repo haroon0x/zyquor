@@ -2,9 +2,10 @@ import type { SourceAdapter, SourceItem } from "@zyquor/adapters";
 import type { DraftGenerationProvider } from "@zyquor/generation";
 import type { ZyquorRepository } from "@zyquor/storage";
 import { hasEnoughSourceContext, packetFieldsFromFeedDigest, packetFieldsFromItem } from "./context.js";
-import { draftFromSourcePacket } from "./draft.js";
+import { draftFromSourcePacket, TopicDraftExistsError } from "./draft.js";
 import { routeTweetType } from "./routing.js";
 import { isSourceType, isWithinScheduleWindow } from "./selection.js";
+import { hasTopicOverlap } from "./topic.js";
 
 export interface IngestRunResult {
   configId: string;
@@ -108,32 +109,6 @@ const BLOCKED_SOURCE_HOSTS = new Set([
   "pay.stripe.com",
   "gumroad.com"
 ]);
-const GENERIC_TOPIC_WORDS = new Set([
-  "about",
-  "after",
-  "agent",
-  "agents",
-  "built",
-  "code",
-  "data",
-  "from",
-  "github",
-  "guide",
-  "into",
-  "model",
-  "news",
-  "open",
-  "platform",
-  "repo",
-  "show",
-  "source",
-  "system",
-  "that",
-  "this",
-  "tool",
-  "using",
-  "with"
-]);
 const DEFAULT_MAX_SAME_HOST_POSTS_PER_DAY = 100;
 const DEFAULT_MAX_GITHUB_POSTS_PER_DAY = 100;
 const MAX_SOURCE_AGE_MS = 48 * 60 * 60 * 1000;
@@ -166,31 +141,6 @@ function sourceHost(url: string | null | undefined) {
   } catch {
     return null;
   }
-}
-
-function topicWords(value: string) {
-  return new Set(
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, " ")
-      .split(/\s+/)
-      .map((word) => word.replace(/^-+|-+$/g, ""))
-      .filter((word) => word.length >= 4 && !GENERIC_TOPIC_WORDS.has(word))
-      .slice(0, 12)
-  );
-}
-
-function hasTopicOverlap(title: string, recentTitles: string[]) {
-  const current = topicWords(title);
-  if (current.size === 0) return false;
-  return recentTitles.some((recent) => {
-    const recentWords = topicWords(recent);
-    let overlap = 0;
-    for (const word of current) {
-      if (recentWords.has(word)) overlap += 1;
-    }
-    return overlap >= 3;
-  });
 }
 
 function isAllowedSourceUrl(url: string | null | undefined) {
@@ -425,6 +375,10 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
         } catch (error) {
           if (packetId) {
             await options.repository.deleteSourcePacket(packetId).catch(() => null);
+          }
+          if (error instanceof TopicDraftExistsError) {
+            skippedByReason.topicOverlap += 1;
+            continue;
           }
           const message = error instanceof Error ? error.message : "Unknown item ingest error";
           errors.push({ configId: config.id, error: message });

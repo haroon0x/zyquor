@@ -53,8 +53,14 @@ function containsUrl(text: string) {
   return /https?:\/\/\S+/i.test(text);
 }
 
+function sourceIsExternal(packet: SourcePacket) {
+  return packet.sourceType !== "x-feed";
+}
+
+// Only article summaries carry their source URL. Other source-backed post types
+// keep the URL out of the body and spend the freed characters on the detail.
 function sourceNeedsLink(packet: SourcePacket) {
-  return Boolean(packet.url) && packet.sourceType !== "x-feed";
+  return Boolean(packet.url) && sourceIsExternal(packet) && packet.tweetType === "article_summary";
 }
 
 function sourceEvidence(packet: SourcePacket) {
@@ -136,7 +142,7 @@ export function validateSourcePostQuality(input: PostQualityInput): PostQualityR
   if (RISKY_UNSUPPORTED_PATTERNS.some((pattern) => pattern.test(text)) && !RISKY_UNSUPPORTED_PATTERNS.some((pattern) => pattern.test(evidence))) {
     reasons.push("risky_unsupported_absolute_claim");
   }
-  if (sourceNeedsLink(input.packet) && FIRST_PERSON_MISATTRIBUTION.test(text)) {
+  if (sourceIsExternal(input.packet) && FIRST_PERSON_MISATTRIBUTION.test(text)) {
     reasons.push("first_person_misattribution");
   }
   if (hasBrokenQuoteTimeline(text)) reasons.push("broken_quote_timeline_format");
