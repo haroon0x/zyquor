@@ -6,6 +6,10 @@ export interface GenerationEnvironment {
   ZYQUOR_COMMAND_CODE_PATH?: string;
   ZYQUOR_CODEX_MODEL?: string;
   ZYQUOR_CODEX_PATH?: string;
+  ZYQUOR_OPENCODE_MODEL?: string;
+  ZYQUOR_OPENCODE_PATH?: string;
+  ZYQUOR_OPENCODE_VARIANT?: string;
+  ZYQUOR_REVISION_PASS?: string;
   ZYQUOR_GEMINI_API_KEY?: string;
   ZYQUOR_GEMINI_BASE_URL?: string;
   ZYQUOR_GEMINI_MODEL?: string;
@@ -21,6 +25,29 @@ export const COMMAND_CODE_MODELS = [DEFAULT_COMMAND_CODE_MODEL] as const;
 
 export const DEFAULT_CODEX_MODEL = "gpt-5.6-luna";
 export const CODEX_MODELS = [DEFAULT_CODEX_MODEL] as const;
+
+export const DEFAULT_OPENCODE_MODEL = "opencode/deepseek-v4-flash-free";
+export const DEFAULT_OPENCODE_VARIANT = "high";
+export const OPENCODE_MODELS = [
+  "opencode/deepseek-v4-flash-free",
+  "nvidia/deepseek-ai/deepseek-v4-flash",
+  "openrouter/~deepseek/deepseek-v4-flash-latest"
+] as const;
+export const OPENCODE_VARIANTS = ["low", "high", "max"] as const;
+
+export function safeOpencodeModel(model: string | undefined) {
+  if (!model) return DEFAULT_OPENCODE_MODEL;
+  if ((OPENCODE_MODELS as readonly string[]).includes(model)) return model;
+  console.warn(`generation: Opencode model "${model}" is not on the DeepSeek Flash allowlist; using "${DEFAULT_OPENCODE_MODEL}"`);
+  return DEFAULT_OPENCODE_MODEL;
+}
+
+export function safeOpencodeVariant(variant: string | undefined) {
+  if (!variant) return DEFAULT_OPENCODE_VARIANT;
+  if ((OPENCODE_VARIANTS as readonly string[]).includes(variant)) return variant;
+  console.warn(`generation: Opencode variant "${variant}" is not supported; using "${DEFAULT_OPENCODE_VARIANT}"`);
+  return DEFAULT_OPENCODE_VARIANT;
+}
 
 export function safeCodexModel(model: string | undefined) {
   if (!model || model === DEFAULT_CODEX_MODEL) return DEFAULT_CODEX_MODEL;
@@ -68,6 +95,7 @@ export const OLLAMA_MODELS = [
 export const GENERATION_MODEL_OPTIONS = {
   "command-code": COMMAND_CODE_MODELS,
   codex: CODEX_MODELS,
+  opencode: OPENCODE_MODELS,
   openrouter: OPENROUTER_MODELS,
   gemini: GEMINI_MODELS,
   ollama: OLLAMA_MODELS
@@ -92,6 +120,8 @@ export function resolveGenerationProviderConfig(env: GenerationEnvironment = pro
       : requestedProvider
   ) as GenerationProviderName;
 
+  const revisionPass = ["1", "true", "yes", "on"].includes(String(env.ZYQUOR_REVISION_PASS).trim().toLowerCase());
+
   if (provider === "command-code") {
     return {
       provider,
@@ -104,7 +134,17 @@ export function resolveGenerationProviderConfig(env: GenerationEnvironment = pro
     return {
       provider,
       model: safeCodexModel(env.ZYQUOR_CODEX_MODEL),
-      configured: true
+      configured: true,
+      revisionPass
+    };
+  }
+
+  if (provider === "opencode") {
+    return {
+      provider,
+      model: safeOpencodeModel(env.ZYQUOR_OPENCODE_MODEL),
+      configured: true,
+      revisionPass
     };
   }
 

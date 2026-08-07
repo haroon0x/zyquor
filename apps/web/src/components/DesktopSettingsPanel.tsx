@@ -88,6 +88,7 @@ export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
             <option value="">(default)</option>
             <option value="command-code">Command Code</option>
             <option value="codex">Codex</option>
+            <option value="opencode">Opencode</option>
             <option value="openrouter">OpenRouter</option>
             <option value="gemini">Gemini</option>
             <option value="ollama">Ollama</option>
@@ -101,6 +102,10 @@ export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
         <label>
           Codex path
           <input value={desktopSettings.codexPath ?? ""} onChange={(event) => patchSetting("codexPath", event.target.value)} placeholder="codex" />
+        </label>
+        <label>
+          Opencode path
+          <input value={desktopSettings.opencodePath ?? ""} onChange={(event) => patchSetting("opencodePath", event.target.value)} placeholder="opencode" />
         </label>
         <label>
           OpenRouter API key

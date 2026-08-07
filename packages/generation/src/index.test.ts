@@ -5,6 +5,7 @@ import {
   createOllamaGenerationProvider,
   createOpenRouterGenerationProvider,
   GENERATION_MODEL_OPTIONS,
+  generateDraftCandidates,
   isCleanTweetText,
   postProcessTweetText,
   resolveGenerationProviderConfig,
@@ -22,6 +23,93 @@ function jsonResponse(body: unknown, status = 200) {
     headers: { "content-type": "application/json" }
   });
 }
+
+describe("revision pass", () => {
+  it("runs the revision prompt when enabled and prefers the revised text", async () => {
+    const prompts: string[] = [];
+    let calls = 0;
+    const candidates = await generateDraftCandidates({
+      generationInput: {
+        idea: "SQLite serves 8 million rows from one $20 node.",
+        count: 2,
+        tweetType: "article_summary"
+      },
+      model: "test-model",
+      providerName: "codex",
+      revise: true,
+      runPrompt: async (prompt) => {
+        prompts.push(prompt);
+        calls += 1;
+        if (calls === 1) {
+          return '{"candidates":["sqlite handles 8 million rows on a $20 node.", "the box is cheaper than the fuss."]}';
+        }
+        return '{"candidates":["sqlite serves 8 million rows on one $20 node, so a solo dev can skip the cluster.", "the box is cheaper than the fuss."]}';
+      }
+    });
+
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toContain("Task: revise the numbered drafts");
+    expect(prompts[1]).toContain("sqlite handles 8 million rows on a $20 node.");
+    expect(candidates[0]?.text).toBe("sqlite serves 8 million rows on one $20 node, so a solo dev can skip the cluster.");
+  });
+
+  it("keeps originals when the revision is unparseable or loses quality", async () => {
+    let calls = 0;
+    const candidates = await generateDraftCandidates({
+      generationInput: { idea: "SQLite handles 8 million rows on a $20 node.", count: 1, tweetType: "article_summary" },
+      model: "test-model",
+      providerName: "codex",
+      revise: true,
+      runPrompt: async (prompt) => {
+        calls += 1;
+        if (calls === 1) {
+          return '{"candidates":["sqlite handles 8 million rows on a $20 node."]}';
+        }
+        return "sorry, no";
+      }
+    });
+
+    expect(calls).toBe(2);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]?.text).toBe("sqlite handles 8 million rows on a $20 node.");
+  });
+
+  it("falls back to first-pass drafts when the revision call fails", async () => {
+    let calls = 0;
+    const candidates = await generateDraftCandidates({
+      generationInput: { idea: "SQLite handles 8 million rows on a $20 node.", count: 1, tweetType: "article_summary" },
+      model: "test-model",
+      providerName: "codex",
+      revise: true,
+      runPrompt: async (prompt) => {
+        calls += 1;
+        if (calls === 1) {
+          return '{"candidates":["sqlite handles 8 million rows on a $20 node."]}';
+        }
+        throw new Error("revision provider timeout");
+      }
+    });
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]?.text).toBe("sqlite handles 8 million rows on a $20 node.");
+  });
+
+  it("makes no second call when revision is disabled", async () => {
+    let calls = 0;
+    const candidates = await generateDraftCandidates({
+      generationInput: { idea: "SQLite handles 8 million rows on a $20 node.", count: 1, tweetType: "article_summary" },
+      model: "test-model",
+      providerName: "codex",
+      runPrompt: async () => {
+        calls += 1;
+        return '{"candidates":["sqlite handles 8 million rows on a $20 node."]}';
+      }
+    });
+
+    expect(calls).toBe(1);
+    expect(candidates).toHaveLength(1);
+  });
+});
 
 describe("stripThinking", () => {
   it("removes think tag blocks", () => {
@@ -71,10 +159,9 @@ describe("ollama generation", () => {
 
     const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
     const messages = body.messages as Array<{ content: string; role: string }>;
-    expect(messages[1]?.content).toContain(
-      "You are drafting a reply to @target_user's post at https://x.com/target_user/status/1898765432109876543."
-    );
-    expect(messages[1]?.content).toContain("using the user's description of the target post");
+    expect(messages[1]?.content).toContain("You are drafting an opinionated reply");
+    expect(messages[1]?.content).toContain("responding to @target_user");
+    expect(messages[1]?.content).toContain("Using the user's description of the target post below");
     expect(messages[1]?.content).toContain("Do not claim to have opened or read the linked post.");
   });
 

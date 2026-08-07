@@ -155,6 +155,8 @@ export interface XFeedTweet {
   url: string;
   publishedAt: string | null;
   isRetweet: boolean;
+  isPromoted?: boolean;
+  hasLink?: boolean;
 }
 
 export interface FetchXHomeFeedInput {
@@ -172,6 +174,21 @@ export interface FetchXHomeFeedInput {
 
 export interface FetchXHomeFeedResult {
   tweets: XFeedTweet[];
+  url: string;
+}
+
+export interface FetchTweetInput {
+  profileDir: string;
+  url: string;
+  browserChannel?: string | null;
+  cdpUrl?: string;
+  headless?: boolean;
+  actionDelayMs?: number;
+  artifactsDir?: string;
+}
+
+export interface FetchTweetResult {
+  tweet: XFeedTweet;
   url: string;
 }
 
@@ -527,7 +544,16 @@ async function extractFeedTweets(page: Page, maxTweets: number) {
         .join(" ");
       const promotionText = `${socialContext} ${headerText} ${placementText} ${ariaLabels}`;
       const isPromoted = /\b(promoted|sponsored|advertisement|advertiser)\b/i.test(promotionText);
-      return { statusLink, text, userName, socialContext, headerText, publishedAt, isPromoted };
+      const hasLink = Array.from(article.querySelectorAll("a[href]"))
+        .map((anchor) => anchor.getAttribute("href") ?? "")
+        .filter((href) => href.length > 0)
+        .some(
+          (href) =>
+            !/\/status\/(\d+)(\/|$)/.test(href) &&
+            !/^\/[A-Za-z0-9_]{1,15}\/?$/.test(href) &&
+            (/^(https?:)?\/\//.test(href) || href.includes("t.co/"))
+        );
+      return { statusLink, text, userName, socialContext, headerText, publishedAt, isPromoted, hasLink };
     })
   );
 
@@ -542,8 +568,7 @@ async function extractFeedTweets(page: Page, maxTweets: number) {
     if (!idMatch || !handleMatch) continue;
     seen.add(url);
     const handle = handleMatch[1]!;
-    const nameLine = (entry.userName.split("\n")[0] ?? "").trim();
-    const authorName = nameLine.replace(/\s+@[A-Za-z0-9_]{1,15}\s*$/, "").trim() || handle;
+    const authorName = cleanAuthorName(entry.userName, handle);
     tweets.push({
       id: idMatch[1]!,
       authorHandle: handle,
@@ -551,11 +576,104 @@ async function extractFeedTweets(page: Page, maxTweets: number) {
       text: entry.text,
       url,
       publishedAt: entry.publishedAt,
-      isRetweet: /reposted/i.test(`${entry.socialContext} ${entry.headerText}`)
+      isRetweet: /reposted/i.test(`${entry.socialContext} ${entry.headerText}`),
+      isPromoted: entry.isPromoted,
+      hasLink: entry.hasLink
     });
     if (tweets.length >= maxTweets) break;
   }
   return tweets;
+}
+
+async function extractTweetFromStatusPage(page: Page, statusUrl: string): Promise<XFeedTweet | null> {
+  const idMatch = /\/(\d+)\/?$/.exec(new URL(statusUrl).pathname);
+  if (!idMatch) {
+    return null;
+  }
+  const tweetId = idMatch[1]!;
+  const raw = await page.locator('article[data-testid="tweet"]').evaluateAll(
+    (articles, tid) =>
+      articles.map((article) => {
+        const statusLinks = Array.from(article.querySelectorAll('a[href*="/status/"]'))
+          .map((anchor) => anchor.getAttribute("href") ?? "")
+          .filter(Boolean);
+        const canonicalLink =
+          statusLinks.find((href) => {
+            const m = /\/[A-Za-z0-9_]+\/status\/(\d+)\/?$/.exec(href);
+            return m?.[1] === tid;
+          }) ?? null;
+        const normalText = article.querySelector('[data-testid="tweetText"]')?.textContent?.trim() ?? "";
+        const longformText = article
+          .querySelector('[data-testid="longformRichTextComponent"], [data-testid="twitterArticleRichTextView"]')
+          ?.textContent?.trim() ?? "";
+        const fallbackText = article.querySelector('[data-testid="tweet"] [dir="auto"]')?.textContent?.trim() ?? "";
+        const text = (normalText || longformText || fallbackText).trim();
+        const userName = article.querySelector('[data-testid="User-Name"]')?.textContent ?? "";
+        const socialContext = article.querySelector('[data-testid="socialContext"]')?.textContent ?? "";
+        const headerText = article.querySelector("header")?.textContent ?? "";
+        const publishedAt = article.querySelector("time[datetime]")?.getAttribute("datetime") ?? null;
+        const isPromoted = /\b(promoted|sponsored|advertisement|advertiser)\b/i.test(
+          `${socialContext} ${headerText}`
+        );
+        const hasLink = Array.from(article.querySelectorAll("a[href]"))
+          .map((anchor) => anchor.getAttribute("href") ?? "")
+          .filter((href) => href.length > 0)
+          .some(
+            (href) =>
+              !/\/status\/(\d+)(\/|$)/.test(href) &&
+              !/^\/[A-Za-z0-9_]{1,15}\/?$/.test(href) &&
+              (/^(https?:)?\/\//.test(href) || href.includes("t.co/"))
+          );
+        return {
+          statusLink: canonicalLink,
+          text,
+          userName,
+          socialContext,
+          headerText,
+          publishedAt,
+          isPromoted,
+          hasLink
+        };
+      }),
+    tweetId
+  );
+
+  const entry = raw.find((item) => item.statusLink && /\/status\/\d+\/?$/.test(item.statusLink));
+  if (!entry) {
+    return null;
+  }
+  const url = extractStatusPermalink(entry.statusLink!);
+  if (!url) {
+    return null;
+  }
+  const handleMatch = /^\/([A-Za-z0-9_]{1,15})\/status\//.exec(new URL(url).pathname);
+  if (!handleMatch) {
+    return null;
+  }
+  const handle = handleMatch[1]!;
+  const authorName = cleanAuthorName(entry.userName, handle);
+  return {
+    id: tweetId,
+    authorHandle: handle,
+    authorName,
+    text: entry.text,
+    url,
+    publishedAt: entry.publishedAt,
+    isRetweet: /reposted/i.test(`${entry.socialContext} ${entry.headerText}`),
+    isPromoted: entry.isPromoted,
+    hasLink: entry.hasLink
+  };
+}
+
+function cleanAuthorName(nameLine: string, handle: string): string {
+  const escaped = handle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const name = (nameLine.split("\n")[0] ?? "")
+    .trim()
+    .replace(new RegExp(`@${escaped}.*$`, "i"), "")
+    .replace(/\s+·\s*.*$/u, "")
+    .replace(/@$/, "")
+    .trim();
+  return name || handle;
 }
 
 async function collectFeedTweets(page: Page, maxTweets: number, minTweets: number, scrolls: number, actionDelayMs: number) {
@@ -624,6 +742,101 @@ export async function fetchXHomeFeed(input: FetchXHomeFeedInput): Promise<FetchX
       await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined);
     }
     const message = error instanceof Error ? error.message : "Unknown X home feed fetch error";
+    if (context && ownsContext) {
+      await context.close();
+    }
+    throw new BrowserFeedError(message, context ? screenshotPath : null);
+  }
+}
+
+export async function fetchTweet(input: FetchTweetInput): Promise<FetchTweetResult> {
+  const actionDelayMs = input.actionDelayMs ?? 1_500;
+  const artifactsDir = input.artifactsDir ?? dataPath("data", "artifacts");
+  mkdirSync(artifactsDir, { recursive: true });
+  const artifactId = new Date().toISOString().replace(/[:.]/g, "-");
+  const screenshotPath = join(artifactsDir, `tweet-${artifactId}.png`);
+
+  let context: BrowserContext | null = null;
+  let ownsContext = false;
+  let page: Page | null = null;
+
+  try {
+    const opened = await openPersistentContext({
+      ...input,
+      autoLaunchCdp: false
+    });
+    context = opened.context;
+    ownsContext = opened.ownsContext;
+    context.setDefaultTimeout(30_000);
+    page = await context.newPage();
+    await page.goto(input.url, { waitUntil: "domcontentloaded", timeout: 45_000 }).catch(() => undefined);
+
+    const loginVisible = await page
+      .locator('input[name="text"], input[name="password"], a[href="/login"], [data-testid="loginButton"]')
+      .first()
+      .isVisible({ timeout: 2_000 })
+      .catch(() => false);
+    if (loginVisible) {
+      throw new Error("X profile is not logged in. Run `pnpm profile:x:manual`, log into X, close that browser, then retry.");
+    }
+
+    const tab = page;
+    const tweetIsReady = () =>
+      tab
+        .evaluate(() => {
+          const hasArticle = !!document.querySelector('article[data-testid="tweet"]');
+          const hasText = !!document.querySelector(
+            '[data-testid="tweetText"], [data-testid="longformRichTextComponent"]'
+          );
+          const hasPermalink = Array.from(document.querySelectorAll('a[href*="/status/"]')).some(
+            (anchor) => /\/status\/\d+\/?$/.test(anchor.getAttribute("href") ?? "")
+          );
+          return hasArticle && (hasText || hasPermalink);
+        })
+        .catch(() => false);
+
+    let loaded = false;
+    for (let attempt = 0; attempt < 3 && !loaded; attempt++) {
+      const pollDeadline = Date.now() + 20_000;
+      while (Date.now() < pollDeadline) {
+if (await tweetIsReady()) {
+        loaded = true;
+        break;
+      }
+        await page.waitForTimeout(1_500);
+      }
+      if (!loaded && attempt < 2) {
+        await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => undefined);
+      }
+    }
+    if (!loaded) {
+      const diag = await page
+        .evaluate(() => ({
+          url: location.href.slice(0, 120),
+          title: document.title.slice(0, 60),
+          visibility: document.visibilityState,
+          bodyPreview: document.body?.innerText?.slice(0, 160)
+        }))
+        .catch(() => null);
+      throw new Error(`Timed out waiting for the target tweet to render at ${input.url}. ${JSON.stringify(diag)}`);
+    }
+    await page.waitForTimeout(actionDelayMs);
+    const tweet = await extractTweetFromStatusPage(page, input.url);
+    if (!tweet || !tweet.text.trim()) {
+      throw new Error(`Could not extract the target tweet from ${input.url}`);
+    }
+    await page.close().catch(() => undefined);
+    page = null;
+    if (ownsContext) {
+      await context.close();
+    }
+    return { tweet, url: input.url };
+  } catch (error) {
+    if (page) {
+      await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined);
+      await page.close().catch(() => undefined);
+    }
+    const message = error instanceof Error ? error.message : "Unknown tweet fetch error";
     if (context && ownsContext) {
       await context.close();
     }

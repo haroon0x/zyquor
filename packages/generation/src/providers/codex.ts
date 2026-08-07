@@ -105,6 +105,7 @@ export function createCodexGenerationProvider(options: {
   command?: string;
   model?: string;
   timeoutMs?: number;
+  revise?: boolean;
 } = {}): DraftGenerationProvider {
   const command = options.command?.trim() || "codex";
   const model = safeCodexModel(options.model?.trim());
@@ -123,7 +124,8 @@ export function createCodexGenerationProvider(options: {
         generationInput: input,
         model,
         providerName: "codex",
-        runPrompt: run
+        runPrompt: run,
+        revise: options.revise
       });
     }
   };

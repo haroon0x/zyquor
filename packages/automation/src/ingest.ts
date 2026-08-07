@@ -3,6 +3,7 @@ import type { DraftGenerationProvider } from "@zyquor/generation";
 import type { ZyquorRepository } from "@zyquor/storage";
 import { hasEnoughSourceContext, packetFieldsFromFeedDigest, packetFieldsFromItem } from "./context.js";
 import { draftFromSourcePacket, TopicDraftExistsError } from "./draft.js";
+import { isLowSignalSourceTitle } from "./quality.js";
 import { routeTweetType } from "./routing.js";
 import { isSourceType, isWithinScheduleWindow } from "./selection.js";
 import { hasTopicOverlap } from "./topic.js";
@@ -26,6 +27,7 @@ export interface IngestSkipSummary {
   scheduleWindow: number;
   thinContext: number;
   topicOverlap: number;
+  lowSignal: number;
 }
 
 function createSkipSummary(): IngestSkipSummary {
@@ -38,7 +40,8 @@ function createSkipSummary(): IngestSkipSummary {
     packetCap: 0,
     scheduleWindow: 0,
     thinContext: 0,
-    topicOverlap: 0
+    topicOverlap: 0,
+    lowSignal: 0
   };
 }
 
@@ -330,6 +333,10 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
             config.sourceType === "x-feed" ? packetFieldsFromFeedDigest(enriched) : packetFieldsFromItem(enriched);
           if (!hasEnoughSourceContext({ facts, summary, title })) {
             skippedByReason.thinContext += 1;
+            continue;
+          }
+          if (isLowSignalSourceTitle(title)) {
+            skippedByReason.lowSignal += 1;
             continue;
           }
           const tweetType = routeTweetType(

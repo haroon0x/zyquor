@@ -49,6 +49,7 @@ export const SOURCE_TYPES = [
 export const LLM_PROVIDERS = [
   "command-code",
   "codex",
+  "opencode",
   "openrouter",
   "gemini",
   "ollama"
@@ -97,12 +98,16 @@ export interface ReplyTarget {
   tweetId: string;
   authorHandle: string;
   url: string;
+  authorName?: string;
+  text?: string;
 }
 
-export const replyTargetSchema: z.ZodType<ReplyTarget> = z.object({
+export const replyTargetSchema = z.object({
   tweetId: z.string().regex(/^\d+$/),
   authorHandle: z.string().regex(/^[A-Za-z0-9_]{1,15}$/),
-  url: z.string().url()
+  url: z.string().url(),
+  authorName: z.string().max(120).optional(),
+  text: z.string().max(4000).optional()
 });
 
 export function parseReplyTargetUrl(url: string): ReplyTarget | null {

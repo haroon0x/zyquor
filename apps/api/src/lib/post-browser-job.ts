@@ -1,6 +1,6 @@
 import type { ZyquorRepository } from "@zyquor/storage";
 import { assertDedicatedProfileDir, isAccountRunnable } from "@zyquor/accounts";
-import { evaluatePostGate, prepareJobRequestSchema } from "@zyquor/core";
+import { evaluatePostGate, parseReplyTargetUrl, prepareJobRequestSchema } from "@zyquor/core";
 import { browserOptions } from "./browser.js";
 import { isDailyLimitReached } from "./daily-limit.js";
 import { HttpError } from "./errors.js";
@@ -42,6 +42,43 @@ async function removePostedDraftSourcePacket(repository: ZyquorRepository, draft
 export interface PostBrowserJobOptions {
   bypassSchedule?: boolean;
   bypassSpacing?: boolean;
+}
+
+// After an article_summary post, post a link-only reply carrying the source URL.
+// The main post stays clean and opinionated; the reply supplies the source evidence.
+async function postSourceLinkReply(
+  deps: AppDeps,
+  account: { id: string; profileDir: string },
+  draftId: string,
+  mainPostUrl: string,
+  sourceUrl: string
+) {
+  if (process.env.ZYQUOR_SOURCE_REPLY_DISABLED === "1") return null;
+  const target = parseReplyTargetUrl(mainPostUrl);
+  if (!target) return null;
+  const browserModule = await import("@zyquor/browser");
+  const result = await (deps.browser.preparePost ?? browserModule.preparePost)({
+    profileDir: resolveProfileDir(account.profileDir),
+    text: sourceUrl.trim(),
+    replyTo: target,
+    submit: true,
+    ...browserOptions(deps)
+  });
+  if (result.postUrl) {
+    const repository = await deps.repository;
+    const snapshot = await postHistorySnapshot(repository, draftId);
+    await repository
+      .createPostHistory({
+        accountId: account.id,
+        draftId,
+        postedText: sourceUrl.trim(),
+        postUrl: result.postUrl,
+        ...snapshot,
+        sourceUrl: snapshot.sourceUrl ?? sourceUrl
+      })
+      .catch(() => null);
+  }
+  return result.postUrl;
 }
 
 export async function postBrowserJob(deps: AppDeps, jobId: string, options: PostBrowserJobOptions = {}) {
@@ -184,6 +221,20 @@ export async function postBrowserJob(deps: AppDeps, jobId: string, options: Post
     });
     await removePostedDraftSourcePacket(repository, job.draftId);
     await repository.createAttempt({ jobId: job.id, status: "verified" });
+
+    if (sourcePacket?.tweetType === "article_summary" && sourcePacket?.url && result.postUrl) {
+      try {
+        await postSourceLinkReply(deps, account, job.draftId, result.postUrl, sourcePacket.url);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown source reply error";
+        await repository.createAttempt({
+          jobId: job.id,
+          status: "failed",
+          errorCode: "source_reply_failed",
+          errorMessage: message
+        });
+      }
+    }
 
     if (deps.browser.closeAfterPost && deps.browser.cdpUrl) {
       await browserModule.closeBrowserCdp(deps.browser.cdpUrl).catch(() => undefined);

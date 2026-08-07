@@ -108,31 +108,35 @@ function parseJudge(raw, max) {
 const config = resolveGenerationProviderConfig(process.env);
 const provider = createGenerationProviderFromEnv(process.env);
 const qualityMin = qualityMinimum();
+const rounds = Number(process.env.ZYQUOR_EVAL_ROUNDS ?? 1);
 const rows = [];
 
 const results = [];
-for (const item of cases) {
-  try {
-    const candidates = await provider.generateDraftCandidates({
-      idea: item.idea,
-      count: 3,
-      tweetType: item.tweetType
-    });
-    results.push({ item, candidates });
-  } catch (error) {
-    results.push({ item, candidates: [], error: String(error?.message ?? error) });
+for (let round = 1; round <= rounds; round += 1) {
+  for (const item of cases) {
+    try {
+      const candidates = await provider.generateDraftCandidates({
+        idea: item.idea,
+        count: 3,
+        tweetType: item.tweetType
+      });
+      results.push({ item, candidates, round });
+    } catch (error) {
+      results.push({ item, candidates: [], error: String(error?.message ?? error), round });
+    }
   }
 }
 
-for (const { item, candidates, error } of results) {
+for (const { item, candidates, error, round } of results) {
   if (error) {
-    rows.push({ case: item.name, error });
+    rows.push({ case: item.name, error, round });
     continue;
   }
   for (const candidate of candidates) {
     const heuristic = scoreTweetQuality(candidate.text);
     rows.push({
       case: item.name,
+      round,
       modelRank: candidate.score?.rank ?? null,
       text: candidate.text,
       clean: isCleanTweetText(candidate.text),
@@ -147,7 +151,8 @@ let judgeError = null;
 if (judged.length > 0) {
   const listing = judged.map((row, index) => {
     const item = cases.find((candidate) => candidate.name === row.case);
-    return `${index + 1}. Case: ${row.case}\nInput context:\n${item?.idea ?? ""}\nPost:\n${row.text}`;
+    const roundLabel = rounds > 1 ? ` [round ${row.round}]` : "";
+    return `${index + 1}. Case: ${row.case}${roundLabel}\nInput context:\n${item?.idea ?? ""}\nPost:\n${row.text}`;
   }).join("\n\n");
   try {
     const raw = await runCommandCode(

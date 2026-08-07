@@ -17,15 +17,17 @@ import { AutomationView } from "./views/Automation.js";
 import { ComposeView } from "./views/Compose.js";
 import { HistoryView } from "./views/History.js";
 import { QueueView } from "./views/Queue.js";
+import { RepliesView } from "./views/Replies.js";
 import { SettingsView } from "./views/Settings.js";
 import { SystemView } from "./views/System.js";
 import "./styles.css";
 
-type ViewId = "compose" | "queue" | "automation" | "history" | "system" | "settings";
+type ViewId = "compose" | "queue" | "replies" | "automation" | "history" | "system" | "settings";
 
 const views: Array<{ description: string; icon: PanelIconName; id: ViewId; title: string }> = [
   { id: "compose", icon: "pencil", title: "Compose", description: "Turn a rough idea into a polished, reviewable post." },
   { id: "queue", icon: "list-checks", title: "Queue", description: "Prepare, schedule, post, and inspect every job." },
+  { id: "replies", icon: "inbox", title: "Replies", description: "Reply to posts and accounts you want to engage with." },
   { id: "automation", icon: "zap", title: "Automation", description: "Control source ingestion and the automatic posting pipeline." },
   { id: "history", icon: "clock", title: "History", description: "Review recently posted content and its sources." },
   { id: "system", icon: "activity", title: "System", description: "See what is running and take control of it." },
@@ -217,6 +219,8 @@ function App() {
     viewContent = <ComposeView candidatesPanel={panelFor("candidates")} candidatesState={candidatesState} composerPanel={panelFor("composer")} composerState={composerState} />;
   } else if (activeView === "queue") {
     viewContent = <QueueView panel={panelFor("jobs")} />;
+  } else if (activeView === "replies") {
+    viewContent = <RepliesView panel={panelFor("replies")} />;
   } else if (activeView === "automation") {
     viewContent = (
       <AutomationView

@@ -95,7 +95,14 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
           ? { tweetType: generationTweetType(metadata.tweetType as string) }
           : {}),
       ...(draft.replyTo
-        ? { replyContext: { authorHandle: draft.replyTo.authorHandle, url: draft.replyTo.url } }
+        ? {
+            replyContext: {
+              authorHandle: draft.replyTo.authorHandle,
+              url: draft.replyTo.url,
+              ...(draft.replyTo.authorName ? { authorName: draft.replyTo.authorName } : {}),
+              ...(draft.replyTo.text ? { text: draft.replyTo.text } : {})
+            }
+          }
         : {}),
       ...(sourcePacket?.feedback ? { feedback: sourcePacket.feedback } : {})
     });

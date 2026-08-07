@@ -23,6 +23,7 @@ import { registerHistoryRoutes } from "./routes/history.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerOnboardingRoutes } from "./routes/onboarding.js";
 import { registerSystemRoutes } from "./routes/system.js";
+import { registerRepliesRoutes } from "./routes/replies.js";
 
 export { type BuildAppOptions };
 
@@ -178,6 +179,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   registerSettingsRoutes(app, deps);
   registerOnboardingRoutes(app, deps);
   registerSystemRoutes(app, deps);
+  registerRepliesRoutes(app, deps);
 
   return app;
 }

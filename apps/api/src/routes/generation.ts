@@ -19,6 +19,7 @@ export function registerGenerationRoutes(app: FastifyInstance, deps: AppDeps): v
       ZYQUOR_LLM_PROVIDER: input.provider,
       ...(input.provider === "command-code" ? { ZYQUOR_COMMAND_CODE_MODEL: input.model } : {}),
       ...(input.provider === "codex" ? { ZYQUOR_CODEX_MODEL: input.model } : {}),
+      ...(input.provider === "opencode" ? { ZYQUOR_OPENCODE_MODEL: input.model } : {}),
       ...(input.provider === "gemini" ? { ZYQUOR_GEMINI_MODEL: input.model } : {}),
       ...(input.provider === "openrouter" ? { ZYQUOR_OPENROUTER_MODEL: input.model } : {}),
       ...(input.provider === "ollama" ? { ZYQUOR_OLLAMA_MODEL: input.model } : {})

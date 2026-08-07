@@ -1,4 +1,4 @@
-export type GenerationProviderName = "command-code" | "codex" | "openrouter" | "gemini" | "ollama";
+export type GenerationProviderName = "command-code" | "codex" | "opencode" | "openrouter" | "gemini" | "ollama";
 
 export interface GenerateDraftCandidatesInput {
   bannedPhrases?: string[];
@@ -10,7 +10,7 @@ export interface GenerateDraftCandidatesInput {
   objective?: string;
   preserveCase?: boolean;
   recentPostHistory?: string[];
-  replyContext?: { authorHandle: string; url: string };
+  replyContext?: { authorHandle: string; url: string; authorName?: string; text?: string };
   systemPromptExtra?: string;
   systemFeedback?: string[];
   tone?: string | null;
@@ -33,6 +33,7 @@ export interface GenerationProviderConfig {
   model: string;
   configured: boolean;
   baseUrl?: string;
+  revisionPass?: boolean;
 }
 
 export interface FetchLike {

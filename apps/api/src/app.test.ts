@@ -825,17 +825,17 @@ describe("api workflow", () => {
     await app.close();
   });
 
-  it("adds required article source URL before browser posting", async () => {
+  it("posts a source-link reply after an article_summary post", async () => {
     const repository = createMemoryRepository({
       now: () => "2026-04-24T17:00:00.000Z"
     });
-    let postedText = "";
+    const postedTexts: string[] = [];
     const app = buildApp({
       enableBrowserPost: true,
       generationProvider: testGenerationProvider,
       preparePost: async (input) => {
-        postedText = input.text;
-        return { postUrl: "https://x.com/personal/status/article-link" };
+        postedTexts.push(input.text);
+        return { postUrl: input.replyTo ? "https://x.com/personal/status/2222222222222222222" : "https://x.com/personal/status/1111111111111111111" };
       },
       repository
     });
@@ -866,10 +866,15 @@ describe("api workflow", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(postedText).toBe("database failover got safer defaults for operators. https://example.com/database-failover");
+    expect(postedTexts[0]).toBe("database failover got safer defaults for operators.");
+    expect(postedTexts[1]).toBe("https://example.com/database-failover");
     await expect(repository.listPostHistory()).resolves.toMatchObject([
       {
-        postedText: "database failover got safer defaults for operators. https://example.com/database-failover",
+        postedText: "database failover got safer defaults for operators.",
+        sourceUrl: "https://example.com/database-failover"
+      },
+      {
+        postedText: "https://example.com/database-failover",
         sourceUrl: "https://example.com/database-failover"
       }
     ]);
@@ -1359,7 +1364,7 @@ describe("api workflow", () => {
     expect((await app.inject({ method: "GET", url: "/source-packets?accountId=account_personal" })).json().packets).toHaveLength(0);
     await expect(repository.listPostHistory()).resolves.toMatchObject([
       {
-        postedText: "science funding is becoming a markets story. https://example.com/science-economy",
+        postedText: "science funding is becoming a markets story.",
         sourcePacketId: packet.id,
         sourceTitle: "Science economy source",
         sourceType: "news",

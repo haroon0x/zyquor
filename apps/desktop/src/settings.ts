@@ -9,6 +9,7 @@ export interface DesktopSettings {
   closeChromeAfterPost?: boolean;
   commandCodePath?: string;
   codexPath?: string;
+  opencodePath?: string;
   llmProvider?: string;
   openrouterApiKey?: string;
   geminiApiKey?: string;
@@ -115,6 +116,7 @@ export function applySettingsToEnv(settings: DesktopSettings, options: { overwri
     ZYQUOR_BROWSER_CLOSE_AFTER_POST: settings.closeChromeAfterPost !== undefined ? String(Number(settings.closeChromeAfterPost)) : undefined,
     ZYQUOR_COMMAND_CODE_PATH: settings.commandCodePath,
     ZYQUOR_CODEX_PATH: settings.codexPath,
+    ZYQUOR_OPENCODE_PATH: settings.opencodePath,
     ZYQUOR_LLM_PROVIDER: settings.llmProvider,
     ZYQUOR_OPENROUTER_API_KEY: settings.openrouterApiKey,
     ZYQUOR_GEMINI_API_KEY: settings.geminiApiKey,

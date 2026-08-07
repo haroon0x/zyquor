@@ -9,6 +9,7 @@ export interface DesktopSettingsData {
   closeChromeAfterPost?: boolean;
   commandCodePath?: string;
   codexPath?: string;
+  opencodePath?: string;
   llmProvider?: string;
   openrouterApiKey?: string;
   geminiApiKey?: string;

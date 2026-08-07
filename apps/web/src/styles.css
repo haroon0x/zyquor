@@ -2240,3 +2240,72 @@ button.danger.stop-everything {
 .log-line.error {
   color: var(--warn);
 }
+
+.replies-view {
+  display: grid;
+  gap: 16px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.feed-accounts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+
+.feed-tweet-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.feed-tweet-row,
+.reply-draft-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: center;
+  padding: 16px 18px;
+}
+
+.feed-tweet-row + .feed-tweet-row,
+.reply-draft-row + .reply-draft-row {
+  border-top: 1px solid var(--line);
+}
+
+.feed-tweet-details,
+.reply-draft-details {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.feed-tweet-details p,
+.reply-draft-snippet {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.feed-tweet-details time,
+.reply-draft-details a {
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.feed-tweet-actions,
+.reply-draft-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}

@@ -187,7 +187,7 @@ describe("automatic ingest", () => {
     const jobs = await repository.listJobs();
     const draft = await repository.getDraft(jobs[0]!.draftId);
     expect(draft?.draft.editedText).toBe(
-      "> old failover was brittle\n> new defaults reduce operator risk\nhttps://example.com/database-failover"
+      "> old failover was brittle\n> new defaults reduce operator risk"
     );
   });
 
@@ -375,6 +375,59 @@ describe("automatic ingest", () => {
     });
     await expect(repository.getSourcePacketByUrl("https://book.stripe.com/fZu5kCaBZ1JpaYTflPgEg05", "account_personal")).resolves.toBeNull();
     await expect(repository.getSourcePacketByUrl("https://reddit.com/r/technology/comments/example", "account_personal")).resolves.toBeNull();
+  });
+
+  it("skips generic how-to/guide and announcement titles before drafting", async () => {
+    const repository = createMemoryRepository({
+      now: () => "2026-04-24T17:00:00.000Z"
+    });
+    const adapter: SourceAdapter = {
+      name: "guide-news",
+      sourceType: "news",
+      async fetch() {
+        return [
+          {
+            title: "A guide to slash commands in the GitHub Copilot app",
+            url: "https://github.blog/ai-and-ml/guides/slash",
+            metadata: { published: "2026-04-24T16:00:00.000Z" },
+            content:
+              "Slash commands turn a chat box into a workflow interface. Developers can plan work, collaborate in issues, automate tasks, and customize how the GitHub Copilot workflow runs in a project."
+          },
+          {
+            title: "Trace-state replay cuts agent debugging time",
+            url: "https://example.com/agent-trace-replay",
+            metadata: { published: "2026-04-24T16:00:00.000Z" },
+            content:
+              "A traced reasoning state lets agent teams inspect and replay work step-by-step. The replay reduces the risk lateral failures pose to agentic workflows by preserving the control-plane state in an object store for later rollback."
+          }
+        ];
+      }
+    };
+    await repository.createIngestConfig({
+      accountId: "account_personal",
+      enabled: true,
+      maxPacketsPerDay: 3,
+      metadata: {},
+      scheduleWindowEnd: "23:59",
+      scheduleWindowStart: "00:00",
+      sourceType: "news",
+      tweetTypeMix: { useful_info: 100 }
+    });
+
+    const result = await runAutomaticIngest({
+      adapters: new Map([["news", adapter]]),
+      generationProvider: testProvider,
+      now: new Date("2026-04-24T17:00:00.000Z"),
+      repository
+    });
+
+    expect(result).toMatchObject({
+      errors: [],
+      processed: 1,
+      skippedByReason: { lowSignal: 1 },
+      results: [{ url: "https://example.com/agent-trace-replay" }]
+    });
+    await expect(repository.getSourcePacketByUrl("https://github.blog/ai-and-ml/guides/slash", "account_personal")).resolves.toBeNull();
   });
 
   it("limits repeated GitHub posts in one day", async () => {

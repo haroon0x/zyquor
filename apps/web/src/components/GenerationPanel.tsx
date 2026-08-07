@@ -19,7 +19,7 @@ export function GenerationPanel({ panel, state }: { panel: PanelProps; state: Ge
   });
   const providerOptions = Object.keys(generationModelOptions).length
     ? Object.keys(generationModelOptions)
-    : ["command-code", "codex", "openrouter", "gemini", "ollama"];
+    : ["command-code", "codex", "opencode", "openrouter", "gemini", "ollama"];
   const selectedProviderModels = generationModelOptions[generationDraft.provider] ?? [];
   const selectedProviderHasModel = selectedProviderModels.includes(generationDraft.model);
 

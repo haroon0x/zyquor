@@ -28,14 +28,30 @@ export function validateGeneratedPostQuality(text: string): PostQualityResult {
 }
 
 const SAME_PACKET_COOLDOWN_MS = 2 * 60 * 60 * 1000;
+// Promotional noise plus generic announcement/how-to/guide titles that read like
+// vendor marketing rather than a supported, opinionated point. Catching these at
+// the title lets ingest skip them before drafting.
 const LOW_SIGNAL_TITLE_PATTERNS = [
   /\b50%\s+off\b/i,
   /\blast\s+24\s+hours?\b/i,
   /\bdiscount\b/i,
   /\bpromo\b/i,
   /\bsale\b/i,
-  /\bgiveaway\b/i
+  /\bgiveaway\b/i,
+  /\ba\s+guide\s+to\b/i,
+  /\bguides?\s+to\s+using\b/i,
+  /\bhow\s+to\s+use\b/i,
+  /\bhow\s+to\s+get\s+started\b/i,
+  /\bgetting\s+started\s+with\b/i,
+  /\b(now\s+(available|live)|rolling\s+out|coming\s+soon)\b/i,
+  /\bintroducing\b/i,
+  /\bannouncing\b/i,
+  /\bnew\s+(in|to)\s+the\s+\w+\b/i,
+  /\b[a-z]+\s+releases?\s+(a|new)\b/i
 ];
+export function isLowSignalSourceTitle(title: string): boolean {
+  return LOW_SIGNAL_TITLE_PATTERNS.some((pattern) => pattern.test(title));
+}
 const RISKY_UNSUPPORTED_PATTERNS = [
   /\balways\s+(safe|works|wins|fails)\b/i,
   /\bnever\s+(safe|works|wins|fails)\b/i,
@@ -57,10 +73,10 @@ function sourceIsExternal(packet: SourcePacket) {
   return packet.sourceType !== "x-feed";
 }
 
-// Only article summaries carry their source URL. Other source-backed post types
-// keep the URL out of the body and spend the freed characters on the detail.
-function sourceNeedsLink(packet: SourcePacket) {
-  return Boolean(packet.url) && sourceIsExternal(packet) && packet.tweetType === "article_summary";
+// No post type carries a source URL anymore. Every tweet omits links and spends
+// the freed characters on supported detail.
+function sourceNeedsLink(_packet: SourcePacket) {
+  return false;
 }
 
 function sourceEvidence(packet: SourcePacket) {
