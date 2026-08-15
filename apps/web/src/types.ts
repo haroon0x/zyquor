@@ -195,8 +195,8 @@ export interface DesktopSettingsData {
   enableBrowserPost?: boolean;
   closeChromeAfterPost?: boolean;
   commandCodePath?: string;
-  codexPath?: string;
   opencodePath?: string;
+  opencodeVariant?: string;
   llmProvider?: string;
   openrouterApiKey?: string;
   geminiApiKey?: string;

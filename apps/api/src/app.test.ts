@@ -825,7 +825,7 @@ describe("api workflow", () => {
     await app.close();
   });
 
-  it("posts a source-link reply after an article_summary post", async () => {
+  it("attaches the source link to an article_summary post instead of a bare-url reply", async () => {
     const repository = createMemoryRepository({
       now: () => "2026-04-24T17:00:00.000Z"
     });
@@ -866,15 +866,12 @@ describe("api workflow", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(postedTexts[0]).toBe("database failover got safer defaults for operators.");
-    expect(postedTexts[1]).toBe("https://example.com/database-failover");
+    expect(postedTexts).toEqual([
+      "database failover got safer defaults for operators. https://example.com/database-failover"
+    ]);
     await expect(repository.listPostHistory()).resolves.toMatchObject([
       {
-        postedText: "database failover got safer defaults for operators.",
-        sourceUrl: "https://example.com/database-failover"
-      },
-      {
-        postedText: "https://example.com/database-failover",
+        postedText: "database failover got safer defaults for operators. https://example.com/database-failover",
         sourceUrl: "https://example.com/database-failover"
       }
     ]);

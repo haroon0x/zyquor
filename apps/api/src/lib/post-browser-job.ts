@@ -222,7 +222,13 @@ export async function postBrowserJob(deps: AppDeps, jobId: string, options: Post
     await removePostedDraftSourcePacket(repository, job.draftId);
     await repository.createAttempt({ jobId: job.id, status: "verified" });
 
-    if (sourcePacket?.tweetType === "article_summary" && sourcePacket?.url && result.postUrl) {
+    const mainPostCarriesUrl = /https?:\/\//i.test(qualityText.value);
+    if (
+      sourcePacket?.tweetType === "article_summary" &&
+      sourcePacket?.url &&
+      result.postUrl &&
+      !mainPostCarriesUrl
+    ) {
       try {
         await postSourceLinkReply(deps, account, job.draftId, result.postUrl, sourcePacket.url);
       } catch (error) {

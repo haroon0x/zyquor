@@ -1188,6 +1188,12 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
       return Number((result as { changes?: unknown }).changes ?? 0);
     },
 
+    async updatePostHistoryMetadata(id, metadata) {
+      db.prepare("UPDATE post_history SET metadata_json = ? WHERE id = ?").run(JSON.stringify(metadata), id);
+      const updated = row(db.prepare("SELECT * FROM post_history WHERE id = ?").get(id));
+      return updated ? toPostHistory(updated) : null;
+    },
+
     async createIngestConfig(input) {
       const nowStr = now();
       const config: import("@zyquor/core").IngestConfig = {

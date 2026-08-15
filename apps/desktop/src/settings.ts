@@ -8,8 +8,8 @@ export interface DesktopSettings {
   enableBrowserPost?: boolean;
   closeChromeAfterPost?: boolean;
   commandCodePath?: string;
-  codexPath?: string;
   opencodePath?: string;
+  opencodeVariant?: string;
   llmProvider?: string;
   openrouterApiKey?: string;
   geminiApiKey?: string;
@@ -115,8 +115,8 @@ export function applySettingsToEnv(settings: DesktopSettings, options: { overwri
     ZYQUOR_ENABLE_BROWSER_POST: settings.enableBrowserPost !== undefined ? String(Number(settings.enableBrowserPost)) : undefined,
     ZYQUOR_BROWSER_CLOSE_AFTER_POST: settings.closeChromeAfterPost !== undefined ? String(Number(settings.closeChromeAfterPost)) : undefined,
     ZYQUOR_COMMAND_CODE_PATH: settings.commandCodePath,
-    ZYQUOR_CODEX_PATH: settings.codexPath,
     ZYQUOR_OPENCODE_PATH: settings.opencodePath,
+    ZYQUOR_OPENCODE_VARIANT: settings.opencodeVariant,
     ZYQUOR_LLM_PROVIDER: settings.llmProvider,
     ZYQUOR_OPENROUTER_API_KEY: settings.openrouterApiKey,
     ZYQUOR_GEMINI_API_KEY: settings.geminiApiKey,
@@ -133,10 +133,10 @@ export function applySettingsToEnv(settings: DesktopSettings, options: { overwri
 }
 
 export function applyDesktopEnvDefaults(settings: DesktopSettings): void {
-  process.env.ZYQUOR_LLM_PROVIDER ??= "codex";
+  process.env.ZYQUOR_LLM_PROVIDER ??= "opencode";
   process.env.ZYQUOR_COMMAND_CODE_MODEL ??= "gpt-5.6-luna";
-  process.env.ZYQUOR_CODEX_MODEL ??= "gpt-5.6-luna";
-  process.env.ZYQUOR_CODEX_PATH ??= "codex";
+  process.env.ZYQUOR_OPENCODE_MODEL ??= "opencode/deepseek-v4-flash-free";
+  process.env.ZYQUOR_OPENCODE_PATH ??= "opencode";
   process.env.ZYQUOR_ENABLE_BROWSER_PREPARE ??= String(Number(settings.enableBrowserPrepare ?? true));
   process.env.ZYQUOR_ENABLE_BROWSER_POST ??= "0";
   process.env.ZYQUOR_BROWSER_CHANNEL ??= 'chrome';

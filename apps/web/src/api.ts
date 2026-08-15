@@ -29,7 +29,6 @@ export async function loadAppData() {
 
 const PROVIDER_LABELS: Record<string, string> = {
   "command-code": "Command Code",
-  codex: "Codex",
   opencode: "Opencode",
   gemini: "Gemini",
   ollama: "Ollama",

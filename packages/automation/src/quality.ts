@@ -73,10 +73,11 @@ function sourceIsExternal(packet: SourcePacket) {
   return packet.sourceType !== "x-feed";
 }
 
-// No post type carries a source URL anymore. Every tweet omits links and spends
-// the freed characters on supported detail.
-function sourceNeedsLink(_packet: SourcePacket) {
-  return false;
+// article_summary posts carry their real source link. ShareViaCopyLink is the
+// highest-weight organic action in the x-algorithm scoring, and the tweet text
+// stays link-free so the model never invents one; the link is attached post-hoc.
+function sourceNeedsLink(packet: SourcePacket) {
+  return packet.tweetType === "article_summary";
 }
 
 function sourceEvidence(packet: SourcePacket) {
@@ -139,6 +140,8 @@ function hasBrokenQuoteTimeline(text: string) {
     .some((line) => /^> .*\s> /.test(line));
 }
 
+const ACCOUNT_MENTION_PATTERN = /(^|[^\w@])@[A-Za-z0-9_]{1,15}\b/;
+
 function recentSamePacketPost(input: PostQualityInput) {
   const now = input.now ?? new Date();
   return (input.history ?? [])
@@ -160,6 +163,9 @@ export function validateSourcePostQuality(input: PostQualityInput): PostQualityR
   }
   if (sourceIsExternal(input.packet) && FIRST_PERSON_MISATTRIBUTION.test(text)) {
     reasons.push("first_person_misattribution");
+  }
+  if (sourceIsExternal(input.packet) && ACCOUNT_MENTION_PATTERN.test(text)) {
+    reasons.push("account_mention_risk");
   }
   if (hasBrokenQuoteTimeline(text)) reasons.push("broken_quote_timeline_format");
 

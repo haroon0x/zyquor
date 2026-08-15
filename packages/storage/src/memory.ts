@@ -823,6 +823,17 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       return deletedCount;
     },
 
+    async updatePostHistoryMetadata(id, metadata) {
+      const item = history.get(id);
+      if (!item) {
+        return null;
+      }
+      const updated = { ...item, metadata };
+      history.set(id, updated);
+      persist();
+      return updated;
+    },
+
     async createIngestConfig(input) {
       const nowStr = now();
       const config: IngestConfig = {

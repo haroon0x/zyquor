@@ -35,7 +35,7 @@ describe("revision pass", () => {
         tweetType: "article_summary"
       },
       model: "test-model",
-      providerName: "codex",
+      providerName: "opencode",
       revise: true,
       runPrompt: async (prompt) => {
         prompts.push(prompt);
@@ -58,7 +58,7 @@ describe("revision pass", () => {
     const candidates = await generateDraftCandidates({
       generationInput: { idea: "SQLite handles 8 million rows on a $20 node.", count: 1, tweetType: "article_summary" },
       model: "test-model",
-      providerName: "codex",
+      providerName: "opencode",
       revise: true,
       runPrompt: async (prompt) => {
         calls += 1;
@@ -79,7 +79,7 @@ describe("revision pass", () => {
     const candidates = await generateDraftCandidates({
       generationInput: { idea: "SQLite handles 8 million rows on a $20 node.", count: 1, tweetType: "article_summary" },
       model: "test-model",
-      providerName: "codex",
+      providerName: "opencode",
       revise: true,
       runPrompt: async (prompt) => {
         calls += 1;
@@ -99,7 +99,7 @@ describe("revision pass", () => {
     const candidates = await generateDraftCandidates({
       generationInput: { idea: "SQLite handles 8 million rows on a $20 node.", count: 1, tweetType: "article_summary" },
       model: "test-model",
-      providerName: "codex",
+      providerName: "opencode",
       runPrompt: async () => {
         calls += 1;
         return '{"candidates":["sqlite handles 8 million rows on a $20 node."]}';

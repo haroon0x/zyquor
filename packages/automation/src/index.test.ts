@@ -187,7 +187,7 @@ describe("automatic ingest", () => {
     const jobs = await repository.listJobs();
     const draft = await repository.getDraft(jobs[0]!.draftId);
     expect(draft?.draft.editedText).toBe(
-      "> old failover was brittle\n> new defaults reduce operator risk"
+      "> old failover was brittle\n> new defaults reduce operator risk\nhttps://example.com/database-failover"
     );
   });
 
@@ -261,6 +261,36 @@ describe("automatic ingest", () => {
       text: "Acme's faster SQLite build cut query time. Worth a look for local workloads."
     });
     expect(clean.reasons).not.toContain("first_person_misattribution");
+    expect(clean.ok).toBe(true);
+  });
+
+  it("rejects mentions of other accounts on external-source posts", () => {
+    const packet = {
+      accountId: "account_personal",
+      createdAt: "2026-04-24T15:00:00.000Z",
+      facts: ["A maintainer demoed the new CLI."],
+      id: "packet_3",
+      sourceType: "news" as const,
+      status: "drafted" as const,
+      summary: "A maintainer demoed the new CLI.",
+      title: "New CLI lands for local graph work",
+      tweetType: "useful_info" as const,
+      updatedAt: "2026-04-24T15:00:00.000Z",
+      url: "https://example.com/cli"
+    };
+
+    const mentioned = validateSourcePostQuality({
+      packet,
+      text: "Check the new CLI that @sqlitebrowser shipped."
+    });
+    expect(mentioned.ok).toBe(false);
+    expect(mentioned.reasons).toContain("account_mention_risk");
+
+    const clean = validateSourcePostQuality({
+      packet,
+      text: "The new CLI cuts local graph setup to one command."
+    });
+    expect(clean.reasons).not.toContain("account_mention_risk");
     expect(clean.ok).toBe(true);
   });
 

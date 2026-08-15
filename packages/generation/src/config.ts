@@ -23,9 +23,6 @@ export interface GenerationEnvironment {
 export const DEFAULT_COMMAND_CODE_MODEL = "gpt-5.6-luna";
 export const COMMAND_CODE_MODELS = [DEFAULT_COMMAND_CODE_MODEL] as const;
 
-export const DEFAULT_CODEX_MODEL = "gpt-5.6-luna";
-export const CODEX_MODELS = [DEFAULT_CODEX_MODEL] as const;
-
 export const DEFAULT_OPENCODE_MODEL = "opencode/deepseek-v4-flash-free";
 export const DEFAULT_OPENCODE_VARIANT = "high";
 export const OPENCODE_MODELS = [
@@ -47,12 +44,6 @@ export function safeOpencodeVariant(variant: string | undefined) {
   if ((OPENCODE_VARIANTS as readonly string[]).includes(variant)) return variant;
   console.warn(`generation: Opencode variant "${variant}" is not supported; using "${DEFAULT_OPENCODE_VARIANT}"`);
   return DEFAULT_OPENCODE_VARIANT;
-}
-
-export function safeCodexModel(model: string | undefined) {
-  if (!model || model === DEFAULT_CODEX_MODEL) return DEFAULT_CODEX_MODEL;
-  console.warn(`generation: Codex model "${model}" is not supported; using "${DEFAULT_CODEX_MODEL}"`);
-  return DEFAULT_CODEX_MODEL;
 }
 
 export function safeCommandCodeModel(model: string | undefined) {
@@ -94,7 +85,6 @@ export const OLLAMA_MODELS = [
 ] as const;
 export const GENERATION_MODEL_OPTIONS = {
   "command-code": COMMAND_CODE_MODELS,
-  codex: CODEX_MODELS,
   opencode: OPENCODE_MODELS,
   openrouter: OPENROUTER_MODELS,
   gemini: GEMINI_MODELS,
@@ -127,15 +117,6 @@ export function resolveGenerationProviderConfig(env: GenerationEnvironment = pro
       provider,
       model: safeCommandCodeModel(env.ZYQUOR_COMMAND_CODE_MODEL),
       configured: true
-    };
-  }
-
-  if (provider === "codex") {
-    return {
-      provider,
-      model: safeCodexModel(env.ZYQUOR_CODEX_MODEL),
-      configured: true,
-      revisionPass
     };
   }
 

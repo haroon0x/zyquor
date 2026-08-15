@@ -120,6 +120,7 @@ export interface ZyquorRepository {
     tweetType?: PostHistory["tweetType"];
   }): Promise<PostHistory>;
   listPostHistory(): Promise<PostHistory[]>;
+  updatePostHistoryMetadata(id: string, metadata: Record<string, unknown>): Promise<PostHistory | null>;
   purgePostHistoryOlderThan(cutoffIso: string): Promise<number>;
   createIngestConfig(input: {
     accountId: string;

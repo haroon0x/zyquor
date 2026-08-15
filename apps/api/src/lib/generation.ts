@@ -27,7 +27,6 @@ export function readSavedGenerationEnv(configPath: string | null): GenerationEnv
       ZYQUOR_LLM_PROVIDER: provider,
       ...(revisionPass ? { ZYQUOR_REVISION_PASS: "1" } : {}),
       ...(provider === "command-code" ? { ZYQUOR_COMMAND_CODE_MODEL: model } : {}),
-      ...(provider === "codex" ? { ZYQUOR_CODEX_MODEL: model } : {}),
       ...(provider === "opencode" ? { ZYQUOR_OPENCODE_MODEL: model } : {}),
       ...(provider === "gemini" ? { ZYQUOR_GEMINI_MODEL: model } : {}),
       ...(provider === "openrouter" ? { ZYQUOR_OPENROUTER_MODEL: model } : {}),

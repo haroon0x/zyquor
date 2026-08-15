@@ -192,6 +192,31 @@ export interface FetchTweetResult {
   url: string;
 }
 
+export interface TweetPerformanceMetrics {
+  id: string;
+  url: string;
+  views: number | null;
+  likes: number | null;
+  replies: number | null;
+  reposts: number | null;
+  bookmarks: number | null;
+  measuredAt: string;
+}
+
+export interface FetchTweetPerformanceInput {
+  profileDir: string;
+  url: string;
+  browserChannel?: string | null;
+  cdpUrl?: string;
+  headless?: boolean;
+  actionDelayMs?: number;
+  artifactsDir?: string;
+}
+
+export interface FetchTweetPerformanceResult {
+  metrics: TweetPerformanceMetrics;
+}
+
 export class BrowserPrepareError extends Error {
   constructor(
     message: string,
@@ -247,23 +272,36 @@ async function firstVisibleEditor(page: Page) {
 async function assertNotLoginPage(page: Page) {
   const url = page.url();
   const parsedUrl = new URL(url);
-  const loginVisible = await page
-    .locator('input[name="text"], input[name="password"], [data-testid="loginButton"], a[href="/login"]')
-    .first()
-    .isVisible({ timeout: 1_000 })
-    .catch(() => false);
-  const authenticatedUiVisible = await page
-    .locator('[data-testid="SideNav_AccountSwitcher_Button"], [data-testid="AppTabBar_Home_Link"], a[data-testid="AppTabBar_Profile_Link"]')
-    .first()
-    .isVisible({ timeout: 5_000 })
-    .catch(() => false);
   const loginOnboarding =
     parsedUrl.pathname.startsWith("/i/jf/onboarding/") &&
     (parsedUrl.searchParams.get("mode") === "login" || parsedUrl.searchParams.has("redirect_after_login"));
 
-  if (url.includes("/login") || url.includes("/i/flow/login") || loginOnboarding || loginVisible || !authenticatedUiVisible) {
+  if (url.includes("/login") || url.includes("/i/flow/login") || loginOnboarding) {
     throw new Error("X profile is not logged in. Run `pnpm profile:x:manual`, log into X, close that browser, then retry.");
   }
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const loginVisible = await page
+      .locator('input[name="text"], input[name="password"], [data-testid="loginButton"], a[href="/login"]')
+      .first()
+      .isVisible({ timeout: 1_000 })
+      .catch(() => false);
+    if (loginVisible) {
+      throw new Error("X profile is not logged in. Run `pnpm profile:x:manual`, log into X, close that browser, then retry.");
+    }
+    const authenticatedUiVisible = await page
+      .locator('[data-testid="SideNav_AccountSwitcher_Button"], [data-testid="AppTabBar_Home_Link"], a[data-testid="AppTabBar_Profile_Link"]')
+      .first()
+      .isVisible({ timeout: 2_000 })
+      .catch(() => false);
+    if (authenticatedUiVisible) {
+      return;
+    }
+    if (attempt < 2) {
+      await page.waitForTimeout(2_000);
+    }
+  }
+  throw new Error("X profile is not logged in. Run `pnpm profile:x:manual`, log into X, close that browser, then retry.");
 }
 
 export async function openPostComposer(page: Page, xUrl: string, replyTo?: ReplyTarget, replyToUrl?: string | null) {
@@ -844,6 +882,143 @@ if (await tweetIsReady()) {
   }
 }
 
+function parseCount(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const cleaned = value.replace(/,/g, "").replace(/\s+/g, "").toLowerCase();
+  const match = /^([\d.]+)([kmb])?$/.exec(cleaned);
+  if (!match) return null;
+  const num = Number(match[1]);
+  if (!Number.isFinite(num)) return null;
+  const multiplier = match[2] === "k" ? 1_000 : match[2] === "m" ? 1_000_000 : match[2] === "b" ? 1_000_000_000 : 1;
+  return Math.round(num * multiplier);
+}
+
+function extractUnitCount(sources: string[], pattern: RegExp): number | null {
+  for (const source of sources) {
+    const match = pattern.exec(source);
+    if (match?.[1]) {
+      const parsed = parseCount(match[1]);
+      if (parsed !== null) return parsed;
+    }
+  }
+  return null;
+}
+
+async function extractTweetPerformance(page: Page, statusUrl: string): Promise<TweetPerformanceMetrics> {
+  const permalink = extractStatusPermalink(statusUrl) ?? statusUrl;
+  const idMatch = /\/(\d+)\/?$/.exec(new URL(permalink).pathname);
+  const tweetId = idMatch?.[1] ?? "";
+
+  const raw = await page.locator('article[data-testid="tweet"]').first().evaluate((article) => {
+    const labels: string[] = [];
+    const containers: string[] = [];
+    for (const element of Array.from(article.querySelectorAll("[aria-label]"))) {
+      const label = element.getAttribute("aria-label");
+      if (label) labels.push(label);
+    }
+    for (const element of Array.from(article.querySelectorAll('[data-testid="app-text-transition-container"]'))) {
+      const text = element.textContent ?? "";
+      if (text.trim()) containers.push(text.trim());
+    }
+    const body = (article as HTMLElement).innerText ?? "";
+    return { labels, containers, body };
+  });
+
+  const sources = [...raw.labels, ...raw.containers, raw.body];
+  return {
+    id: tweetId,
+    url: permalink,
+    views: extractUnitCount(sources, /([\d.,]+\s*[kmb]?)\s*views?\b/i),
+    replies: extractUnitCount(sources, /([\d.,]+\s*[kmb]?)\s*repl\w*\b/i),
+    reposts: extractUnitCount(sources, /([\d.,]+\s*[kmb]?)\s*repost\w*\b/i),
+    likes: extractUnitCount(sources, /([\d.,]+\s*[kmb]?)\s*l\w*es?\b/i),
+    bookmarks: extractUnitCount(sources, /([\d.,]+\s*[kmb]?)\s*bookmark\w*\b/i),
+    measuredAt: new Date().toISOString()
+  };
+}
+
+export async function fetchTweetPerformance(input: FetchTweetPerformanceInput): Promise<FetchTweetPerformanceResult> {
+  const actionDelayMs = input.actionDelayMs ?? 1_500;
+  const artifactsDir = input.artifactsDir ?? dataPath("data", "artifacts");
+  mkdirSync(artifactsDir, { recursive: true });
+  const artifactId = new Date().toISOString().replace(/[:.]/g, "-");
+  const screenshotPath = join(artifactsDir, `performance-${artifactId}.png`);
+
+  let context: BrowserContext | null = null;
+  let ownsContext = false;
+  let page: Page | null = null;
+
+  try {
+    const opened = await openPersistentContext({
+      ...input,
+      autoLaunchCdp: false
+    });
+    context = opened.context;
+    ownsContext = opened.ownsContext;
+    context.setDefaultTimeout(30_000);
+    page = await context.newPage();
+    await page.goto(input.url, { waitUntil: "domcontentloaded", timeout: 45_000 }).catch(() => undefined);
+
+    const loginVisible = await page
+      .locator('input[name="text"], input[name="password"], a[href="/login"], [data-testid="loginButton"]')
+      .first()
+      .isVisible({ timeout: 2_000 })
+      .catch(() => false);
+    if (loginVisible) {
+      throw new Error("X profile is not logged in. Run `pnpm profile:x:manual`, log into X, close that browser, then retry.");
+    }
+
+    const tab = page;
+    const metricsReady = () =>
+      tab
+        .evaluate(() => {
+          const hasArticle = !!document.querySelector('article[data-testid="tweet"]');
+          const hasText = !!document.querySelector('[data-testid="tweetText"], [data-testid="longformRichTextComponent"]');
+          const hasActionBar = !!document.querySelector(
+            '[data-testid="reply"], [data-testid="retweet"], [data-testid="like"], [data-testid="bookmark"]'
+          );
+          return hasArticle && (hasText || hasActionBar);
+        })
+        .catch(() => false);
+
+    let loaded = false;
+    for (let attempt = 0; attempt < 3 && !loaded; attempt += 1) {
+      const pollDeadline = Date.now() + 20_000;
+      while (Date.now() < pollDeadline) {
+        if (await metricsReady()) {
+          loaded = true;
+          break;
+        }
+        await page.waitForTimeout(1_500);
+      }
+      if (!loaded && attempt < 2) {
+        await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => undefined);
+      }
+    }
+    if (!loaded) {
+      throw new Error(`Timed out waiting for tweet metrics to render at ${input.url}`);
+    }
+    await page.waitForTimeout(actionDelayMs);
+    const metrics = await extractTweetPerformance(page, input.url);
+    await page.close().catch(() => undefined);
+    page = null;
+    if (ownsContext) {
+      await context.close();
+    }
+    return { metrics };
+  } catch (error) {
+    if (page) {
+      await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined);
+      await page.close().catch(() => undefined);
+    }
+    const message = error instanceof Error ? error.message : "Unknown tweet performance fetch error";
+    if (context && ownsContext) {
+      await context.close();
+    }
+    throw new BrowserFeedError(message, context ? screenshotPath : null);
+  }
+}
+
 export async function preparePost(input: PreparePostInput): Promise<PreparePostResult> {
   const text = input.text.trim();
   if (!text) {
@@ -894,11 +1069,28 @@ export async function preparePost(input: PreparePostInput): Promise<PreparePostR
       await postButton.click();
       await page.waitForTimeout(Math.max(actionDelayMs, 4_000));
       await page.waitForLoadState("domcontentloaded").catch(() => undefined);
-      const stillPresent = (await visibleEditorTexts(page)).some((value) => value.includes(text));
-      if (stillPresent) {
+
+      const startMs = Date.now();
+      let cleared = false;
+      let postUrl: string | null = null;
+      while (Date.now() - startMs < 15_000) {
+        if (!(await visibleEditorTexts(page)).some((value) => value.includes(text))) {
+          cleared = true;
+          break;
+        }
+        postUrl = await resolvePostedPermalink(page);
+        if (postUrl) {
+          cleared = true;
+          break;
+        }
+        await page.waitForTimeout(1_000);
+      }
+      if (!cleared) {
         throw new Error("X Post click did not clear the compose text");
       }
-      const postUrl = await resolvePostedPermalink(page);
+      if (!postUrl) {
+        postUrl = await resolvePostedPermalink(page);
+      }
       if (!postUrl) {
         throw new Error("Posted tweet permalink could not be verified after X Post click");
       }

@@ -144,6 +144,17 @@ const PAYOFF_PATTERNS = [
   /\bmatters (?:most )?(?:to|when|because)\b/i
 ];
 
+const APHORISM_PATTERNS = [
+  /\bproperty of\b/i,
+  /\bis the one that\b/i,
+  /\bthe one that cannot\b/i,
+  /\b(?:is|are) exactly the (?:part|thing|one)\b/i,
+  /\bdivergent\b/i,
+  /\bnot [a-z][\w ']{0,20}, it[ ']s\b/i,
+  /\b(?:different|divergent|moral) (?:principles or readings|grounds for|readings of the situation)\b/i,
+  /\bis (?:not |never )?[a-z][\w '-]{0,20}, (?:and )?[a-z][\w '-]{0,30} is (?:not |never )?[a-z]/i
+];
+
 const RECAP_OPENERS = [
   /^(?:a |an )?new\b/i,
   /^(?:researchers|the team|the paper|the post|the article|the release|the project|the company)\b/i,
@@ -158,6 +169,10 @@ const SOURCE_ARTIFACT_PATTERNS = [
   /\bthis milestone\b/i,
   /\b(?:workflow )?impact is\b/i
 ];
+
+function containsAphorism(text: string) {
+  return APHORISM_PATTERNS.some((pattern) => pattern.test(text));
+}
 
 function countPayoffSignals(text: string) {
   return PAYOFF_PATTERNS.filter((pattern) => pattern.test(text)).length;
@@ -188,6 +203,7 @@ export function scoreTweetQuality(text: string) {
   if (looksLikeSourceRecap(trimmed)) score -= 3;
   if (WEAK_OPENER_PATTERN.test(trimmed)) score -= 2;
   if (containsAdjectiveBloat(trimmed)) score -= 2;
+  if (containsAphorism(trimmed)) score -= 3;
   return score;
 }
 

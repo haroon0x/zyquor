@@ -4,6 +4,7 @@ import type { ZyquorRepository } from "@zyquor/storage";
 import { hasEnoughSourceContext, packetFieldsFromFeedDigest, packetFieldsFromItem } from "./context.js";
 import { draftFromSourcePacket, TopicDraftExistsError } from "./draft.js";
 import { isLowSignalSourceTitle } from "./quality.js";
+import { sourcePerformanceByType, type SourcePerformance } from "./performance.js";
 import { routeTweetType } from "./routing.js";
 import { isSourceType, isWithinScheduleWindow } from "./selection.js";
 import { hasTopicOverlap } from "./topic.js";
@@ -123,6 +124,35 @@ function envPositiveInt(name: string, fallback: number) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+// Dead-source feedback, per x-algorithm engagement weights. A source whose posts
+// consistently earn no engagement gets a fraction of its normal daily packet cap,
+// so we stop drafting (and auto-posting) material that X's model ranks near zero.
+const DEAD_SOURCE_ENGAGEMENT_FLOOR = 0.5;
+const DEAD_SOURCE_CAP_RATIO = 0.25;
+
+function configPerformanceKey(config: { sourceType: string }, performance: Map<string, SourcePerformance>) {
+  const sourcePerformance = performance.get(config.sourceType);
+  if (!sourcePerformance || sourcePerformance.posts < 1) return 0.25;
+  return sourcePerformance.engagementPerPost;
+}
+
+function performanceAdjustedTarget(
+  baseTarget: number,
+  sourcePerformance: SourcePerformance | undefined
+): { target: number; reason: string } {
+  if (!sourcePerformance || sourcePerformance.posts < 1) {
+    return { target: baseTarget, reason: "no-performance-data" };
+  }
+  if (sourcePerformance.engagementPerPost < DEAD_SOURCE_ENGAGEMENT_FLOOR) {
+    const reduced = Math.max(1, Math.floor(baseTarget * DEAD_SOURCE_CAP_RATIO));
+    return {
+      target: reduced,
+      reason: `dead-source engagementPerPost=${sourcePerformance.engagementPerPost.toFixed(2)}`
+    };
+  }
+  return { target: baseTarget, reason: `engagementPerPost=${sourcePerformance.engagementPerPost.toFixed(2)}` };
+}
+
 function sameHostPostCap(host: string) {
   if (host === "github.com") {
     return envPositiveInt("ZYQUOR_MAX_GITHUB_POSTS_PER_DAY", DEFAULT_MAX_GITHUB_POSTS_PER_DAY);
@@ -228,12 +258,18 @@ export function dailyPacketTarget(today: string): number {
 
 export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
   const configs = await options.repository.listIngestConfigs();
-  const enabled = configs.filter((config) => config.enabled);
+  const history = await options.repository.listPostHistory();
+  const performanceByType = await sourcePerformanceByType(options.repository);
+  const enabled = configs
+    .filter((config) => config.enabled)
+    .sort(
+      (left, right) =>
+        configPerformanceKey(right, performanceByType) - configPerformanceKey(left, performanceByType)
+    );
   const results: IngestRunResult[] = [];
   const errors: Array<{ configId: string; error: string }> = [];
   const skippedByReason = createSkipSummary();
   const today = (options.now ?? new Date()).toISOString().slice(0, 10);
-  const history = await options.repository.listPostHistory();
   const postedSourceUrls = new Set(history.map((item) => item.sourceUrl).filter((url): url is string => Boolean(url)));
   const postedHostCounts = new Map<string, number>();
   const postedTitlesByHost = new Map<string, string[]>();
@@ -265,12 +301,14 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
 
       const packets = await options.repository.listSourcePackets(config.accountId);
       const todayPackets = packets.filter((packet) => packet.sourceType === config.sourceType && packet.createdAt.startsWith(today));
-      const target = Math.min(config.maxPacketsPerDay, dailyPacketTarget(today));
+      const baseTarget = Math.min(config.maxPacketsPerDay, dailyPacketTarget(today));
+      const adjusted = performanceAdjustedTarget(baseTarget, performanceByType.get(config.sourceType));
+      const target = adjusted.target;
       const carriedOver = Math.min(carriedOverByAccount.get(config.accountId) ?? 0, target - 1);
       const effectiveCap = target - carriedOver;
       console.log(
         `[ingest] account=${config.accountId} dailyTarget=${target} carriedOver=${carriedOver} ` +
-          `effectiveCap=${effectiveCap} packetsToday=${todayPackets.length}`
+          `effectiveCap=${effectiveCap} packetsToday=${todayPackets.length} perf=${adjusted.reason}`
       );
       if (todayPackets.length >= effectiveCap) {
         skippedByReason.packetCap += 1;
@@ -341,7 +379,8 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
           }
           const tweetType = routeTweetType(
             { item: enriched, sourceName: adapter.name, sourceType: adapter.sourceType },
-            config.tweetTypeMix
+            config.tweetTypeMix,
+            { accountId: config.accountId, now: options.now, recentPosts: history }
           );
           const packet = await options.repository.createSourcePacket({
             accountId: config.accountId,

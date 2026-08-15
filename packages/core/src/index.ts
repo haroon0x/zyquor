@@ -48,7 +48,6 @@ export const SOURCE_TYPES = [
 
 export const LLM_PROVIDERS = [
   "command-code",
-  "codex",
   "opencode",
   "openrouter",
   "gemini",
@@ -388,6 +387,40 @@ export type DraftCandidate = z.infer<typeof draftCandidateSchema>;
 export type PostJob = z.infer<typeof postJobSchema>;
 export type PostAttempt = z.infer<typeof postAttemptSchema>;
 export type PostHistory = z.infer<typeof postHistorySchema>;
+
+export interface PostPerformance {
+  views: number | null;
+  likes: number | null;
+  replies: number | null;
+  reposts: number | null;
+  bookmarks: number | null;
+  measuredAt: string;
+}
+
+const PERFORMANCE_KEY = "performance";
+
+export function postPerformanceFromMetadata(metadata: Record<string, unknown>): PostPerformance | null {
+  const value = metadata[PERFORMANCE_KEY];
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const measuredAt = typeof record.measuredAt === "string" ? record.measuredAt : "";
+  if (!measuredAt) return null;
+  return {
+    views: typeof record.views === "number" ? record.views : null,
+    likes: typeof record.likes === "number" ? record.likes : null,
+    replies: typeof record.replies === "number" ? record.replies : null,
+    reposts: typeof record.reposts === "number" ? record.reposts : null,
+    bookmarks: typeof record.bookmarks === "number" ? record.bookmarks : null,
+    measuredAt
+  };
+}
+
+export function withPostPerformance(
+  metadata: Record<string, unknown>,
+  performance: PostPerformance
+): Record<string, unknown> {
+  return { ...metadata, [PERFORMANCE_KEY]: performance };
+}
 export type SourcePacket = z.infer<typeof sourcePacketSchema>;
 export type SystemFeedback = z.infer<typeof systemFeedbackSchema>;
 export type CreateDraftRequest = z.infer<typeof createDraftRequestSchema>;

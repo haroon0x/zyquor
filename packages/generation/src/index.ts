@@ -1,7 +1,6 @@
 import { resolveGenerationProviderConfig } from "./config.js";
 import { createGeminiGenerationProvider } from "./providers/gemini.js";
 import { createCommandCodeGenerationProvider } from "./providers/command-code.js";
-import { createCodexGenerationProvider } from "./providers/codex.js";
 import { createOpencodeGenerationProvider } from "./providers/opencode.js";
 import { createOllamaGenerationProvider } from "./providers/ollama.js";
 import { createOpenRouterGenerationProvider } from "./providers/openrouter.js";
@@ -11,8 +10,6 @@ import type { DraftGenerationProvider, FetchLike } from "./types.js";
 export type { GenerationEnvironment } from "./config.js";
 export {
   COMMAND_CODE_MODELS,
-  CODEX_MODELS,
-  DEFAULT_CODEX_MODEL,
   DEFAULT_OPENCODE_MODEL,
   OPENCODE_MODELS,
   GEMINI_MODELS,
@@ -22,7 +19,6 @@ export {
   resolveGenerationProviderConfig
 } from "./config.js";
 export { createCommandCodeGenerationProvider } from "./providers/command-code.js";
-export { createCodexGenerationProvider } from "./providers/codex.js";
 export { createOpencodeGenerationProvider } from "./providers/opencode.js";
 export { createGeminiGenerationProvider } from "./providers/gemini.js";
 export { createOllamaGenerationProvider, stripThinking } from "./providers/ollama.js";
@@ -56,14 +52,6 @@ export function createGenerationProviderFromEnv(
     return createCommandCodeGenerationProvider({
       ...(env.ZYQUOR_COMMAND_CODE_PATH ? { command: env.ZYQUOR_COMMAND_CODE_PATH } : {}),
       model: config.model
-    });
-  }
-
-  if (config.provider === "codex") {
-    return createCodexGenerationProvider({
-      ...(env.ZYQUOR_CODEX_PATH ? { command: env.ZYQUOR_CODEX_PATH } : {}),
-      model: config.model,
-      revise: config.revisionPass
     });
   }
 

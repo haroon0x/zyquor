@@ -10,6 +10,7 @@ export interface WorkerOptions {
   shouldContinue?: () => boolean;
   autoSeedDefaultIngest?: boolean;
   ingestIntervalMs?: number;
+  performanceIntervalMs?: number;
   pollMs: number;
 }
 
@@ -23,6 +24,7 @@ export interface WorkerHandle {
 export interface WorkerState {
   lastError: string | null;
   lastIngestMs: number;
+  lastPerformanceMs: number;
   lastPostMs: number;
   autopostJobIds: Set<string>;
   blockedAutopostJobIds: Set<string>;
@@ -94,6 +96,7 @@ export function createWorkerState(): WorkerState {
   return {
     lastError: null,
     lastIngestMs: 0,
+    lastPerformanceMs: 0,
     lastPostMs: 0,
     autopostJobIds: new Set(),
     blockedAutopostJobIds: new Set()
@@ -460,6 +463,23 @@ export async function processIngest(options: WorkerOptions) {
   }
 }
 
+export async function refreshPerformance(options: WorkerOptions) {
+  try {
+    const result = await api<{ accountId: string; measured: unknown[]; failed: string[] }>(
+      options.apiUrl,
+      "/performance/refresh",
+      { method: "POST" }
+    );
+    if (result.measured.length > 0) {
+      console.log(`[performance] measured ${result.measured.length} post(s)`);
+    }
+    return result.measured.length;
+  } catch (error) {
+    console.error(`Failed to refresh post performance:`, error instanceof Error ? error.message : error);
+    return 0;
+  }
+}
+
 export async function recoverStaleJobs(options: WorkerOptions) {
   try {
     const result = await api<{ recoveredCount: number }>(options.apiUrl, "/jobs/recover-stale", { method: "POST" });
@@ -500,6 +520,11 @@ export async function runWorkerCycle(options: WorkerOptions, state: WorkerState)
     if (ingestAccepted > 0) {
       console.log("Queued async ingest run");
     }
+  }
+
+  if (keepGoing() && now - state.lastPerformanceMs >= (options.performanceIntervalMs ?? 20 * 60 * 1000)) {
+    state.lastPerformanceMs = now;
+    await refreshPerformance(options);
   }
 
   await heartbeat(options, state);

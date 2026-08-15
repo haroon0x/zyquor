@@ -24,7 +24,7 @@ import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerOnboardingRoutes } from "./routes/onboarding.js";
 import { registerSystemRoutes } from "./routes/system.js";
 import { registerRepliesRoutes } from "./routes/replies.js";
-
+import { registerPerformanceRoutes } from "./routes/performance.js";
 export { type BuildAppOptions };
 
 function adaptersBySourceType(adapters: SourceAdapter[]) {
@@ -180,6 +180,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   registerOnboardingRoutes(app, deps);
   registerSystemRoutes(app, deps);
   registerRepliesRoutes(app, deps);
+  registerPerformanceRoutes(app, deps);
 
   return app;
 }

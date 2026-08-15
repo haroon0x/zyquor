@@ -1,4 +1,4 @@
-export type GenerationProviderName = "command-code" | "codex" | "opencode" | "openrouter" | "gemini" | "ollama";
+export type GenerationProviderName = "command-code" | "opencode" | "openrouter" | "gemini" | "ollama";
 
 export interface GenerateDraftCandidatesInput {
   bannedPhrases?: string[];
