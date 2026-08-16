@@ -9,6 +9,7 @@ import type {
   SourcePacket,
   StyleProfile,
   SystemFeedback,
+  TweetMeasurement,
   IngestConfig,
   SourceType,
   TweetType
@@ -146,6 +147,27 @@ export function toPostHistory(row: Record<string, unknown>): PostHistory {
     tweetType: row.tweet_type == null ? null : (row.tweet_type as PostHistory["tweetType"]),
     metadata: JSON.parse(String(row.metadata_json || "{}")) as Record<string, unknown>,
     postedAt: String(row.posted_at)
+  };
+}
+
+export function toTweetMeasurement(row: Record<string, unknown>): TweetMeasurement {
+  return {
+    id: String(row.id),
+    accountId: String(row.account_id),
+    tweetId: String(row.tweet_id),
+    origin: row.origin as TweetMeasurement["origin"],
+    postedAt: row.posted_at == null ? null : String(row.posted_at),
+    text: row.text == null ? null : String(row.text),
+    hasLink: row.has_link == null ? null : Boolean(row.has_link),
+    sourceType: row.source_type == null ? null : (row.source_type as TweetMeasurement["sourceType"]),
+    tweetType: row.tweet_type == null ? null : (row.tweet_type as TweetMeasurement["tweetType"]),
+    views: row.views == null ? null : Number(row.views),
+    likes: row.likes == null ? null : Number(row.likes),
+    replies: row.replies == null ? null : Number(row.replies),
+    reposts: row.reposts == null ? null : Number(row.reposts),
+    bookmarks: row.bookmarks == null ? null : Number(row.bookmarks),
+    measuredAt: String(row.measured_at),
+    updatedAt: String(row.updated_at)
   };
 }
 

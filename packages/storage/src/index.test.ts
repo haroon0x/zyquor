@@ -417,7 +417,7 @@ describe.each(["memory", "sqlite"] as const)("%s account repository", (backend) 
         handle: "second_user",
         profileDir: "profiles/second_user",
         styleProfileId: "style_default",
-        postingMode: "prepare_only",
+        postingMode: "autopost",
         enabled: true,
         dailyPostLimit: 300
       });
@@ -438,6 +438,60 @@ describe.each(["memory", "sqlite"] as const)("%s account repository", (backend) 
       await expect(repository.deleteAccount(account.id)).resolves.toMatchObject({ id: account.id });
       await expect(repository.getAccount(account.id)).resolves.toBeNull();
       await expect(repository.getDraft(draft.draft.id)).resolves.toBeNull();
+    } finally {
+      if (directory) rmSync(directory, { force: true, recursive: true });
+    }
+  });
+});
+
+describe.each(["memory", "sqlite"] as const)("%s tweet measurement ledger", (backend) => {
+  it("upserts one row per tweet and preserves tweet metadata on re-measure", async () => {
+    const directory = backend === "sqlite" ? mkdtempSync(join(tmpdir(), "zyquor-measurements-")) : null;
+    try {
+      const repository = backend === "sqlite"
+        ? await createSqliteRepository(join(directory!, "app.sqlite"))
+        : createMemoryRepository({ now: () => "2026-04-24T17:00:00.000Z" });
+
+      const first = await repository.upsertTweetMeasurement({
+        accountId: "account_personal",
+        tweetId: "999000111",
+        origin: "external",
+        postedAt: "2026-04-24T10:00:00.000Z",
+        text: "organic post",
+        hasLink: false,
+        sourceType: null,
+        tweetType: null,
+        views: 12,
+        likes: 0,
+        replies: 0,
+        reposts: 0,
+        bookmarks: 0
+      });
+      expect(first).toMatchObject({ tweetId: "999000111", origin: "external", views: 12 });
+
+      const reMeasured = await repository.upsertTweetMeasurement({
+        accountId: "account_personal",
+        tweetId: "999000111",
+        origin: "external",
+        postedAt: "2026-04-24T10:00:00.000Z",
+        text: "organic post",
+        hasLink: false,
+        sourceType: null,
+        tweetType: null,
+        views: 21,
+        likes: 1,
+        replies: 0,
+        reposts: 0,
+        bookmarks: 0
+      });
+      expect(reMeasured.id).toBe(first.id);
+      expect(reMeasured.views).toBe(21);
+      expect(reMeasured.likes).toBe(1);
+      expect(reMeasured.text).toBe("organic post");
+
+      const all = await repository.listTweetMeasurements("account_personal");
+      expect(all).toHaveLength(1);
+      expect(all[0]).toMatchObject({ tweetId: "999000111", views: 21 });
     } finally {
       if (directory) rmSync(directory, { force: true, recursive: true });
     }

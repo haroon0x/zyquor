@@ -7,7 +7,8 @@ import type {
   PostJob,
   SourcePacket,
   StyleProfile,
-  SystemFeedback
+  SystemFeedback,
+  TweetMeasurement
 } from "@zyquor/core";
 import { canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor, dataPath, parseReplyTargetUrl } from "@zyquor/core";
 import { mkdirSync } from "node:fs";
@@ -23,6 +24,7 @@ import {
   toAttempt,
   toIngestRun,
   toPostHistory,
+  toTweetMeasurement,
   toStyleProfile,
   toSourcePacket,
   toSystemFeedback,
@@ -170,6 +172,26 @@ CREATE TABLE IF NOT EXISTS content_fingerprints (
   normalized_text TEXT NOT NULL,
   embedding_ref TEXT,
   created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tweet_measurements (
+  id TEXT PRIMARY KEY NOT NULL,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  tweet_id TEXT NOT NULL,
+  origin TEXT NOT NULL,
+  posted_at TEXT,
+  text TEXT,
+  has_link INTEGER,
+  source_type TEXT,
+  tweet_type TEXT,
+  views INTEGER,
+  likes INTEGER,
+  replies INTEGER,
+  reposts INTEGER,
+  bookmarks INTEGER,
+  measured_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(account_id, tweet_id)
 );
 
 CREATE TABLE IF NOT EXISTS source_packets (
@@ -341,7 +363,7 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
         displayName: input.displayName,
         profileDir: input.profileDir,
         styleProfileId: "style_default",
-        postingMode: "prepare_only",
+        postingMode: "autopost",
         enabled: true,
         dailyPostLimit: 300,
         quietHoursStart: null,
@@ -1192,6 +1214,87 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
       db.prepare("UPDATE post_history SET metadata_json = ? WHERE id = ?").run(JSON.stringify(metadata), id);
       const updated = row(db.prepare("SELECT * FROM post_history WHERE id = ?").get(id));
       return updated ? toPostHistory(updated) : null;
+    },
+
+    async upsertTweetMeasurement(input) {
+      const existing = row(db.prepare("SELECT * FROM tweet_measurements WHERE account_id = ? AND tweet_id = ?").get(input.accountId, input.tweetId));
+      const updatedAt = now();
+      if (existing) {
+        db.prepare(
+          `UPDATE tweet_measurements SET
+            origin = ?, posted_at = ?, text = ?, has_link = ?, source_type = ?, tweet_type = ?,
+            views = ?, likes = ?, replies = ?, reposts = ?, bookmarks = ?, measured_at = ?, updated_at = ?
+          WHERE account_id = ? AND tweet_id = ?`
+        ).run(
+          input.origin,
+          input.postedAt,
+          input.text,
+          input.hasLink == null ? null : input.hasLink ? 1 : 0,
+          input.sourceType,
+          input.tweetType,
+          input.views,
+          input.likes,
+          input.replies,
+          input.reposts,
+          input.bookmarks,
+          now(),
+          updatedAt,
+          input.accountId,
+          input.tweetId
+        );
+        const updated = row(db.prepare("SELECT * FROM tweet_measurements WHERE account_id = ? AND tweet_id = ?").get(input.accountId, input.tweetId));
+        return toTweetMeasurement(updated as Record<string, unknown>);
+      }
+      const measurement: TweetMeasurement = {
+        id: id("measurement"),
+        accountId: input.accountId,
+        tweetId: input.tweetId,
+        origin: input.origin,
+        postedAt: input.postedAt,
+        text: input.text,
+        hasLink: input.hasLink,
+        sourceType: input.sourceType,
+        tweetType: input.tweetType,
+        views: input.views,
+        likes: input.likes,
+        replies: input.replies,
+        reposts: input.reposts,
+        bookmarks: input.bookmarks,
+        measuredAt: now(),
+        updatedAt
+      };
+      db.prepare(
+        `INSERT INTO tweet_measurements (
+          id, account_id, tweet_id, origin, posted_at, text, has_link, source_type, tweet_type,
+          views, likes, replies, reposts, bookmarks, measured_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        measurement.id,
+        measurement.accountId,
+        measurement.tweetId,
+        measurement.origin,
+        measurement.postedAt,
+        measurement.text,
+        measurement.hasLink == null ? null : measurement.hasLink ? 1 : 0,
+        measurement.sourceType,
+        measurement.tweetType,
+        measurement.views,
+        measurement.likes,
+        measurement.replies,
+        measurement.reposts,
+        measurement.bookmarks,
+        measurement.measuredAt,
+        measurement.updatedAt
+      );
+      return measurement;
+    },
+
+    async listTweetMeasurements(accountId) {
+      const sql = accountId
+        ? "SELECT * FROM tweet_measurements WHERE account_id = ? ORDER BY posted_at DESC"
+        : "SELECT * FROM tweet_measurements ORDER BY posted_at DESC";
+      const result = accountId ? db.prepare(sql).all(accountId) : db.prepare(sql).all();
+      return rows(result).map(toTweetMeasurement);
     },
 
     async createIngestConfig(input) {

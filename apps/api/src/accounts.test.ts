@@ -24,7 +24,7 @@ describe("account routes", () => {
         handle: "example_user",
         profileDir: "profiles/example_user",
         styleProfileId: "style_default",
-        postingMode: "prepare_only",
+        postingMode: "autopost",
         enabled: true,
         dailyPostLimit: 300
       }

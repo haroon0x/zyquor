@@ -329,8 +329,11 @@ export async function processApprovedJobs(
       const next = nextAutopostScheduledFor({
         lastScheduledFor: null,
         timestamp,
-        gapMinMinutes: Number(process.env.ZYQUOR_POST_GAP_MIN_MINUTES ?? 30),
-        gapMaxMinutes: Number(process.env.ZYQUOR_POST_GAP_MAX_MINUTES ?? 90),
+        gapMinMinutes: Number(process.env.ZYQUOR_POST_GAP_MIN_MINUTES ?? 40),
+        gapMaxMinutes: Number(process.env.ZYQUOR_POST_GAP_MAX_MINUTES ?? 150),
+        longPauseChance: Number(process.env.ZYQUOR_POST_LONG_PAUSE_CHANCE ?? 0.15),
+        longPauseMinMinutes: Number(process.env.ZYQUOR_POST_LONG_PAUSE_MIN_MINUTES ?? 180),
+        longPauseMaxMinutes: Number(process.env.ZYQUOR_POST_LONG_PAUSE_MAX_MINUTES ?? 480),
         recentGapMs,
         traceId: `backfill-${job.id.slice(0, 8)}`
       });
@@ -522,7 +525,9 @@ export async function runWorkerCycle(options: WorkerOptions, state: WorkerState)
     }
   }
 
-  if (keepGoing() && now - state.lastPerformanceMs >= (options.performanceIntervalMs ?? 20 * 60 * 1000)) {
+  const basePerformanceIntervalMs = options.performanceIntervalMs ?? 20 * 60 * 1000;
+  const jitteredPerformanceIntervalMs = basePerformanceIntervalMs * (0.6 + 0.8 * Math.random());
+  if (keepGoing() && now - state.lastPerformanceMs >= jitteredPerformanceIntervalMs) {
     state.lastPerformanceMs = now;
     await refreshPerformance(options);
   }

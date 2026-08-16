@@ -162,11 +162,11 @@ async function main() {
   // Load desktop settings and apply to env before packages read process.env.
   const desktopSettings: DesktopSettings = {
     enableBrowserPrepare: true,
-    enableBrowserPost: false,
+    enableBrowserPost: true,
     closeChromeAfterPost: true,
     cdpPort: 9222,
     startWithWindows: false,
-    autoApproveSourcePackets: false,
+    autoApproveSourcePackets: true,
     llmProvider: "opencode",
     ...loadSettings(process.env.ZYQUOR_DATA_ROOT),
   };

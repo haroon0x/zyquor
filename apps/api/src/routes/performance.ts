@@ -14,8 +14,10 @@ export function registerPerformanceRoutes(app: FastifyInstance, deps: AppDeps): 
   app.get("/performance", async () => {
     const repository = await deps.repository;
     const history = await repository.listPostHistory();
+    const measurements = await repository.listTweetMeasurements();
     return {
-      history: historyWithPerformance(history)
+      history: historyWithPerformance(history),
+      measurements
     };
   });
 

@@ -8,6 +8,7 @@ import type {
   SourcePacket,
   StyleProfile,
   SystemFeedback,
+  TweetMeasurement,
   IngestConfig
 } from "@zyquor/core";
 import { canTransitionDraft, canTransitionPostJob, nextAutopostScheduledFor, dataPath, parseReplyTargetUrl } from "@zyquor/core";
@@ -47,7 +48,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       displayName: "Personal main",
       profileDir: "profiles/personal-main",
       styleProfileId: styleProfile.id,
-      postingMode: "prepare_only",
+      postingMode: "autopost",
       enabled: true,
       dailyPostLimit: 300,
       quietHoursStart: null,
@@ -69,6 +70,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
   const attempts = new Map<string, PostAttempt>((options.snapshot?.attempts ?? []).map((attempt) => [attempt.id, attempt]));
   const ingestRuns = new Map<string, IngestRun>((options.snapshot?.ingestRuns ?? []).map((run) => [run.id, run]));
   const history = new Map<string, PostHistory>((options.snapshot?.history ?? []).map((item) => [item.id, item]));
+  const measurements = new Map<string, TweetMeasurement>((options.snapshot?.tweetMeasurements ?? []).map((item) => [`${item.accountId}:${item.tweetId}`, item]));
   const fingerprints = new Map<string, ContentFingerprint>(
     (options.snapshot?.fingerprints ?? []).map((item) => [item.id, item])
   );
@@ -93,6 +95,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       ingestRuns: [...ingestRuns.values()],
       history: [...history.values()],
       fingerprints: [...fingerprints.values()],
+      tweetMeasurements: [...measurements.values()],
       ingestConfigs: [...ingestConfigs.values()],
       sourcePackets: [...sourcePackets.values()],
       styleProfiles: [...styleProfiles.values()],
@@ -147,7 +150,7 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
         displayName: input.displayName,
         profileDir: input.profileDir,
         styleProfileId: "style_default",
-        postingMode: "prepare_only",
+        postingMode: "autopost",
         enabled: true,
         dailyPostLimit: 300,
         quietHoursStart: null,
@@ -832,6 +835,55 @@ export function createMemoryRepository(options: MemoryRepositoryOptions = {}): Z
       history.set(id, updated);
       persist();
       return updated;
+    },
+
+    async upsertTweetMeasurement(input) {
+      const key = `${input.accountId}:${input.tweetId}`;
+      const existing = measurements.get(key);
+      const nowStr = now();
+      const measurement: TweetMeasurement = existing
+        ? {
+            ...existing,
+            origin: input.origin,
+            postedAt: input.postedAt,
+            text: input.text,
+            hasLink: input.hasLink,
+            sourceType: input.sourceType,
+            tweetType: input.tweetType,
+            views: input.views,
+            likes: input.likes,
+            replies: input.replies,
+            reposts: input.reposts,
+            bookmarks: input.bookmarks,
+            measuredAt: nowStr,
+            updatedAt: nowStr
+          }
+        : {
+            id: id("measurement"),
+            accountId: input.accountId,
+            tweetId: input.tweetId,
+            origin: input.origin,
+            postedAt: input.postedAt,
+            text: input.text,
+            hasLink: input.hasLink,
+            sourceType: input.sourceType,
+            tweetType: input.tweetType,
+            views: input.views,
+            likes: input.likes,
+            replies: input.replies,
+            reposts: input.reposts,
+            bookmarks: input.bookmarks,
+            measuredAt: nowStr,
+            updatedAt: nowStr
+          };
+      measurements.set(key, measurement);
+      persist();
+      return measurement;
+    },
+
+    async listTweetMeasurements(accountId) {
+      const items = [...measurements.values()].sort((a, b) => (b.postedAt ?? "").localeCompare(a.postedAt ?? ""));
+      return accountId ? items.filter((item) => item.accountId === accountId) : items;
     },
 
     async createIngestConfig(input) {

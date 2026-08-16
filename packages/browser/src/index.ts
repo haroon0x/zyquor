@@ -177,6 +177,23 @@ export interface FetchXHomeFeedResult {
   url: string;
 }
 
+export interface FetchAccountTimelineInput {
+  profileDir: string;
+  handle: string;
+  maxTweets?: number;
+  scrolls?: number;
+  browserChannel?: string | null;
+  cdpUrl?: string;
+  headless?: boolean;
+  actionDelayMs?: number;
+  artifactsDir?: string;
+}
+
+export interface FetchAccountTimelineResult {
+  tweets: XFeedTweet[];
+  url: string;
+}
+
 export interface FetchTweetInput {
   profileDir: string;
   url: string;
@@ -784,6 +801,44 @@ export async function fetchXHomeFeed(input: FetchXHomeFeedInput): Promise<FetchX
       await context.close();
     }
     throw new BrowserFeedError(message, context ? screenshotPath : null);
+  }
+}
+
+export async function fetchAccountTimeline(input: FetchAccountTimelineInput): Promise<FetchAccountTimelineResult> {
+  const maxTweets = input.maxTweets ?? 30;
+  const scrolls = input.scrolls ?? 10;
+  const actionDelayMs = input.actionDelayMs ?? 1_500;
+  const targetUrl = `https://x.com/${input.handle}`;
+
+  let context: BrowserContext | null = null;
+  let ownsContext = false;
+
+  try {
+    const opened = await openPersistentContext({
+      ...input,
+      autoLaunchCdp: false
+    });
+    context = opened.context;
+    ownsContext = opened.ownsContext;
+    context.setDefaultTimeout(30_000);
+    const page = await pageForSessionCheck(context, input);
+    await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 45_000 }).catch(() => undefined);
+    await assertNotLoginPage(page);
+    const tweets = await collectFeedTweets(page, maxTweets, Math.min(maxTweets, 5), scrolls, actionDelayMs);
+    const url = page.url();
+    if (ownsContext) {
+      await context.close();
+    }
+    return { tweets, url };
+  } catch (error) {
+    const page = context?.pages()[0];
+    if (page) {
+      await page.screenshot({ path: join(input.artifactsDir ?? dataPath("data", "artifacts"), `profile-${new Date().toISOString().replace(/[:.]/g, "-")}.png`), fullPage: true }).catch(() => undefined);
+    }
+    if (context && ownsContext) {
+      await context.close();
+    }
+    throw error;
   }
 }
 

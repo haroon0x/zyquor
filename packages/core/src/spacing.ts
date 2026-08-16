@@ -8,6 +8,9 @@ export interface NextAutopostInput {
   jitterRatio?: number;
   recentGapMs?: number[];
   traceId?: string;
+  longPauseChance?: number;
+  longPauseMinMinutes?: number;
+  longPauseMaxMinutes?: number;
 }
 
 export interface NextAutopostResult {
@@ -130,16 +133,29 @@ export function nextAutopostScheduledFor(input: NextAutopostInput): NextAutopost
   const picked = pickRandomGap(minMs, maxMs, lastGapMs, boost.apply ? boost.range : null);
 
   let gapMs = picked.gapMs;
-  if (gapMs < minMs) {
+  let reasonLongPause = false;
+  // Occasionally insert a long multi-hour pause. Humans post in clusters
+  // separated by long silent stretches; bdsm scores timing_regularity as
+  // 1/(1+stddev(gaps)), so a steady 30-150m band with no long gaps reads as
+  // mechanical. A long pause lifts gap stddev and day-over-day variance.
+  const longPauseChance = Number.isFinite(input.longPauseChance) ? Math.max(0, Math.min(1, input.longPauseChance!)) : 0.15;
+  const longPauseMinMs = (Number.isFinite(input.longPauseMinMinutes) ? input.longPauseMinMinutes! : 180) * MS_PER_MINUTE;
+  const longPauseMaxMs = (Number.isFinite(input.longPauseMaxMinutes) ? input.longPauseMaxMinutes! : 480) * MS_PER_MINUTE;
+  if (Math.random() < longPauseChance && longPauseMaxMs > longPauseMinMs) {
+    const longGapMs = longPauseMinMs + Math.random() * (longPauseMaxMs - longPauseMinMs);
+    gapMs = Math.round(longGapMs);
+    reasonLongPause = true;
+  } else if (gapMs < minMs) {
     gapMs = minMs;
-  }
-  if (gapMs > maxMs * 1.2) {
+  } else if (gapMs > maxMs * 1.2) {
     gapMs = maxMs * 1.2;
   }
 
   const scheduledFor = new Date(anchor + gapMs).toISOString();
   const gapMinutes = Math.round((gapMs / MS_PER_MINUTE) * 10) / 10;
-  const reason = boost.apply ? `anti-cluster: ${picked.reason}` : picked.reason;
+  const reason = reasonLongPause
+    ? `long-pause ${Math.round(gapMs / MS_PER_MINUTE)}m`
+    : boost.apply ? `anti-cluster: ${picked.reason}` : picked.reason;
 
   console.log(
     `${tracePrefix}[spacing] next-schedule: ` +

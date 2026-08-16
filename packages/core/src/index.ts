@@ -421,6 +421,28 @@ export function withPostPerformance(
 ): Record<string, unknown> {
   return { ...metadata, [PERFORMANCE_KEY]: performance };
 }
+
+// Durable, append-only measurement record for ANY tweet on an account profile,
+// including tweets zyquor did not post. Survives the 24h post-history purge so
+// analysis can run over full historical data.
+export interface TweetMeasurement {
+  id: string;
+  accountId: string;
+  tweetId: string;
+  origin: "zyquor" | "external";
+  postedAt: string | null;
+  text: string | null;
+  hasLink: boolean | null;
+  sourceType: string | null;
+  tweetType: string | null;
+  views: number | null;
+  likes: number | null;
+  replies: number | null;
+  reposts: number | null;
+  bookmarks: number | null;
+  measuredAt: string;
+  updatedAt: string;
+}
 export type SourcePacket = z.infer<typeof sourcePacketSchema>;
 export type SystemFeedback = z.infer<typeof systemFeedbackSchema>;
 export type CreateDraftRequest = z.infer<typeof createDraftRequestSchema>;

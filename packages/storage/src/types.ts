@@ -10,6 +10,7 @@ import type {
   SourcePacket,
   StyleProfile,
   SystemFeedback,
+  TweetMeasurement,
   IngestConfig
 } from "@zyquor/core";
 
@@ -122,6 +123,22 @@ export interface ZyquorRepository {
   listPostHistory(): Promise<PostHistory[]>;
   updatePostHistoryMetadata(id: string, metadata: Record<string, unknown>): Promise<PostHistory | null>;
   purgePostHistoryOlderThan(cutoffIso: string): Promise<number>;
+  upsertTweetMeasurement(input: {
+    accountId: string;
+    tweetId: string;
+    origin: TweetMeasurement["origin"];
+    postedAt: string | null;
+    text: string | null;
+    hasLink: boolean | null;
+    sourceType: string | null;
+    tweetType: string | null;
+    views: number | null;
+    likes: number | null;
+    replies: number | null;
+    reposts: number | null;
+    bookmarks: number | null;
+  }): Promise<TweetMeasurement>;
+  listTweetMeasurements(accountId?: string): Promise<TweetMeasurement[]>;
   createIngestConfig(input: {
     accountId: string;
     sourceType: SourcePacket["sourceType"];
@@ -157,6 +174,7 @@ export interface RepositorySnapshot {
   ingestRuns: IngestRun[];
   history: PostHistory[];
   fingerprints: ContentFingerprint[];
+  tweetMeasurements: TweetMeasurement[];
   ingestConfigs: IngestConfig[];
   sourcePackets: SourcePacket[];
   styleProfiles: StyleProfile[];
