@@ -23,12 +23,12 @@ export interface GenerationEnvironment {
 export const DEFAULT_COMMAND_CODE_MODEL = "gpt-5.6-luna";
 export const COMMAND_CODE_MODELS = [DEFAULT_COMMAND_CODE_MODEL] as const;
 
-export const DEFAULT_OPENCODE_MODEL = "opencode/deepseek-v4-flash-free";
+export const DEFAULT_OPENCODE_MODEL = "opencode/x-preview-f-free";
 export const DEFAULT_OPENCODE_VARIANT = "high";
 export const OPENCODE_MODELS = [
-  "opencode/deepseek-v4-flash-free",
-  "nvidia/deepseek-ai/deepseek-v4-flash",
-  "openrouter/~deepseek/deepseek-v4-flash-latest"
+  "opencode/x-preview-f-free",
+  "opencode/hy3-free",
+  "opencode/big-pickle"
 ] as const;
 export const OPENCODE_VARIANTS = ["low", "high", "max"] as const;
 

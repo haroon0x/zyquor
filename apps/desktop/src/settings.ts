@@ -135,7 +135,7 @@ export function applySettingsToEnv(settings: DesktopSettings, options: { overwri
 export function applyDesktopEnvDefaults(settings: DesktopSettings): void {
   process.env.ZYQUOR_LLM_PROVIDER ??= "opencode";
   process.env.ZYQUOR_COMMAND_CODE_MODEL ??= "gpt-5.6-luna";
-  process.env.ZYQUOR_OPENCODE_MODEL ??= "opencode/deepseek-v4-flash-free";
+  process.env.ZYQUOR_OPENCODE_MODEL ??= "opencode/x-preview-f-free";
   process.env.ZYQUOR_OPENCODE_PATH ??= "opencode";
   process.env.ZYQUOR_ENABLE_BROWSER_PREPARE ??= String(Number(settings.enableBrowserPrepare ?? true));
   process.env.ZYQUOR_ENABLE_BROWSER_POST ??= String(Number(settings.enableBrowserPost ?? true));

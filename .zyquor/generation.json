@@ -1,4 +1,4 @@
 {
-  "provider": "openrouter",
-  "model": "inclusionai/ling-2.6-1t:free"
+  "provider": "opencode",
+  "model": "opencode/x-preview-f-free"
 }

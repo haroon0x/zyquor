@@ -172,7 +172,7 @@ pnpm dist:desktop
 - Worker polls due jobs every 5s
 - Electron desktop app: `apps/desktop/` — Electron 37, tray-resident, runs API/worker in-process. Data root via `ZYQUOR_DATA_ROOT` (defaults to Electron `userData`). Settings kept as `settings.json` in data root instead of `.env`. Logs to `<dataRoot>/logs/main.log` (rotates at 5 MB). Entry points: `src/main.ts` (main process), `src/preload.ts` (context bridge), `src/chrome.ts` (CDP launch), `src/settings.ts` (JSON config), `src/log.ts` (file logging).
 
-Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (disabled by default for safety), `ZYQUOR_LLM_PROVIDER=command-code|codex|opencode|openrouter|gemini|ollama|auto`. `ZYQUOR_REVISION_PASS=1` adds a cut-only second-pass revision (codex/opencode only): it removes vagueness and unsupported claims from the first-pass drafts, never adds material, and can never lower a candidate; it doubles generation latency and is off by default.
+Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (disabled by default for safety), `ZYQUOR_LLM_PROVIDER=command-code|opencode|openrouter|gemini|ollama|auto`. `ZYQUOR_REVISION_PASS=1` adds a cut-only second-pass revision (opencode only): it removes vagueness and unsupported claims from the first-pass drafts, never adds material, and can never lower a candidate; it doubles generation latency and is off by default.
 Source smoke: `pnpm smoke:adapters`. Product Hunt is optional without `ZYQUOR_PRODUCTHUNT_API_TOKEN`.
 
 ### pnpm Setup
@@ -184,9 +184,9 @@ ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
 
 ### Generation Provider Resolution
 - Provider is resolved in order: saved `data/generation.json` > `.env` > `process.env`.
-- Set `ZYQUOR_LLM_PROVIDER` explicitly to `command-code` or `codex`; the desktop setup does not use `auto` or OpenRouter.
+- Set `ZYQUOR_LLM_PROVIDER` explicitly to `command-code` or `opencode`; the desktop setup does not use `auto` or OpenRouter.
 - Shell env vars take precedence over `.env`; the dotenv loader skips already-set vars.
-- Preferred provider is `codex` with model `gpt-5.6-luna` (hardcoded high reasoning). Command Code remains available with the same model; the `opencode` provider drives the opencode CLI (`opencode run --variant high`) with DeepSeek V4 Flash by default in a real-time reasoning mode. CLI paths use `ZYQUOR_CODEX_PATH`, `ZYQUOR_COMMAND_CODE_PATH`, and `ZYQUOR_OPENCODE_PATH`; the opencode model and reasoning variant come from `ZYQUOR_OPENCODE_MODEL` and `ZYQUOR_OPENCODE_VARIANT`. All CLI providers use the single generation flow. OpenRouter is not used by the desktop setup.
+- Preferred provider is `opencode` with model `opencode/x-preview-f-free` (high reasoning). The `opencode` provider drives the opencode CLI (`opencode run --variant high`) and is the primary generation path; other providers remain available but are not used by default. Command Code remains available with model `gpt-5.6-luna`. CLI paths use `ZYQUOR_COMMAND_CODE_PATH` and `ZYQUOR_OPENCODE_PATH`; the opencode model and reasoning variant come from `ZYQUOR_OPENCODE_MODEL` and `ZYQUOR_OPENCODE_VARIANT`. All CLI providers use the single generation flow. OpenRouter is not used by the desktop setup.
 
 ### Browser Automation Caveats
 - Playwright bundled Chromium (`playwright install chromium`) fails on Ubuntu 26.04+ — it's unsupported on newer distros.
