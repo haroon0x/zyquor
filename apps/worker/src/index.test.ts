@@ -220,6 +220,9 @@ describe("worker job processing", () => {
   });
 
   it("back-fills a random 30-90 min scheduledFor on legacy autopost jobs with no schedule", async () => {
+    process.env.ZYQUOR_POST_GAP_MIN_MINUTES = "30";
+    process.env.ZYQUOR_POST_GAP_MAX_MINUTES = "90";
+    process.env.ZYQUOR_POST_LONG_PAUSE_CHANCE = "0";
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
     const calls: string[] = [];
@@ -274,6 +277,9 @@ describe("worker job processing", () => {
     const gapMinutes = (scheduledMs - nowMs) / 60_000;
     expect(gapMinutes).toBeGreaterThanOrEqual(30);
     expect(gapMinutes).toBeLessThanOrEqual(90 * 1.2);
+    delete process.env.ZYQUOR_POST_GAP_MIN_MINUTES;
+    delete process.env.ZYQUOR_POST_GAP_MAX_MINUTES;
+    delete process.env.ZYQUOR_POST_LONG_PAUSE_CHANCE;
   });
 
   it("recovers stale jobs before processing approved jobs in a worker cycle", async () => {
