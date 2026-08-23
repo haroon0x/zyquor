@@ -1,10 +1,10 @@
-import { createMemoryRepository } from "@zyquor/storage";
+import { createSqliteRepository } from "@zyquor/storage";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 
 describe("onboarding status", () => {
   it("requires onboarding for all-new data", async () => {
-    const app = buildApp({ generationEnv: {}, repository: createMemoryRepository() });
+    const app = buildApp({ generationEnv: {}, repository: await createSqliteRepository(":memory:") });
 
     const response = await app.inject({ method: "GET", url: "/onboarding/status" });
 
@@ -21,7 +21,7 @@ describe("onboarding status", () => {
   });
 
   it("does not require onboarding after a draft exists", async () => {
-    const repository = createMemoryRepository();
+    const repository = await createSqliteRepository(":memory:");
     await repository.createDraft({ accountId: "account_personal", sourceInput: "First idea" });
     const app = buildApp({ generationEnv: {}, repository });
 

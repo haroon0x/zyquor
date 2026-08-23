@@ -172,6 +172,50 @@ export const styleProfileSchema = z.object({
   updatedAt: isoTimestampSchema
 });
 
+export const KNOWLEDGE_KINDS = [
+  "product_fact",
+  "feature",
+  "pricing",
+  "persona",
+  "opinion_stance",
+  "audience",
+  "faq",
+  "never_claim"
+] as const;
+export type KnowledgeKind = (typeof KNOWLEDGE_KINDS)[number];
+
+export const knowledgeEntrySchema = z.object({
+  id: idSchema,
+  accountId: idSchema,
+  kind: z.enum(KNOWLEDGE_KINDS),
+  title: z.string().min(1).max(200),
+  content: z.string().min(1).max(4000),
+  sourceUrl: z.string().url().nullable(),
+  enabled: z.boolean(),
+  createdAt: isoTimestampSchema,
+  updatedAt: isoTimestampSchema
+});
+
+export const createKnowledgeEntryRequestSchema = z
+  .object({
+    accountId: idSchema,
+    kind: z.enum(KNOWLEDGE_KINDS),
+    title: z.string().min(1).max(200),
+    content: z.string().min(1).max(4000),
+    sourceUrl: z.string().url().nullable().optional()
+  })
+  .strict();
+
+export const updateKnowledgeEntryRequestSchema = z
+  .object({
+    kind: z.enum(KNOWLEDGE_KINDS).optional(),
+    title: z.string().min(1).max(200).optional(),
+    content: z.string().min(1).max(4000).optional(),
+    sourceUrl: z.string().url().nullable().optional(),
+    enabled: z.boolean().optional()
+  })
+  .strict();
+
 function postTextSchema(minLength = 0) {
   return z.string().min(minLength);
 }
@@ -382,6 +426,9 @@ export const prepareJobRequestSchema = z.object({
 export type Account = z.infer<typeof accountSchema>;
 export type CreateAccountRequest = z.infer<typeof createAccountRequestSchema>;
 export type StyleProfile = z.infer<typeof styleProfileSchema>;
+export type KnowledgeEntry = z.infer<typeof knowledgeEntrySchema>;
+export type CreateKnowledgeEntryRequest = z.infer<typeof createKnowledgeEntryRequestSchema>;
+export type UpdateKnowledgeEntryRequest = z.infer<typeof updateKnowledgeEntryRequestSchema>;
 export type Draft = z.infer<typeof draftSchema>;
 export type DraftCandidate = z.infer<typeof draftCandidateSchema>;
 export type PostJob = z.infer<typeof postJobSchema>;

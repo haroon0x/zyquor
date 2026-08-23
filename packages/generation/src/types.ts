@@ -15,6 +15,7 @@ export interface GenerateDraftCandidatesInput {
   systemFeedback?: string[];
   tone?: string | null;
   tweetType?: string;
+  accountKnowledge?: Array<{ kind: string; title: string; content: string }>;
 }
 
 export interface GeneratedDraftCandidate {

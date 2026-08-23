@@ -11,6 +11,18 @@ export interface AccountGenerationContext {
   systemPromptExtra?: string;
   systemFeedback?: string[];
   tone: string | null;
+  accountKnowledge?: Array<{ kind: string; title: string; content: string }>;
+}
+
+const KNOWLEDGE_ENTRY_LIMIT = 24;
+
+async function enabledKnowledge(repository: ZyquorRepository, accountId: string) {
+  const entries = await repository.listKnowledgeEntries(accountId);
+  const selected = entries
+    .filter((entry) => entry.enabled)
+    .slice(0, KNOWLEDGE_ENTRY_LIMIT)
+    .map((entry) => ({ kind: entry.kind, title: entry.title, content: entry.content }));
+  return selected.length ? { accountKnowledge: selected } : {};
 }
 
 export async function accountGenerationContext(
@@ -29,6 +41,7 @@ export async function accountGenerationContext(
     ...(typeof rules.objective === "string" ? { objective: rules.objective } : {}),
     ...(typeof rules.systemPromptExtra === "string" ? { systemPromptExtra: rules.systemPromptExtra } : {}),
     ...(systemFeedback.length ? { systemFeedback: systemFeedback.slice(0, 5).map((item) => item.text) } : {}),
+    ...(await enabledKnowledge(repository, accountId)),
     tone: styleProfile?.tone ?? null,
     recentPostHistory: history
       .filter((item) => item.accountId === accountId)

@@ -2,6 +2,7 @@ import type {
   Account,
   Draft,
   DraftCandidate,
+  KnowledgeEntry,
   PostAttempt,
   PostHistory,
   PostJob,
@@ -28,6 +29,7 @@ import {
   toStyleProfile,
   toSourcePacket,
   toSystemFeedback,
+  toKnowledgeEntry,
   toIngestConfig,
   serializeReplyTarget,
   accountInsertValues
@@ -87,6 +89,20 @@ CREATE TABLE IF NOT EXISTS system_feedback (
 );
 
 CREATE INDEX IF NOT EXISTS system_feedback_account_idx ON system_feedback(account_id);
+
+CREATE TABLE IF NOT EXISTS knowledge_entries (
+  id TEXT PRIMARY KEY NOT NULL,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  source_url TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_account_enabled ON knowledge_entries(account_id, enabled);
 
 CREATE TABLE IF NOT EXISTS drafts (
   id TEXT PRIMARY KEY NOT NULL,
@@ -252,11 +268,20 @@ function ensureColumn(db: DatabaseSync, table: string, name: string, definition:
   }
 }
 
-export async function createSqliteRepository(filePath = defaultDatabasePath()): Promise<ZyquorRepository> {
-  mkdirSync(dirname(filePath), { recursive: true });
+export interface SqliteRepositoryOptions {
+  now?: () => string;
+}
+
+export async function createSqliteRepository(
+  filePath = defaultDatabasePath(),
+  options: SqliteRepositoryOptions = {}
+): Promise<ZyquorRepository> {
+  if (filePath !== ":memory:") {
+    mkdirSync(dirname(filePath), { recursive: true });
+  }
   const sqlite = createRequire(import.meta.url)("node:sqlite") as SqliteModule;
   const db = new sqlite.DatabaseSync(filePath);
-  const now = () => new Date().toISOString();
+  const now = options.now ?? (() => new Date().toISOString());
 
   db.exec("PRAGMA foreign_keys = ON");
   db.exec(sqliteSchema);
@@ -325,7 +350,7 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
 
   function candidatesForDraft(draftId: string) {
     return rows(
-      db.prepare("SELECT * FROM draft_candidates WHERE draft_id = ? ORDER BY created_at ASC, id ASC").all(draftId)
+      db.prepare("SELECT * FROM draft_candidates WHERE draft_id = ? ORDER BY created_at ASC, rowid ASC").all(draftId)
     ).map(toCandidate);
   }
 
@@ -401,6 +426,7 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
         db.prepare("DELETE FROM post_attempts WHERE job_id IN (SELECT id FROM post_jobs WHERE account_id = ?)").run(accountId);
         db.prepare("DELETE FROM post_history WHERE account_id = ?").run(accountId);
         db.prepare("DELETE FROM content_fingerprints WHERE account_id = ?").run(accountId);
+        db.prepare("DELETE FROM tweet_measurements WHERE account_id = ?").run(accountId);
         db.prepare("DELETE FROM post_jobs WHERE account_id = ?").run(accountId);
         db.prepare("DELETE FROM draft_candidates WHERE draft_id IN (SELECT id FROM drafts WHERE account_id = ?)").run(accountId);
         db.prepare("DELETE FROM drafts WHERE account_id = ?").run(accountId);
@@ -641,6 +667,89 @@ export async function createSqliteRepository(filePath = defaultDatabasePath()): 
 
     async deleteSystemFeedback(id) {
       db.prepare("DELETE FROM system_feedback WHERE id = ?").run(id);
+    },
+
+    async listKnowledgeEntries(accountId) {
+      return rows(
+        db.prepare("SELECT * FROM knowledge_entries WHERE account_id = ? ORDER BY created_at ASC, id ASC").all(accountId)
+      ).map(toKnowledgeEntry);
+    },
+
+    async createKnowledgeEntry(input) {
+      const account = row(db.prepare("SELECT id FROM accounts WHERE id = ?").get(input.accountId));
+      if (!account) {
+        throw new Error(`Account not found: ${input.accountId}`);
+      }
+      const timestamp = now();
+      const entry: KnowledgeEntry = {
+        id: id("knowledge"),
+        accountId: input.accountId,
+        kind: input.kind,
+        title: input.title,
+        content: input.content,
+        sourceUrl: input.sourceUrl ?? null,
+        enabled: true,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      };
+      db.prepare(
+        `INSERT INTO knowledge_entries (
+           id, account_id, kind, title, content, source_url, enabled, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        entry.id,
+        entry.accountId,
+        entry.kind,
+        entry.title,
+        entry.content,
+        entry.sourceUrl,
+        entry.enabled ? 1 : 0,
+        entry.createdAt,
+        entry.updatedAt
+      );
+      return entry;
+    },
+
+    async updateKnowledgeEntry(entryId, input) {
+      const existing = row(db.prepare("SELECT * FROM knowledge_entries WHERE id = ?").get(entryId));
+      if (!existing) {
+        throw new Error(`Knowledge entry not found: ${entryId}`);
+      }
+      const current = toKnowledgeEntry(existing);
+      const updated: KnowledgeEntry = {
+        ...current,
+        ...(input.kind !== undefined ? { kind: input.kind } : {}),
+        ...(input.title !== undefined ? { title: input.title } : {}),
+        ...(input.content !== undefined ? { content: input.content } : {}),
+        ...(input.sourceUrl !== undefined ? { sourceUrl: input.sourceUrl } : {}),
+        ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+        updatedAt: now()
+      };
+      db.prepare(
+        `UPDATE knowledge_entries SET
+           kind = ?, title = ?, content = ?, source_url = ?, enabled = ?, updated_at = ?
+         WHERE id = ?`
+      ).run(
+        updated.kind,
+        updated.title,
+        updated.content,
+        updated.sourceUrl,
+        updated.enabled ? 1 : 0,
+        updated.updatedAt,
+        entryId
+      );
+      return updated;
+    },
+
+    async deleteKnowledgeEntry(entryId) {
+      return runTransaction(db, () => {
+        const existing = row(db.prepare("SELECT * FROM knowledge_entries WHERE id = ?").get(entryId));
+        if (!existing) {
+          throw new Error(`Knowledge entry not found: ${entryId}`);
+        }
+        db.prepare("DELETE FROM knowledge_entries WHERE id = ?").run(entryId);
+        return toKnowledgeEntry(existing);
+      });
     },
 
     async createDraft(input) {

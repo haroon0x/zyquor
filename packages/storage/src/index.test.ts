@@ -4,15 +4,13 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createAccountRequestSchema, type ReplyTarget } from "@zyquor/core";
-import type { RepositorySnapshot } from "./types.js";
-import { createMemoryRepository, createSqliteRepository, detectSqliteSupport } from "./index.js";
+import { createSqliteRepository, detectSqliteSupport } from "./index.js";
 
-const times = [
-  "2026-04-24T17:00:00.000Z",
-  "2026-04-24T17:01:00.000Z",
-  "2026-04-24T17:02:00.000Z",
-  "2026-04-24T17:03:00.000Z"
-];
+// The JSON-file memory repository was removed; repository behavior tests run
+// against a throwaway in-process SQLite database instead.
+async function createTestRepository() {
+  return createSqliteRepository(":memory:");
+}
 
 const replyTo: ReplyTarget = {
   tweetId: "1891234567890123456",
@@ -22,10 +20,7 @@ const replyTo: ReplyTarget = {
 
 describe("repository workflow", () => {
   it("creates, approves, and advances a prepare-only job", async () => {
-    let index = 0;
-    const repository = createMemoryRepository({
-      now: () => times[index++] ?? times.at(-1)!
-    });
+    const repository = await createTestRepository();
 
     const created = await repository.createDraft({
       accountId: "account_personal",
@@ -55,9 +50,7 @@ describe("repository workflow", () => {
   });
 
   it("claims only one browser job per account", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createTestRepository();
 
     const firstDraft = await repository.createDraft({
       accountId: "account_personal",
@@ -80,9 +73,7 @@ describe("repository workflow", () => {
   });
 
   it("rejects duplicate approved text for the same account", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createTestRepository();
 
     const first = await repository.createDraft({
       accountId: "account_personal",
@@ -103,9 +94,7 @@ describe("repository workflow", () => {
   });
 
   it("finds source packet drafts from metadata when no candidates were stored", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createTestRepository();
     const packet = await repository.createSourcePacket({
       accountId: "account_personal",
       facts: ["Uses a source metadata link"],
@@ -128,9 +117,7 @@ describe("repository workflow", () => {
   });
 
   it("does not delete drafts referenced by post history", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createTestRepository();
     const created = await repository.createDraft({
       accountId: "account_personal",
       sourceInput: "Posted draft",
@@ -148,9 +135,7 @@ describe("repository workflow", () => {
   });
 
   it("purges post history older than a cutoff", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createTestRepository();
     const created = await repository.createDraft({
       accountId: "account_personal",
       sourceInput: "Posted draft",
@@ -162,18 +147,17 @@ describe("repository workflow", () => {
       postedText: "Recent posted text",
       postUrl: "https://x.com/personal/status/recent"
     });
+    const postedAt = Date.parse((await repository.listPostHistory())[0]!.postedAt);
 
-    await expect(repository.purgePostHistoryOlderThan("2026-04-24T16:59:59.000Z")).resolves.toBe(0);
+    await expect(repository.purgePostHistoryOlderThan(new Date(postedAt - 1000).toISOString())).resolves.toBe(0);
     await expect(repository.listPostHistory()).resolves.toHaveLength(1);
-    await expect(repository.purgePostHistoryOlderThan("2026-04-24T17:00:01.000Z")).resolves.toBe(1);
+    await expect(repository.purgePostHistoryOlderThan(new Date(postedAt + 1000).toISOString())).resolves.toBe(1);
     await expect(repository.listPostHistory()).resolves.toHaveLength(0);
   });
 
   it("stores scheduled approval metadata", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
-    const scheduledFor = "2026-04-25T15:30:00.000Z";
+    const repository = await createTestRepository();
+    const scheduledFor = new Date(Date.now() + 86_400_000).toISOString();
 
     const created = await repository.createDraft({
       accountId: "account_personal",
@@ -192,33 +176,6 @@ describe("repository workflow", () => {
       scheduledFor,
       status: "approved"
     });
-  });
-
-  it("roundtrips reply targets through memory snapshots", async () => {
-    let snapshot: RepositorySnapshot | undefined;
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z",
-      onChange: (next) => {
-        snapshot = next;
-      }
-    });
-    const created = await repository.createDraft({
-      accountId: "account_personal",
-      sourceInput: "Reply with context",
-      candidates: [{ text: "A concise reply", score: {} }],
-      replyTo
-    });
-    const approved = await repository.approveDraft({
-      draftId: created.draft.id,
-      editedText: "A concise reply"
-    });
-    if (!snapshot) {
-      throw new Error("Expected persisted memory snapshot");
-    }
-    const reopened = createMemoryRepository({ snapshot });
-
-    await expect(reopened.getDraft(created.draft.id)).resolves.toMatchObject({ draft: { replyTo } });
-    await expect(reopened.getJob(approved.job.id)).resolves.toMatchObject({ replyTo });
   });
 
   it("roundtrips reply targets through sqlite", async () => {
@@ -241,32 +198,6 @@ describe("repository workflow", () => {
     } finally {
       rmSync(directory, { force: true, recursive: true });
     }
-  });
-
-  it("roundtrips ingest runs through memory snapshots", async () => {
-    let snapshot: RepositorySnapshot | undefined;
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z",
-      onChange: (next) => {
-        snapshot = next;
-      }
-    });
-    const run = await repository.createIngestRun({ configId: "ingest_config", accountId: "account_personal" });
-    await repository.updateIngestRun(run.id, { status: "failed", error: "fetch failed", packetsCreated: 2 });
-    if (!snapshot) throw new Error("Expected persisted memory snapshot");
-
-    const reopened = createMemoryRepository({ snapshot });
-    await expect(reopened.listIngestRuns("account_personal")).resolves.toEqual([
-      expect.objectContaining({
-        id: run.id,
-        configId: "ingest_config",
-        accountId: "account_personal",
-        status: "failed",
-        error: "fetch failed",
-        packetsCreated: 2,
-        finishedAt: "2026-04-24T17:00:00.000Z"
-      })
-    ]);
   });
 
   it("roundtrips ingest runs through sqlite", async () => {
@@ -332,9 +263,7 @@ describe("repository workflow", () => {
   });
 
   it("stores source packets for deterministic source ingestion", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createTestRepository();
 
     const packet = await repository.createSourcePacket({
       accountId: "account_personal",
@@ -361,9 +290,7 @@ describe("repository workflow", () => {
   });
 
   it("deletes source-generated drafts and resets source packet status", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createTestRepository();
     const packet = await repository.createSourcePacket({
       accountId: "account_personal",
       facts: ["Science funding is moving toward applied energy work."],
@@ -401,13 +328,11 @@ describe("repository workflow", () => {
   });
 });
 
-describe.each(["memory", "sqlite"] as const)("%s account repository", (backend) => {
+describe("sqlite account repository", () => {
   it("creates and deletes accounts with unified limits and active-job protection", async () => {
-    const directory = backend === "sqlite" ? mkdtempSync(join(tmpdir(), "zyquor-accounts-")) : null;
+    const directory = mkdtempSync(join(tmpdir(), "zyquor-accounts-"));
     try {
-      const repository = backend === "sqlite"
-        ? await createSqliteRepository(join(directory!, "app.sqlite"))
-        : createMemoryRepository({ now: () => "2026-04-24T17:00:00.000Z" });
+      const repository = await createSqliteRepository(join(directory, "app.sqlite"));
 
       await expect(repository.getAccount("account_personal")).resolves.toMatchObject({ dailyPostLimit: 300 });
       const input = createAccountRequestSchema.parse({ handle: "second_user", displayName: "Second user" });
@@ -439,18 +364,16 @@ describe.each(["memory", "sqlite"] as const)("%s account repository", (backend) 
       await expect(repository.getAccount(account.id)).resolves.toBeNull();
       await expect(repository.getDraft(draft.draft.id)).resolves.toBeNull();
     } finally {
-      if (directory) rmSync(directory, { force: true, recursive: true });
+      rmSync(directory, { force: true, recursive: true });
     }
   });
 });
 
-describe.each(["memory", "sqlite"] as const)("%s tweet measurement ledger", (backend) => {
+describe("sqlite tweet measurement ledger", () => {
   it("upserts one row per tweet and preserves tweet metadata on re-measure", async () => {
-    const directory = backend === "sqlite" ? mkdtempSync(join(tmpdir(), "zyquor-measurements-")) : null;
+    const directory = mkdtempSync(join(tmpdir(), "zyquor-measurements-"));
     try {
-      const repository = backend === "sqlite"
-        ? await createSqliteRepository(join(directory!, "app.sqlite"))
-        : createMemoryRepository({ now: () => "2026-04-24T17:00:00.000Z" });
+      const repository = await createSqliteRepository(join(directory, "app.sqlite"));
 
       const first = await repository.upsertTweetMeasurement({
         accountId: "account_personal",
@@ -493,18 +416,16 @@ describe.each(["memory", "sqlite"] as const)("%s tweet measurement ledger", (bac
       expect(all).toHaveLength(1);
       expect(all[0]).toMatchObject({ tweetId: "999000111", views: 21 });
     } finally {
-      if (directory) rmSync(directory, { force: true, recursive: true });
+      rmSync(directory, { force: true, recursive: true });
     }
   });
 });
 
-describe.each(["memory", "sqlite"] as const)("%s quality gate failures", (backend) => {
+describe("sqlite quality gate failures", () => {
   it("lists rejected drafts with candidates while excluding approved drafts", async () => {
-    const directory = backend === "sqlite" ? mkdtempSync(join(tmpdir(), "zyquor-quality-gate-")) : null;
+    const directory = mkdtempSync(join(tmpdir(), "zyquor-quality-gate-"));
     try {
-      const repository = backend === "sqlite"
-        ? await createSqliteRepository(join(directory!, "app.sqlite"))
-        : createMemoryRepository({ now: () => "2026-07-17T09:00:00.000Z" });
+      const repository = await createSqliteRepository(join(directory, "app.sqlite"));
       const qualityGate = {
         bestQuality: 2,
         threshold: 3,
@@ -543,7 +464,61 @@ describe.each(["memory", "sqlite"] as const)("%s quality gate failures", (backen
       ]);
       expect(failures[0]?.candidates).toHaveLength(2);
     } finally {
-      if (directory) rmSync(directory, { force: true, recursive: true });
+      rmSync(directory, { force: true, recursive: true });
+    }
+  });
+});
+
+describe("knowledge entries", () => {
+  it("creates, updates, toggles, and deletes entries per account", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "zyquor-knowledge-"));
+    try {
+      const repository = await createSqliteRepository(join(directory, "app.sqlite"));
+
+      const businessAccount = await repository.createAccount(
+        createAccountRequestSchema.parse({ handle: "business", displayName: "Business" })
+      );
+
+      const entry = await repository.createKnowledgeEntry({
+        accountId: businessAccount.id,
+        kind: "feature",
+        title: "Export to CSV",
+        content: "Exports include all fields, run server-side, available on every plan.",
+        sourceUrl: "https://example.com/docs/export"
+      });
+
+      expect(entry).toMatchObject({
+        accountId: businessAccount.id,
+        kind: "feature",
+        enabled: true,
+        sourceUrl: "https://example.com/docs/export"
+      });
+
+      await expect(
+        repository.createKnowledgeEntry({
+          accountId: "account_missing",
+          kind: "persona",
+          title: "No such account",
+          content: "Should fail."
+        })
+      ).rejects.toThrow("Account not found");
+
+      const updated = await repository.updateKnowledgeEntry(entry.id, {
+        content: "Exports include all fields and run server-side.",
+        enabled: false
+      });
+      expect(updated).toMatchObject({ enabled: false, content: "Exports include all fields and run server-side." });
+      expect(updated.updatedAt >= updated.createdAt).toBe(true);
+
+      const list = await repository.listKnowledgeEntries(businessAccount.id);
+      expect(list).toHaveLength(1);
+      await expect(repository.listKnowledgeEntries("account_personal")).resolves.toHaveLength(0);
+
+      await expect(repository.deleteKnowledgeEntry(entry.id)).resolves.toMatchObject({ id: entry.id });
+      await expect(repository.deleteKnowledgeEntry(entry.id)).rejects.toThrow("not found");
+      await expect(repository.listKnowledgeEntries(businessAccount.id)).resolves.toHaveLength(0);
+    } finally {
+      rmSync(directory, { force: true, recursive: true });
     }
   });
 });

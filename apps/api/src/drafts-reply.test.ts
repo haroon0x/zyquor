@@ -1,4 +1,4 @@
-import { createMemoryRepository } from "@zyquor/storage";
+import { createSqliteRepository } from "@zyquor/storage";
 import type { DraftGenerationProvider, GenerateDraftCandidatesInput } from "@zyquor/generation";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
@@ -22,7 +22,7 @@ describe("reply drafts", () => {
     };
     const app = buildApp({
       generationProvider,
-      repository: createMemoryRepository({ now: () => "2026-07-15T12:00:00.000Z" })
+      repository: await createSqliteRepository(":memory:")
     });
 
     const created = await app.inject({
@@ -79,7 +79,7 @@ describe("reply drafts", () => {
   });
 
   it("rejects a non-post reply URL with a clear 400 response", async () => {
-    const app = buildApp({ repository: createMemoryRepository() });
+    const app = buildApp({ repository: await createSqliteRepository(":memory:") });
 
     const response = await app.inject({
       method: "POST",

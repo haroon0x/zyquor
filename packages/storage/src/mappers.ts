@@ -2,6 +2,7 @@ import type {
   Account,
   Draft,
   DraftCandidate,
+  KnowledgeEntry,
   PostAttempt,
   PostHistory,
   PostJob,
@@ -208,6 +209,20 @@ export function toSystemFeedback(row: Record<string, unknown>): SystemFeedback {
     accountId: String(row.account_id),
     text: String(row.text),
     createdAt: String(row.created_at)
+  };
+}
+
+export function toKnowledgeEntry(row: Record<string, unknown>): KnowledgeEntry {
+  return {
+    id: String(row.id),
+    accountId: String(row.account_id),
+    kind: row.kind as KnowledgeEntry["kind"],
+    title: String(row.title),
+    content: String(row.content),
+    sourceUrl: row.source_url === null || row.source_url === undefined ? null : String(row.source_url),
+    enabled: Boolean(row.enabled),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
   };
 }
 

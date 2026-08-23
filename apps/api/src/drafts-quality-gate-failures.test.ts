@@ -1,4 +1,4 @@
-import { createMemoryRepository } from "@zyquor/storage";
+import { createSqliteRepository } from "@zyquor/storage";
 import type { DraftGenerationProvider } from "@zyquor/generation";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
@@ -13,7 +13,7 @@ const generationProvider: DraftGenerationProvider = {
 
 describe("quality gate failure drafts", () => {
   it("returns rejected drafts with candidates and quality gate metadata", async () => {
-    const repository = createMemoryRepository({ now: () => "2026-07-17T09:00:00.000Z" });
+    const repository = await createSqliteRepository(":memory:");
     const qualityGate = {
       bestQuality: 2,
       threshold: 3,

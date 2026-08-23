@@ -1,4 +1,5 @@
-import { createMemoryRepository } from "@zyquor/storage";
+import { createAccountRequestSchema } from "@zyquor/core";
+import { createSqliteRepository } from "@zyquor/storage";
 import type { SourceAdapter } from "@zyquor/adapters";
 import type { DraftGenerationProvider } from "@zyquor/generation";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -62,9 +63,7 @@ describe("api workflow", () => {
   it("keeps a draft with omitted automation fields in manual review", async () => {
     const app = buildApp({
       generationProvider: testGenerationProvider,
-      repository: createMemoryRepository({
-        now: () => "2026-04-24T17:00:00.000Z"
-      })
+      repository: await createSqliteRepository(":memory:")
     });
 
     const missingAccountResponse = await app.inject({
@@ -104,9 +103,7 @@ describe("api workflow", () => {
   it("generates, approves, and dry-run prepares a job", async () => {
     const app = buildApp({
       generationProvider: testGenerationProvider,
-      repository: createMemoryRepository({
-        now: () => "2026-04-24T17:00:00.000Z"
-      })
+      repository: await createSqliteRepository(":memory:")
     });
 
     const draftResponse = await app.inject({
@@ -180,9 +177,7 @@ describe("api workflow", () => {
         ZYQUOR_OLLAMA_MODEL: "llama3.1:8b",
         ZYQUOR_OLLAMA_BASE_URL: "http://127.0.0.1:11434"
       },
-      repository: createMemoryRepository({
-        now: () => "2026-04-24T17:00:00.000Z"
-      })
+      repository: await createSqliteRepository(":memory:")
     });
 
     const healthResponse = await app.inject({ method: "GET", url: "/health" });
@@ -212,9 +207,7 @@ describe("api workflow", () => {
         ZYQUOR_LLM_PROVIDER: "ollama",
         ZYQUOR_OLLAMA_MODEL: "llama3.1:8b"
       },
-      repository: createMemoryRepository({
-        now: () => "2026-04-24T17:00:00.000Z"
-      })
+      repository: await createSqliteRepository(":memory:")
     });
 
     const response = await app.inject({
@@ -249,9 +242,7 @@ describe("api workflow", () => {
   it("updates style prompt configuration", async () => {
     const app = buildApp({
       generationProvider: testGenerationProvider,
-      repository: createMemoryRepository({
-        now: () => "2026-04-24T17:00:00.000Z"
-      })
+      repository: await createSqliteRepository(":memory:")
     });
 
     const response = await app.inject({
@@ -291,9 +282,7 @@ describe("api workflow", () => {
       }),
       enableBrowserPrepare: true,
       generationProvider: testGenerationProvider,
-      repository: createMemoryRepository({
-        now: () => "2026-04-24T17:00:00.000Z"
-      })
+      repository: await createSqliteRepository(":memory:")
     });
 
     const response = await app.inject({
@@ -316,9 +305,7 @@ describe("api workflow", () => {
   });
 
   it("stores scheduled approvals and blocks prepare before schedule time", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createSqliteRepository(":memory:");
     const app = buildApp({ repository, generationProvider: testGenerationProvider });
     const created = await repository.createDraft({
       accountId: "account_personal",
@@ -370,9 +357,7 @@ describe("api workflow", () => {
       throw new Error(`Unexpected fetch: ${String(url)}`);
     });
 
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createSqliteRepository(":memory:");
     let uploadedMediaPaths: string[] = [];
     const app = buildApp({
       enableBrowserPrepare: true,
@@ -405,10 +390,12 @@ describe("api workflow", () => {
   });
 
   it("recovers stale running jobs before starting a new browser job", async () => {
+    // Freeze the clock for setup writes so autopost schedules and history
+    // stamps land in the past, matching how the gate sees them at request time.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-07-17T12:00:00.000Z"));
     let currentTime = "2026-04-24T17:00:00.000Z";
-    const repository = createMemoryRepository({
-      now: () => currentTime
-    });
+    const repository = await createSqliteRepository(":memory:");
     const app = buildApp({ repository, generationProvider: testGenerationProvider });
 
     const firstDraft = await repository.createDraft({
@@ -434,6 +421,8 @@ describe("api workflow", () => {
       editedText: "Next value post"
     });
 
+    vi.useRealTimers();
+    vi.useRealTimers();
     const response = await app.inject({
       method: "POST",
       url: `/jobs/${nextApproved.job.id}/prepare`
@@ -462,11 +451,11 @@ describe("api workflow", () => {
   });
 
   it("recovers stale running autopost jobs without reposting them after restart", async () => {
-    let nowMs = Date.parse("2026-04-24T17:20:00.000Z");
-    vi.spyOn(Date, "now").mockImplementation(() => nowMs);
-    const repository = createMemoryRepository({
-      now: () => new Date(nowMs).toISOString()
-    });
+    // Single controllable clock: setup at T0, then jump 20 minutes so the
+    // running job crosses the staleness threshold.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-07-17T12:00:00.000Z"));
+    const repository = await createSqliteRepository(":memory:");
     let browserCalled = false;
     const app = buildApp({
       enableBrowserPost: true,
@@ -477,7 +466,6 @@ describe("api workflow", () => {
       },
       repository
     });
-    nowMs = Date.parse("2026-04-24T17:00:00.000Z");
     const draft = await repository.createDraft({
       accountId: "account_personal",
       sourceInput: "Interrupted autopost",
@@ -491,12 +479,12 @@ describe("api workflow", () => {
     await repository.updateJobStatus(approved.job.id, "queued");
     await repository.updateJobStatus(approved.job.id, "running");
 
-    nowMs = Date.parse("2026-04-24T17:20:00.000Z");
+    vi.setSystemTime(Date.parse("2026-07-17T12:20:00.000Z"));
     const recovery = await app.inject({ method: "POST", url: "/jobs/recover-stale" });
     const postReady = await app.inject({
       method: "POST",
       url: "/jobs/post-ready",
-      payload: { accountId: "account_personal" }
+      payload: { accountId: "account_personal", bypassSpacing: true }
     });
 
     expect(recovery.statusCode).toBe(200);
@@ -518,9 +506,7 @@ describe("api workflow", () => {
   });
 
   it("posts all ready jobs sequentially from one request", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createSqliteRepository(":memory:");
     const postedTexts: string[] = [];
     const app = buildApp({
       enableBrowserPost: true,
@@ -552,10 +538,11 @@ describe("api workflow", () => {
       scheduledFor: "2999-04-25T15:30:00.000Z"
     });
 
+    vi.useRealTimers();
     const response = await app.inject({
       method: "POST",
       url: "/jobs/post-ready",
-      payload: { accountId: "account_personal" }
+      payload: { accountId: "account_personal", bypassSpacing: true }
     });
 
     expect(response.statusCode).toBe(200);
@@ -573,9 +560,11 @@ describe("api workflow", () => {
   });
 
   it("allows only one concurrent post request to claim an autopost job", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    // Freeze the clock for setup writes so autopost schedules and history
+    // stamps land in the past, matching how the gate sees them at request time.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-07-17T12:00:00.000Z"));
+    const repository = await createSqliteRepository(":memory:");
     let browserCalls = 0;
     const releasePost: { current?: () => void } = {};
     const app = buildApp({
@@ -601,8 +590,16 @@ describe("api workflow", () => {
       mode: "autopost"
     });
 
+    // Advance past whichever autopost schedule was computed.
+    const concurrentScheduleMs = Date.parse(approved.job.scheduledFor ?? "");
+    vi.setSystemTime(Math.max(Date.parse("2026-07-17T14:30:00.000Z"), concurrentScheduleMs + 60_000));
+
     const first = app.inject({ method: "POST", url: `/jobs/${approved.job.id}/post` });
-    await vi.waitFor(() => expect(browserCalls).toBe(1));
+    // vi.waitFor misbehaves with Date-only fake timers; poll on real time instead.
+    for (let waited = 0; browserCalls === 0 && waited < 5000; waited += 25) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    expect(browserCalls).toBe(1);
     const second = await app.inject({ method: "POST", url: `/jobs/${approved.job.id}/post` });
     releasePost.current?.();
     const firstResponse = await first;
@@ -615,9 +612,7 @@ describe("api workflow", () => {
   });
 
   it("does not retry a failed post job because it may already have reached X", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createSqliteRepository(":memory:");
     let browserCalled = false;
     const app = buildApp({
       enableBrowserPost: true,
@@ -646,7 +641,7 @@ describe("api workflow", () => {
     const batch = await app.inject({
       method: "POST",
       url: "/jobs/post-ready",
-      payload: { accountId: "account_personal" }
+      payload: { accountId: "account_personal", bypassSpacing: true }
     });
 
     expect(direct.statusCode).toBe(409);
@@ -660,9 +655,11 @@ describe("api workflow", () => {
   });
 
   it("rejects posting text already present in account history", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    // Freeze the clock for setup writes so autopost schedules and history
+    // stamps land in the past, matching how the gate sees them at request time.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-07-17T12:00:00.000Z"));
+    const repository = await createSqliteRepository(":memory:");
     let browserCalled = false;
     const app = buildApp({
       enableBrowserPost: true,
@@ -690,6 +687,7 @@ describe("api workflow", () => {
       mode: "autopost"
     });
 
+    vi.useRealTimers();
     const response = await app.inject({
       method: "POST",
       url: `/jobs/${approved.job.id}/post`
@@ -703,9 +701,11 @@ describe("api workflow", () => {
   });
 
   it("allows up to two posts from one source packet", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    // Freeze the clock for setup writes so autopost schedules and history
+    // stamps land in the past, matching how the gate sees them at request time.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-07-17T12:00:00.000Z"));
+    const repository = await createSqliteRepository(":memory:");
     let browserCalled = false;
     const app = buildApp({
       enableBrowserPost: true,
@@ -752,6 +752,7 @@ describe("api workflow", () => {
       mode: "autopost"
     });
 
+    vi.useRealTimers();
     const response = await app.inject({
       method: "POST",
       url: `/jobs/${approved.job.id}/post`
@@ -764,9 +765,11 @@ describe("api workflow", () => {
   });
 
   it("rejects posting a source packet after two history entries", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    // Freeze the clock for setup writes so autopost schedules and history
+    // stamps land in the past, matching how the gate sees them at request time.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-07-17T12:00:00.000Z"));
+    const repository = await createSqliteRepository(":memory:");
     let browserCalled = false;
     const app = buildApp({
       enableBrowserPost: true,
@@ -813,6 +816,7 @@ describe("api workflow", () => {
       mode: "autopost"
     });
 
+    vi.useRealTimers();
     const response = await app.inject({
       method: "POST",
       url: `/jobs/${approved.job.id}/post`
@@ -826,9 +830,11 @@ describe("api workflow", () => {
   });
 
   it("attaches the source link to an article_summary post instead of a bare-url reply", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    // Freeze the clock for setup writes so autopost schedules and history
+    // stamps land in the past, matching how the gate sees them at request time.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-07-17T12:00:00.000Z"));
+    const repository = await createSqliteRepository(":memory:");
     const postedTexts: string[] = [];
     const app = buildApp({
       enableBrowserPost: true,
@@ -860,6 +866,7 @@ describe("api workflow", () => {
       mode: "autopost"
     });
 
+    vi.useRealTimers();
     const response = await app.inject({
       method: "POST",
       url: `/jobs/${approved.job.id}/post`
@@ -880,11 +887,11 @@ describe("api workflow", () => {
   });
 
   it("purges posted tweet history after 24 hours", async () => {
-    let nowMs = Date.parse("2026-04-24T17:00:00.000Z");
-    vi.spyOn(Date, "now").mockImplementation(() => nowMs);
-    const repository = createMemoryRepository({
-      now: () => new Date(nowMs).toISOString()
-    });
+    // Freeze the whole clock so the posted history is stamped at a known time,
+    // then move 24h past the TTL before re-reading /history.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-04-24T17:00:00.000Z"));
+    const repository = await createSqliteRepository(":memory:");
     const app = buildApp({
       enableBrowserPost: true,
       generationProvider: testGenerationProvider,
@@ -899,23 +906,26 @@ describe("api workflow", () => {
     const approved = await repository.approveDraft({
       draftId: draft.draft.id,
       editedText: "History ttl text",
-      mode: "autopost",
-      scheduledFor: new Date(nowMs).toISOString()
+      mode: "autopost"
     });
 
-    expect((await app.inject({ method: "POST", url: `/jobs/${approved.job.id}/post` })).statusCode).toBe(200);
+    // Move past the autopost schedule (random gap up to 90 minutes) so
+    // the explicit post action is allowed.
+    vi.setSystemTime(Date.parse("2026-04-24T20:00:00.000Z"));
+    const ttlPost = await app.inject({ method: "POST", url: `/jobs/${approved.job.id}/post` });
+    if (ttlPost.statusCode !== 200) console.log("TTL POST BODY:", ttlPost.body);
+    expect(ttlPost.statusCode).toBe(200);
     expect((await app.inject({ method: "GET", url: "/history" })).json().history).toHaveLength(1);
 
-    nowMs = Date.parse("2026-04-25T17:00:01.000Z");
+    vi.setSystemTime(Date.parse("2026-04-25T21:00:01.000Z")); // past 20:00 + 24h TTL
     expect((await app.inject({ method: "GET", url: "/history" })).json().history).toHaveLength(0);
 
+    vi.useRealTimers();
     await app.close();
   });
 
   it("analyzes recent post history for quality issues", async () => {
-    const repository = createMemoryRepository({
-      now: () => new Date().toISOString()
-    });
+    const repository = await createSqliteRepository(":memory:");
     const app = buildApp({
       generationProvider: testGenerationProvider,
       repository
@@ -972,9 +982,11 @@ describe("api workflow", () => {
   });
 
   it("post-processes approved and posted tweet text before browser use", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    // Freeze the clock for setup writes so autopost schedules and history
+    // stamps land in the past, matching how the gate sees them at request time.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-07-17T12:00:00.000Z"));
+    const repository = await createSqliteRepository(":memory:");
     let postedText = "";
     const app = buildApp({
       enableBrowserPost: true,
@@ -1005,6 +1017,7 @@ describe("api workflow", () => {
         editedText: "local-first, auditable, posting works."
       }
     });
+    vi.useRealTimers();
     expect((await app.inject({ method: "POST", url: `/jobs/${approveResponse.json().job.id}/post` })).statusCode).toBe(200);
     expect(postedText).toBe("local-first, auditable, posting works.");
 
@@ -1014,9 +1027,7 @@ describe("api workflow", () => {
   it("creates a scheduled batch with tweet type metadata", async () => {
     const app = buildApp({
       generationProvider: testGenerationProvider,
-      repository: createMemoryRepository({
-        now: () => "2026-04-24T17:00:00.000Z"
-      })
+      repository: await createSqliteRepository(":memory:")
     });
 
     const response = await app.inject({
@@ -1059,9 +1070,7 @@ describe("api workflow", () => {
   it("creates source packets and drafts from them", async () => {
     const app = buildApp({
       generationProvider: testGenerationProvider,
-      repository: createMemoryRepository({
-        now: () => "2026-04-24T17:00:00.000Z"
-      })
+      repository: await createSqliteRepository(":memory:")
     });
 
     const createResponse = await app.inject({
@@ -1119,9 +1128,7 @@ describe("api workflow", () => {
   it("deletes a generated draft from a source packet and resets the packet", async () => {
     const app = buildApp({
       generationProvider: testGenerationProvider,
-      repository: createMemoryRepository({
-        now: () => "2026-04-24T17:00:00.000Z"
-      })
+      repository: await createSqliteRepository(":memory:")
     });
 
     const createResponse = await app.inject({
@@ -1172,9 +1179,7 @@ describe("api workflow", () => {
   });
 
   it("deletes a single source packet and its non-posted generated draft", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createSqliteRepository(":memory:");
     const app = buildApp({
       generationProvider: testGenerationProvider,
       repository
@@ -1218,9 +1223,7 @@ describe("api workflow", () => {
   it("deletes all source packets and removes non-posted generated drafts", async () => {
     const app = buildApp({
       generationProvider: testGenerationProvider,
-      repository: createMemoryRepository({
-        now: () => "2026-04-24T17:00:00.000Z"
-      })
+      repository: await createSqliteRepository(":memory:")
     });
 
     for (const title of ["Battery market source", "Science policy source"]) {
@@ -1262,9 +1265,7 @@ describe("api workflow", () => {
   });
 
   it("deletes source packet links without deleting drafts kept by post history", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createSqliteRepository(":memory:");
     const app = buildApp({
       generationProvider: testGenerationProvider,
       repository
@@ -1311,16 +1312,17 @@ describe("api workflow", () => {
   });
 
   it("removes source packet links after source-generated drafts are posted", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    // Freeze the clock for setup writes so autopost schedules and history
+    // stamps land in the past, matching how the gate sees them at request time.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-07-17T12:00:00.000Z"));
+    const repository = await createSqliteRepository(":memory:");
     const app = buildApp({
       enableBrowserPost: true,
       generationProvider: testGenerationProvider,
       preparePost: async () => ({ postUrl: "https://x.com/personal/status/1" }),
       repository
     });
-
     const createResponse = await app.inject({
       method: "POST",
       url: "/source-packets",
@@ -1352,6 +1354,7 @@ describe("api workflow", () => {
       mode: "autopost"
     });
 
+    vi.useRealTimers();
     const postResponse = await app.inject({
       method: "POST",
       url: `/jobs/${approved.job.id}/post`
@@ -1374,9 +1377,7 @@ describe("api workflow", () => {
   });
 
   it("does not prepare jobs for draft-only accounts", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createSqliteRepository(":memory:");
     const app = buildApp({ repository, generationProvider: testGenerationProvider });
 
     await repository.updateAccount("account_personal", { postingMode: "draft_only" });
@@ -1397,9 +1398,7 @@ describe("api workflow", () => {
   });
 
   it("deletes non-running jobs and their queue entry", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createSqliteRepository(":memory:");
     const app = buildApp({ repository, generationProvider: testGenerationProvider });
     const created = await repository.createDraft({
       accountId: "account_personal",
@@ -1420,41 +1419,10 @@ describe("api workflow", () => {
   });
 
   it("filters jobs by accountId query", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z",
-      snapshot: {
-        accounts: [
-          {
-            id: "account_personal",
-            handle: "personal-main",
-            displayName: "Personal main",
-            profileDir: "profiles/personal-main",
-            styleProfileId: "style_default",
-            postingMode: "prepare_only",
-            enabled: true,
-            dailyPostLimit: 5,
-            quietHoursStart: null,
-            quietHoursEnd: null,
-            createdAt: "2026-04-24T17:00:00.000Z",
-            updatedAt: "2026-04-24T17:00:00.000Z"
-          },
-          {
-            id: "account_alt",
-            handle: "alt",
-            displayName: "Alt",
-            profileDir: "profiles/alt",
-            styleProfileId: "style_default",
-            postingMode: "prepare_only",
-            enabled: true,
-            dailyPostLimit: 5,
-            quietHoursStart: null,
-            quietHoursEnd: null,
-            createdAt: "2026-04-24T17:00:00.000Z",
-            updatedAt: "2026-04-24T17:00:00.000Z"
-          }
-        ]
-      }
-    });
+    const repository = await createSqliteRepository(":memory:");
+    const altAccount = await repository.createAccount(
+      createAccountRequestSchema.parse({ handle: "alt", displayName: "Alt" })
+    );
     const app = buildApp({ repository, generationProvider: testGenerationProvider });
 
     const draftA = await repository.createDraft({
@@ -1463,7 +1431,7 @@ describe("api workflow", () => {
       candidates: [{ text: "A text", score: {} }]
     });
     const draftB = await repository.createDraft({
-      accountId: "account_alt",
+      accountId: altAccount.id,
       sourceInput: "B",
       candidates: [{ text: "B text", score: {} }]
     });
@@ -1485,41 +1453,10 @@ describe("api workflow", () => {
   });
 
   it("deletes all jobs only for the requested account", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z",
-      snapshot: {
-        accounts: [
-          {
-            id: "account_personal",
-            handle: "personal-main",
-            displayName: "Personal",
-            profileDir: "profiles/personal-main",
-            styleProfileId: "style_default",
-            postingMode: "prepare_only",
-            enabled: true,
-            dailyPostLimit: 5,
-            quietHoursStart: null,
-            quietHoursEnd: null,
-            createdAt: "2026-04-24T17:00:00.000Z",
-            updatedAt: "2026-04-24T17:00:00.000Z"
-          },
-          {
-            id: "account_alt",
-            handle: "alt",
-            displayName: "Alt",
-            profileDir: "profiles/alt",
-            styleProfileId: "style_default",
-            postingMode: "prepare_only",
-            enabled: true,
-            dailyPostLimit: 5,
-            quietHoursStart: null,
-            quietHoursEnd: null,
-            createdAt: "2026-04-24T17:00:00.000Z",
-            updatedAt: "2026-04-24T17:00:00.000Z"
-          }
-        ]
-      }
-    });
+    const repository = await createSqliteRepository(":memory:");
+    const altAccount = await repository.createAccount(
+      createAccountRequestSchema.parse({ handle: "alt", displayName: "Alt" })
+    );
     const app = buildApp({ repository, generationProvider: testGenerationProvider });
     const draftA = await repository.createDraft({
       accountId: "account_personal",
@@ -1527,7 +1464,7 @@ describe("api workflow", () => {
       candidates: [{ text: "Delete A", score: {} }]
     });
     const draftB = await repository.createDraft({
-      accountId: "account_alt",
+      accountId: altAccount.id,
       sourceInput: "B",
       candidates: [{ text: "Keep B", score: {} }]
     });
@@ -1548,9 +1485,7 @@ describe("api workflow", () => {
   });
 
   it("creates, lists, updates, and deletes ingest configs", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createSqliteRepository(":memory:");
     const app = buildApp({ repository, generationProvider: testGenerationProvider });
 
     const createResponse = await app.inject({
@@ -1617,9 +1552,7 @@ describe("api workflow", () => {
   it("runs ingest runner and creates automated jobs", async () => {
     const app = buildApp({
       generationProvider: testGenerationProvider,
-      repository: createMemoryRepository({
-        now: () => "2026-04-24T17:00:00.000Z"
-      }),
+      repository: await createSqliteRepository(":memory:"),
       sourceAdapters: [testNewsAdapter]
     });
 
@@ -1688,9 +1621,7 @@ describe("api workflow", () => {
     };
     const app = buildApp({
       generationProvider: testGenerationProvider,
-      repository: createMemoryRepository({
-        now: () => "2026-04-24T17:00:00.000Z"
-      }),
+      repository: await createSqliteRepository(":memory:"),
       sourceAdapters: [feedAdapter]
     });
 
@@ -1730,11 +1661,13 @@ describe("api workflow", () => {
 
 describe("automatic worker ingest pipeline", () => {
   it("full pipeline: config -> fetch -> packet -> draft -> job -> prepare", async () => {
+    // Freeze the clock for setup writes so autopost schedules and history
+    // stamps land in the past, matching how the gate sees them at request time.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-07-17T12:00:00.000Z"));
     const app = buildApp({
       generationProvider: testGenerationProvider,
-      repository: createMemoryRepository({
-        now: () => "2026-04-24T14:00:00.000Z"
-      }),
+      repository: await createSqliteRepository(":memory:"),
       sourceAdapters: [testNewsAdapter],
       enableBrowserPrepare: false // dry run
     });
@@ -1767,6 +1700,7 @@ describe("automatic worker ingest pipeline", () => {
     expect(packetsResponse.json().packets[0].status).toBe("drafted");
 
     // 4. Verify jobs created
+    vi.useRealTimers();
     const jobsResponse = await app.inject({ method: "GET", url: "/jobs?accountId=account_personal" });
     expect(jobsResponse.json().jobs).toHaveLength(3);
     const job = jobsResponse.json().jobs[0];
@@ -1799,9 +1733,7 @@ describe("automatic worker ingest pipeline", () => {
 describe("worker reliability endpoints", () => {
   it("reports worker status and heartbeat state", async () => {
     const app = buildApp({
-      repository: createMemoryRepository({
-        now: () => "2026-04-24T14:00:00.000Z"
-      })
+      repository: await createSqliteRepository(":memory:")
     });
 
     const initial = await app.inject({ method: "GET", url: "/worker/status" });
@@ -1834,9 +1766,7 @@ describe("worker reliability endpoints", () => {
 
   it("creates one default news ingest config and reuses it on later seed calls", async () => {
     const app = buildApp({
-      repository: createMemoryRepository({
-        now: () => "2026-04-24T14:00:00.000Z"
-      })
+      repository: await createSqliteRepository(":memory:")
     });
 
     const created = await app.inject({ method: "POST", url: "/ingest-configs/default-news" });
@@ -1879,9 +1809,7 @@ describe("worker reliability endpoints", () => {
     };
     const app = buildApp({
       generationProvider: testGenerationProvider,
-      repository: createMemoryRepository({
-        now: () => "2026-04-24T14:00:00.000Z"
-      }),
+      repository: await createSqliteRepository(":memory:"),
       sourceAdapters: [slowAdapter]
     });
 

@@ -30,3 +30,7 @@ feedback/
 
 apps/desktop/release/
 apps/api/data/
+
+# graphify
+cost.json
+graphify-out/cache/

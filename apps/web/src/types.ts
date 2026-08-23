@@ -151,6 +151,28 @@ export interface SystemFeedback {
   createdAt: string;
 }
 
+export type KnowledgeKind =
+  | "product_fact"
+  | "feature"
+  | "pricing"
+  | "persona"
+  | "opinion_stance"
+  | "audience"
+  | "faq"
+  | "never_claim";
+
+export interface KnowledgeEntry {
+  id: string;
+  accountId: string;
+  kind: KnowledgeKind;
+  title: string;
+  content: string;
+  sourceUrl: string | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface IngestConfig {
   id: string;
   accountId: string;

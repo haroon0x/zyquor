@@ -1,8 +1,10 @@
 import type {
   Account,
   CreateAccountRequest,
+  CreateKnowledgeEntryRequest,
   Draft,
   DraftCandidate,
+  KnowledgeEntry,
   PostAttempt,
   PostHistory,
   PostJob,
@@ -11,7 +13,8 @@ import type {
   StyleProfile,
   SystemFeedback,
   TweetMeasurement,
-  IngestConfig
+  IngestConfig,
+  UpdateKnowledgeEntryRequest
 } from "@zyquor/core";
 
 export interface DraftWithCandidates {
@@ -67,6 +70,10 @@ export interface ZyquorRepository {
   listSystemFeedback(accountId: string): Promise<SystemFeedback[]>;
   addSystemFeedback(accountId: string, text: string): Promise<SystemFeedback>;
   deleteSystemFeedback(id: string): Promise<void>;
+  listKnowledgeEntries(accountId: string): Promise<KnowledgeEntry[]>;
+  createKnowledgeEntry(input: CreateKnowledgeEntryRequest): Promise<KnowledgeEntry>;
+  updateKnowledgeEntry(id: string, input: UpdateKnowledgeEntryRequest): Promise<KnowledgeEntry>;
+  deleteKnowledgeEntry(id: string): Promise<KnowledgeEntry>;
   listPendingDrafts(): Promise<Draft[]>;
   listDrafts(accountId?: string): Promise<Draft[]>;
   listQualityGateFailedDrafts(): Promise<DraftWithCandidates[]>;
@@ -153,31 +160,4 @@ export interface ZyquorRepository {
   listIngestConfigs(accountId?: string): Promise<IngestConfig[]>;
   updateIngestConfig(id: string, input: Partial<Omit<IngestConfig, "id" | "accountId" | "createdAt" | "updatedAt">>): Promise<IngestConfig>;
   deleteIngestConfig(id: string): Promise<IngestConfig>;
-}
-
-export interface ContentFingerprint {
-  id: string;
-  accountId: string;
-  draftId: string;
-  textHash: string;
-  normalizedText: string;
-  embeddingRef: string | null;
-  createdAt: string;
-}
-
-export interface RepositorySnapshot {
-  accounts: Account[];
-  drafts: Draft[];
-  candidates: DraftCandidate[];
-  jobs: PostJob[];
-  attempts: PostAttempt[];
-  ingestRuns: IngestRun[];
-  history: PostHistory[];
-  fingerprints: ContentFingerprint[];
-  tweetMeasurements: TweetMeasurement[];
-  ingestConfigs: IngestConfig[];
-  sourcePackets: SourcePacket[];
-  styleProfiles: StyleProfile[];
-  systemFeedback: SystemFeedback[];
-  sequence: number;
 }

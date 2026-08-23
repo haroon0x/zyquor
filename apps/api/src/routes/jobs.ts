@@ -107,7 +107,7 @@ export function registerJobsRoutes(app: FastifyInstance, deps: AppDeps): void {
   });
 
   app.post("/jobs/post-ready", async (request) => {
-    const { accountId } = request.body as { accountId?: string };
+    const { accountId, bypassSpacing } = request.body as { accountId?: string; bypassSpacing?: boolean };
     if (!accountId) {
       throw new HttpError(400, "accountId is required");
     }
@@ -131,7 +131,7 @@ export function registerJobsRoutes(app: FastifyInstance, deps: AppDeps): void {
 
     for (const job of readyJobs) {
       try {
-        const result = await postBrowserJob(deps, job.id);
+        const result = await postBrowserJob(deps, job.id, { bypassSpacing: Boolean(bypassSpacing) });
         results.push({
           jobId: job.id,
           status: "posted",

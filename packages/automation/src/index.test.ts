@@ -1,6 +1,6 @@
 import type { SourceAdapter } from "@zyquor/adapters";
 import type { DraftGenerationProvider } from "@zyquor/generation";
-import { createMemoryRepository } from "@zyquor/storage";
+import { createSqliteRepository } from "@zyquor/storage";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runAutomaticIngest, draftFromSourcePacket, TopicDraftExistsError } from "./index.js";
 import { cleanSentence, inferTweetTypeFromText, packetFieldsFromItem } from "./context.js";
@@ -72,9 +72,7 @@ describe("automatic ingest", () => {
   });
 
   it("turns source items into packets, generated drafts, and autopost jobs", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createSqliteRepository(":memory:");
     const adapter: SourceAdapter = {
       name: "test-hn",
       sourceType: "news",
@@ -136,9 +134,7 @@ describe("automatic ingest", () => {
   });
 
   it("repairs source-backed generated text before auto-approve", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createSqliteRepository(":memory:");
     const adapter: SourceAdapter = {
       name: "article-news",
       sourceType: "news",
@@ -295,9 +291,7 @@ describe("automatic ingest", () => {
   });
 
   it("prioritizes broader preferred news signals during ingest", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createSqliteRepository(":memory:");
     const adapter: SourceAdapter = {
       name: "test-news",
       sourceType: "news",
@@ -350,9 +344,7 @@ describe("automatic ingest", () => {
   });
 
   it("filters low-quality sources before they enter the posting pipeline", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createSqliteRepository(":memory:");
     const adapter: SourceAdapter = {
       name: "quality-news",
       sourceType: "news",
@@ -408,9 +400,7 @@ describe("automatic ingest", () => {
   });
 
   it("skips generic how-to/guide and announcement titles before drafting", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createSqliteRepository(":memory:");
     const adapter: SourceAdapter = {
       name: "guide-news",
       sourceType: "news",
@@ -462,9 +452,7 @@ describe("automatic ingest", () => {
 
   it("limits repeated GitHub posts in one day", async () => {
     process.env.ZYQUOR_MAX_GITHUB_POSTS_PER_DAY = "1";
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createSqliteRepository(":memory:");
     const postedDraft = await repository.createDraft({
       accountId: "account_personal",
       sourceInput: "GitHub posted",
@@ -486,13 +474,13 @@ describe("automatic ingest", () => {
           {
             title: "new/github-agent: agent workflow repository",
             url: "https://github.com/new/github-agent",
-            metadata: { published: "2026-04-24T16:00:00.000Z" },
+            metadata: { published: new Date(Date.now() - 3_600_000).toISOString() },
             content: "Language: TypeScript. Stars: 10000. Agent workflow repository."
           },
           {
             title: "Independent research lab publishes database benchmark",
             url: "https://example.org/database-benchmark",
-            metadata: { published: "2026-04-24T16:00:00.000Z" },
+            metadata: { published: new Date(Date.now() - 3_600_000).toISOString() },
             content:
               "The benchmark compares database replication behavior under network partitions. It includes reproducible scripts and notes on operator tradeoffs."
           }
@@ -513,7 +501,9 @@ describe("automatic ingest", () => {
     const result = await runAutomaticIngest({
       adapters: new Map([["news", adapter]]),
       generationProvider: testProvider,
-      now: new Date("2026-04-24T17:00:00.000Z"),
+      // Post history rows are stamped with the real clock under SQLite, so run
+      // the ingest on today's date for the daily GitHub limit to see them.
+      now: new Date(),
       repository
     });
 
@@ -525,9 +515,7 @@ describe("automatic ingest", () => {
   });
 
   it("refuses to draft a second packet covering the same topic", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-04-24T17:00:00.000Z"
-    });
+    const repository = await createSqliteRepository(":memory:");
     const packetA = await repository.createSourcePacket({
       accountId: "account_personal",
       sourceType: "news",

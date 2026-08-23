@@ -1,10 +1,10 @@
-import { createMemoryRepository } from "@zyquor/storage";
+import { createSqliteRepository } from "@zyquor/storage";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 
 describe("draft candidate quality evaluation", () => {
   it("recomputes the deterministic quality score for every candidate without creating a job", async () => {
-    const repository = createMemoryRepository();
+    const repository = await createSqliteRepository(":memory:");
     const created = await repository.createDraft({
       accountId: "account_personal",
       sourceInput: "Show why SQLite can be enough.",
@@ -29,7 +29,7 @@ describe("draft candidate quality evaluation", () => {
   });
 
   it("returns 404 for a missing draft", async () => {
-    const app = buildApp({ repository: createMemoryRepository() });
+    const app = buildApp({ repository: await createSqliteRepository(":memory:") });
     const response = await app.inject({ method: "POST", url: "/drafts/does-not-exist/evaluate" });
     expect(response.statusCode).toBe(404);
     await app.close();

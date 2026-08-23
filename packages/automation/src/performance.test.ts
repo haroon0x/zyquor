@@ -1,5 +1,5 @@
 import { withPostPerformance } from "@zyquor/core";
-import { createMemoryRepository } from "@zyquor/storage";
+import { createSqliteRepository } from "@zyquor/storage";
 import { describe, expect, it } from "vitest";
 import { engagementPerPostOf, sourcePerformanceByType } from "./performance.js";
 
@@ -13,35 +13,55 @@ describe("source performance feedback", () => {
   });
 
   it("aggregates measured posts by source type and skips unmeasured history", async () => {
-    const repository = createMemoryRepository({ now: () => "2026-04-24T17:00:00.000Z" });
+    const repository = await createSqliteRepository(":memory:");
+    // SQLite enforces the post_history -> drafts foreign key, so back each
+    // history row with a real draft.
+    const drafts = [];
+    for (const [index, sourceInput] of [
+      "news post one",
+      "news post two",
+      "x-feed post"
+    ].entries()) {
+      const created = await repository.createDraft({
+        accountId: "account_personal",
+        sourceInput,
+        candidates: [{ text: `${sourceInput} text`, score: {} }]
+      });
+      drafts.push(created.draft.id);
+      await repository.approveDraft({
+        draftId: created.draft.id,
+        editedText: `${sourceInput} text`
+      });
+    }
+
+    const performance = (views: number, likes: number, replies = 0) =>
+      withPostPerformance({}, { views, likes, replies, reposts: 0, bookmarks: 0, measuredAt: new Date().toISOString() });
+
     await repository.createPostHistory({
       accountId: "account_personal",
-      draftId: "draft_1",
-      metadata: withPostPerformance({}, { views: 120, likes: 2, replies: 1, reposts: 0, bookmarks: 0, measuredAt: "2026-04-24T16:00:00.000Z" }),
-      postedText: "news post one",
+      draftId: drafts[0]!,
+      metadata: performance(120, 2, 1),
+      postedText: "news post one text",
       postUrl: "https://x.com/personal/status/1",
       sourceType: "news",
-      sourcePacketId: "packet_1",
       tweetType: "article_summary"
     });
     await repository.createPostHistory({
       accountId: "account_personal",
-      draftId: "draft_2",
-      metadata: withPostPerformance({}, { views: 40, likes: 0, replies: 0, reposts: 0, bookmarks: 0, measuredAt: "2026-04-24T16:00:00.000Z" }),
-      postedText: "news post two",
+      draftId: drafts[1]!,
+      metadata: performance(40, 0),
+      postedText: "news post two text",
       postUrl: "https://x.com/personal/status/2",
       sourceType: "news",
-      sourcePacketId: "packet_2",
       tweetType: "article_summary"
     });
     await repository.createPostHistory({
       accountId: "account_personal",
-      draftId: "draft_3",
+      draftId: drafts[2]!,
       metadata: {},
-      postedText: "x-feed post",
+      postedText: "x-feed post text",
       postUrl: "https://x.com/personal/status/3",
       sourceType: "x-feed",
-      sourcePacketId: "packet_3",
       tweetType: "useful_info"
     });
 

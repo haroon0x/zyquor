@@ -1,7 +1,7 @@
 import cors from "@fastify/cors";
 import { createA16zAdapter, createAggregatedNewsAdapter, createAnthropicReleaseNotesAdapter, createCrawl4AiService, createCursorChangelogAdapter, createDeepSeekUpdatesAdapter, createModelReleasesAdapter, createRssAdapter, createXFeedAdapter, createXaiNewsAdapter, type SourceAdapter } from "@zyquor/adapters";
 import { createGenerationProviderFromEnv } from "@zyquor/generation";
-import { createLocalRepository, type ZyquorRepository } from "@zyquor/storage";
+import { createSqliteRepository, type ZyquorRepository } from "@zyquor/storage";
 import Fastify from "fastify";
 import { ZodError } from "zod";
 import { type AppDeps, type BuildAppOptions } from "./deps.js";
@@ -16,6 +16,7 @@ import { registerSourcePacketsRoutes } from "./routes/source-packets.js";
 import { registerIngestRoutes } from "./routes/ingest.js";
 import { registerStyleProfilesRoutes } from "./routes/style-profiles.js";
 import { registerSystemFeedbackRoutes } from "./routes/system-feedback.js";
+import { registerKnowledgeRoutes } from "./routes/knowledge.js";
 import { registerDraftsRoutes } from "./routes/drafts.js";
 import { registerBatchesRoutes } from "./routes/batches.js";
 import { registerJobsRoutes } from "./routes/jobs.js";
@@ -66,7 +67,7 @@ function createDefaultSourceAdapters(options: {
 
 export function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({ logger: options.logStream ? { stream: options.logStream as never } : true });
-  const repositoryPromise = options.repository ? Promise.resolve(options.repository) : createLocalRepository();
+  const repositoryPromise = options.repository ? Promise.resolve(options.repository) : createSqliteRepository();
   const sourceAdapters = adaptersBySourceType(options.sourceAdapters ?? createDefaultSourceAdapters({
     repository: repositoryPromise,
     ...(options.browserChannel !== undefined ? { browserChannel: options.browserChannel } : {}),
@@ -172,6 +173,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   registerIngestRoutes(app, deps);
   registerStyleProfilesRoutes(app, deps);
   registerSystemFeedbackRoutes(app, deps);
+  registerKnowledgeRoutes(app, deps);
   registerDraftsRoutes(app, deps);
   registerBatchesRoutes(app, deps);
   registerJobsRoutes(app, deps);

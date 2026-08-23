@@ -1,13 +1,11 @@
-import { createMemoryRepository } from "@zyquor/storage";
+import { createSqliteRepository } from "@zyquor/storage";
 import { describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 
 describe("POST /browser/launch-chrome", () => {
   it("returns 404 when launchPostingChrome dep is not provided", async () => {
     const app = buildApp({
-      repository: createMemoryRepository({
-        now: () => "2026-04-24T17:00:00.000Z",
-      }),
+      repository: await createSqliteRepository(":memory:"),
     });
 
     const response = await app.inject({
@@ -23,9 +21,7 @@ describe("POST /browser/launch-chrome", () => {
     const stub = vi.fn().mockResolvedValue({ launched: true });
     const app = buildApp({
       launchPostingChrome: stub,
-      repository: createMemoryRepository({
-        now: () => "2026-04-24T17:00:00.000Z",
-      }),
+      repository: await createSqliteRepository(":memory:"),
     });
 
     const response = await app.inject({
@@ -43,9 +39,7 @@ describe("POST /browser/launch-chrome", () => {
     const stub = vi.fn().mockResolvedValue({ launched: false, reason: "chrome-not-found" });
     const app = buildApp({
       launchPostingChrome: stub,
-      repository: createMemoryRepository({
-        now: () => "2026-04-24T17:00:00.000Z",
-      }),
+      repository: await createSqliteRepository(":memory:"),
     });
 
     const response = await app.inject({

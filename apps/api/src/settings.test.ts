@@ -1,4 +1,4 @@
-import { createMemoryRepository } from "@zyquor/storage";
+import { createSqliteRepository } from "@zyquor/storage";
 import { describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import type { DesktopSettingsData } from "./deps.js";
@@ -23,7 +23,7 @@ function mockDesktopSettings(initial: DesktopSettingsData = {}) {
 describe("/settings routes", () => {
   it("returns 404 when desktopSettings dep is not provided", async () => {
     const app = buildApp({
-      repository: createMemoryRepository({ now: () => "2026-07-07T12:00:00.000Z" }),
+      repository: await createSqliteRepository(":memory:"),
     });
     const getRes = await app.inject({ method: "GET", url: "/settings" });
     expect(getRes.statusCode).toBe(404);
@@ -46,7 +46,7 @@ describe("/settings routes", () => {
     });
     const app = buildApp({
       desktopSettings: dep,
-      repository: createMemoryRepository({ now: () => "2026-07-07T12:00:00.000Z" }),
+      repository: await createSqliteRepository(":memory:"),
     });
     const res = await app.inject({ method: "GET", url: "/settings" });
     expect(res.statusCode).toBe(200);
@@ -62,7 +62,7 @@ describe("/settings routes", () => {
     const dep = mockDesktopSettings({ llmProvider: "openrouter" });
     const app = buildApp({
       desktopSettings: dep,
-      repository: createMemoryRepository({ now: () => "2026-07-07T12:00:00.000Z" }),
+      repository: await createSqliteRepository(":memory:"),
     });
     const res = await app.inject({
       method: "PATCH",
@@ -89,7 +89,7 @@ describe("/settings routes", () => {
     const dep = mockDesktopSettings({ openrouterApiKey });
     const app = buildApp({
       desktopSettings: dep,
-      repository: createMemoryRepository({ now: () => "2026-07-07T12:00:00.000Z" }),
+      repository: await createSqliteRepository(":memory:"),
     });
     const masked = "*********************cdef";
     const res = await app.inject({
@@ -108,7 +108,7 @@ describe("/settings routes", () => {
     const dep = mockDesktopSettings({ chromePath: "/usr/bin/chrome", cdpPort: 9222 });
     const app = buildApp({
       desktopSettings: dep,
-      repository: createMemoryRepository({ now: () => "2026-07-07T12:00:00.000Z" }),
+      repository: await createSqliteRepository(":memory:"),
     });
     const res = await app.inject({
       method: "PATCH",
@@ -125,7 +125,7 @@ describe("/settings routes", () => {
     const dep = mockDesktopSettings({});
     const app = buildApp({
       desktopSettings: dep,
-      repository: createMemoryRepository({ now: () => "2026-07-07T12:00:00.000Z" }),
+      repository: await createSqliteRepository(":memory:"),
     });
     const res = await app.inject({
       method: "PATCH",
@@ -142,7 +142,7 @@ describe("/settings routes", () => {
     const dep = mockDesktopSettings({ openrouterApiKey: "ab", geminiApiKey: "xyz" });
     const app = buildApp({
       desktopSettings: dep,
-      repository: createMemoryRepository({ now: () => "2026-07-07T12:00:00.000Z" }),
+      repository: await createSqliteRepository(":memory:"),
     });
     const res = await app.inject({ method: "GET", url: "/settings" });
     expect(res.statusCode).toBe(200);

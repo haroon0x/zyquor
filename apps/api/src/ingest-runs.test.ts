@@ -1,6 +1,6 @@
 import type { SourceAdapter } from "@zyquor/adapters";
 import type { DraftGenerationProvider } from "@zyquor/generation";
-import { createMemoryRepository } from "@zyquor/storage";
+import { createSqliteRepository } from "@zyquor/storage";
 import { describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 
@@ -40,7 +40,7 @@ describe("ingest run durability", () => {
     };
     const app = buildApp({
       generationProvider,
-      repository: createMemoryRepository(),
+      repository: await createSqliteRepository(":memory:"),
       sourceAdapters: [adapter]
     });
     const config = await createConfig(app);
@@ -69,7 +69,7 @@ describe("ingest run durability", () => {
     };
     const app = buildApp({
       generationProvider,
-      repository: createMemoryRepository(),
+      repository: await createSqliteRepository(":memory:"),
       sourceAdapters: [adapter]
     });
     const config = await createConfig(app);
@@ -89,7 +89,7 @@ describe("ingest run durability", () => {
   });
 
   it("marks interrupted ingest runs failed during recovery", async () => {
-    const repository = createMemoryRepository();
+    const repository = await createSqliteRepository(":memory:");
     const run = await repository.createIngestRun({ configId: "ingest_config", accountId: "account_personal" });
     const app = buildApp({ generationProvider, repository, sourceAdapters: [] });
 

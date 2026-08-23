@@ -1,16 +1,16 @@
 import { assertDedicatedProfileDir } from "@zyquor/accounts";
-import { createMemoryRepository } from "@zyquor/storage";
+import { createSqliteRepository } from "@zyquor/storage";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 
-function setup() {
-  const repository = createMemoryRepository({ now: () => "2026-04-24T17:00:00.000Z" });
+async function setup() {
+  const repository = await createSqliteRepository(":memory:");
   return { app: buildApp({ repository }), repository };
 }
 
 describe("account routes", () => {
   it("creates an account with safe defaults and a dedicated profile", async () => {
-    const { app } = setup();
+    const { app } = await setup();
     const response = await app.inject({
       method: "POST",
       url: "/accounts",
@@ -38,7 +38,7 @@ describe("account routes", () => {
     { handle: "Example" },
     { handle: "example", profileDir: "profiles/other" }
   ])("returns 400 for invalid creation input", async (payload) => {
-    const { app } = setup();
+    const { app } = await setup();
     const response = await app.inject({ method: "POST", url: "/accounts", payload });
 
     expect(response.statusCode).toBe(400);
@@ -47,7 +47,7 @@ describe("account routes", () => {
   });
 
   it("returns 409 for a duplicate handle", async () => {
-    const { app } = setup();
+    const { app } = await setup();
     await app.inject({ method: "POST", url: "/accounts", payload: { handle: "duplicate" } });
     const response = await app.inject({ method: "POST", url: "/accounts", payload: { handle: "duplicate" } });
 
@@ -57,7 +57,7 @@ describe("account routes", () => {
   });
 
   it("returns 404 for an unknown account", async () => {
-    const { app } = setup();
+    const { app } = await setup();
     const response = await app.inject({ method: "DELETE", url: "/accounts/account_missing" });
 
     expect(response.statusCode).toBe(404);
@@ -65,7 +65,7 @@ describe("account routes", () => {
   });
 
   it("returns 409 when deleting the last remaining account", async () => {
-    const { app } = setup();
+    const { app } = await setup();
     const response = await app.inject({ method: "DELETE", url: "/accounts/account_personal" });
 
     expect(response.statusCode).toBe(409);
@@ -74,7 +74,7 @@ describe("account routes", () => {
   });
 
   it("blocks active jobs and deletes an account after its jobs become terminal", async () => {
-    const { app, repository } = setup();
+    const { app, repository } = await setup();
     const createdResponse = await app.inject({
       method: "POST",
       url: "/accounts",

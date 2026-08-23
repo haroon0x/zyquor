@@ -127,8 +127,8 @@ function getCdpPort(): number {
 }
 
 async function createLaunchPostingChrome() {
-  const { createLocalRepository } = await import("@zyquor/storage");
-  const repository = await createLocalRepository();
+  const { createSqliteRepository } = await import("@zyquor/storage");
+  const repository = await createSqliteRepository();
 
   return async (input: { accountId: string }): Promise<{ launched: boolean; reason?: string }> => {
     const accounts = await repository.listAccounts();
@@ -181,11 +181,10 @@ async function main() {
   ensureFirstRun(process.env.ZYQUOR_DATA_ROOT);
 
   const sqliteCheck = await detectSqliteSupport();
-  if (sqliteCheck.available) {
-    console.log("storage: node:sqlite available");
-  } else {
-    console.warn(`storage: node:sqlite unavailable (${sqliteCheck.error}) — falling back to JSON file storage`);
+  if (!sqliteCheck.available) {
+    throw new Error(`node:sqlite is required for storage (Node >= 22.5). ${sqliteCheck.error ?? ""}`);
   }
+  console.log("storage: node:sqlite available");
 
   const { buildApp } = await import("@zyquor/api");
   const { startWorker } = await import("@zyquor/worker");

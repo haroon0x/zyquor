@@ -1,5 +1,5 @@
 import type { DraftGenerationProvider } from "@zyquor/generation";
-import { createMemoryRepository } from "@zyquor/storage";
+import { createSqliteRepository } from "@zyquor/storage";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 
@@ -23,9 +23,7 @@ afterEach(() => {
 describe("jobs routes", () => {
   it("shuffles ready jobs and posts them sequentially", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
-    const repository = createMemoryRepository({
-      now: () => "2026-07-17T12:00:00.000Z"
-    });
+    const repository = await createSqliteRepository(":memory:");
     const postedTexts: string[] = [];
     const app = buildApp({
       enableBrowserPost: true,
@@ -49,7 +47,7 @@ describe("jobs routes", () => {
     const response = await app.inject({
       method: "POST",
       url: "/jobs/post-ready",
-      payload: { accountId: "account_personal" }
+      payload: { accountId: "account_personal", bypassSpacing: true }
     });
 
     expect(response.statusCode).toBe(200);
@@ -59,9 +57,7 @@ describe("jobs routes", () => {
   });
 
   it("sets and clears schedules only for reschedulable jobs", async () => {
-    const repository = createMemoryRepository({
-      now: () => "2026-07-17T12:00:00.000Z"
-    });
+    const repository = await createSqliteRepository(":memory:");
     const app = buildApp({ generationProvider, repository });
     const created = await repository.createDraft({
       accountId: "account_personal",
