@@ -1,6 +1,9 @@
 import { createServer, type Server } from "node:http";
-import { existsSync } from "node:fs";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { dataPath } from "@zyquor/core";
 import { findChrome, isCdpUp, launchPostingChrome } from "./chrome.js";
 
 vi.mock("node:fs", async () => {
@@ -51,8 +54,27 @@ function withEnv(key: string, value: string | undefined, fn: () => void) {
   }
 }
 
+async function withEnvAsync<T>(key: string, value: string | undefined, fn: () => Promise<T>): Promise<T> {
+  const before = process.env[key];
+  try {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+    return await fn();
+  } finally {
+    if (before === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = before;
+    }
+  }
+}
+
 let httpServer: Server;
 let httpPort: number;
+let testDataRoot: string | undefined;
 
 async function startJsonVersionServer(): Promise<number> {
   return new Promise((resolve) => {
@@ -77,11 +99,23 @@ async function startJsonVersionServer(): Promise<number> {
 }
 
 beforeAll(async () => {
+  // Sandbox state-file writes: without this, dataPath("posting-chrome.json")
+  // resolves against process.cwd() and litters the package directory.
+  testDataRoot = mkdtempSync(join(tmpdir(), "zyquor-chrome-test-"));
+  process.env.ZYQUOR_DATA_ROOT = testDataRoot;
   await startJsonVersionServer();
+});
+
+afterEach(() => {
+  rmSync(dataPath("posting-chrome.json"), { force: true });
 });
 
 afterAll(() => {
   httpServer?.close();
+  if (testDataRoot !== undefined) {
+    if (process.env.ZYQUOR_DATA_ROOT === testDataRoot) delete process.env.ZYQUOR_DATA_ROOT;
+    rmSync(testDataRoot, { recursive: true, force: true });
+  }
 });
 
 describe("findChrome", () => {
@@ -153,24 +187,57 @@ describe("isCdpUp", () => {
 });
 
 describe("launchPostingChrome", () => {
-  it("returns already-running when CDP is up", async () => {
-    const result = await launchPostingChrome({
-      profileDir: "/tmp/zyquor-data-root/profiles/personal-main",
-      cdpPort: httpPort,
-    });
+  it("returns already-running when CDP is up for the same profile", async () => {
+    // The launcher trusts a running posting Chrome only when the shared state
+    // file records it as carrying the requested account profile.
+    const profileDir = "/tmp/zyquor-data-root/profiles/personal-main";
+    writeFileSync(dataPath("posting-chrome.json"), JSON.stringify({ profileDir, pid: null }));
+    const result = await launchPostingChrome({ profileDir, cdpPort: httpPort });
     expect(result).toEqual({ launched: false, reason: "already-running" });
+  });
+
+  it("refuses to reuse a running Chrome launched for a different profile", { timeout: 10_000 }, async () => {
+    const requested = "/tmp/zyquor-data-root/profiles/willainotice";
+    // State records a different account: the launcher must not trust the
+    // running browser. With no Chrome binary findable and the mock CDP server
+    // never going down, it fails closed with cdp-port-busy instead of
+    // reusing the wrong account.
+    writeFileSync(dataPath("posting-chrome.json"), JSON.stringify({ profileDir: "/tmp/zyquor-data-root/profiles/personal-main", pid: null }));
+    const mocked = vi.mocked(existsSync);
+    mocked.mockImplementation(() => false);
+    try {
+      const result = await withEnvAsync("ZYQUOR_CHROME_PATH", undefined, () =>
+        withEnvAsync("CHROME_BIN", undefined, () => launchPostingChrome({ profileDir: requested, cdpPort: httpPort })));
+      expect(result).toEqual({ launched: false, reason: "cdp-port-busy" });
+    } finally {
+      mocked.mockImplementation((p: unknown) => {
+        const known = [
+          "/opt/google/chrome/chrome",
+          "/usr/bin/google-chrome-stable",
+          "/usr/bin/google-chrome",
+          "/usr/local/bin/google-chrome-stable",
+          "/usr/local/bin/google-chrome",
+          "/snap/bin/google-chrome-stable",
+          "/snap/bin/google-chrome-enterprise",
+          "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+          "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+          "C:\\Users\\testuser\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe",
+        ];
+        return known.includes(p as string);
+      });
+    }
   });
 
   it("returns chrome-not-found when CDP is down and no chrome exists", async () => {
     const mocked = vi.mocked(existsSync);
     mocked.mockImplementation(() => false);
-    delete process.env.ZYQUOR_CHROME_PATH;
-    delete process.env.CHROME_BIN;
     try {
-      const result = await launchPostingChrome({
-        profileDir: "/tmp/zyquor-data-root/profiles/personal-main",
-        cdpPort: 19999,
-      });
+      const result = await withEnvAsync("ZYQUOR_CHROME_PATH", undefined, () =>
+        withEnvAsync("CHROME_BIN", undefined, () =>
+          launchPostingChrome({
+            profileDir: "/tmp/zyquor-data-root/profiles/personal-main",
+            cdpPort: 19999,
+          })));
       expect(result).toEqual({ launched: false, reason: "chrome-not-found" });
     } finally {
       mocked.mockImplementation((p: unknown) => {

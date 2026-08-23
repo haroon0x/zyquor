@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { platform } from "node:os";
+import { resolve } from "node:path";
 import { assertDedicatedProfileDir } from "@zyquor/accounts";
+import { dataPath } from "@zyquor/core";
 
 const CDP_POLL_INTERVAL_MS = 500;
 const CDP_POLL_TIMEOUT_MS = 15_000;
@@ -66,6 +68,48 @@ export async function isCdpUp(cdpUrl: string): Promise<boolean> {
 
 let launchedChromePid: number | null = null;
 
+interface PostingChromeState {
+  profileDir: string;
+  pid: number | null;
+}
+
+// Mirrors packages/browser cdpLaunchStateFile so both launchers agree on
+// which X account the running posting Chrome carries.
+function readPostingChromeState(): PostingChromeState | null {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(dataPath("posting-chrome.json"), "utf8"));
+    if (parsed && typeof parsed === "object" && typeof (parsed as { profileDir?: unknown }).profileDir === "string") {
+      const record = parsed as { profileDir: string; pid?: unknown };
+      return {
+        profileDir: resolve(record.profileDir),
+        pid: typeof record.pid === "number" ? record.pid : null
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function writePostingChromeState(state: PostingChromeState): void {
+  try {
+    writeFileSync(dataPath("posting-chrome.json"), JSON.stringify(state));
+  } catch {
+    /* best effort */
+  }
+}
+
+// Mirrors packages/browser clearCdpLaunchState semantics: "{}" parses to a
+// record without profileDir, so every reader sees null instead of a stale
+// account attribution once no Chrome is running.
+function clearPostingChromeState(): void {
+  try {
+    writeFileSync(dataPath("posting-chrome.json"), "{}");
+  } catch {
+    /* best effort */
+  }
+}
+
 export function launchedPostingChromePid(): number | null {
   return launchedChromePid;
 }
@@ -102,6 +146,9 @@ export async function closePostingChrome(opts: { cdpPort: number }): Promise<{ c
   const cdpUrl = `http://127.0.0.1:${opts.cdpPort}`;
   if (!(await isCdpUp(cdpUrl))) {
     launchedChromePid = null;
+    // Nothing is running; drop any stale record so the API single-account
+    // guard stops rejecting other accounts against a dead Chrome.
+    clearPostingChromeState();
     return { closed: false, reason: "not-running" };
   }
 
@@ -131,6 +178,7 @@ export async function closePostingChrome(opts: { cdpPort: number }): Promise<{ c
   while (Date.now() - start < CDP_POLL_TIMEOUT_MS) {
     if (!(await isCdpUp(cdpUrl))) {
       launchedChromePid = null;
+      clearPostingChromeState();
       return { closed: true };
     }
     await new Promise((resolve) => setTimeout(resolve, CDP_POLL_INTERVAL_MS));
@@ -138,14 +186,61 @@ export async function closePostingChrome(opts: { cdpPort: number }): Promise<{ c
   return { closed: false, reason: "still-running" };
 }
 
+// Serialize launches: concurrent activations interleave kill → poll-down →
+// spawn → write-state and can leave posting-chrome.json recording a
+// different profile than the Chrome actually serving the CDP port, which
+// would let posts leave from the wrong account.
+let launchQueue: Promise<unknown> = Promise.resolve();
+
 export async function launchPostingChrome(opts: {
+  profileDir: string;
+  cdpPort: number;
+}): Promise<{ launched: boolean; reason?: string }> {
+  const next = launchQueue.then(
+    () => runLaunchPostingChrome(opts),
+    () => runLaunchPostingChrome(opts)
+  );
+  launchQueue = next.catch(() => undefined);
+  return next;
+}
+
+async function runLaunchPostingChrome(opts: {
   profileDir: string;
   cdpPort: number;
 }): Promise<{ launched: boolean; reason?: string }> {
   const cdpUrl = `http://127.0.0.1:${opts.cdpPort}`;
 
   if (await isCdpUp(cdpUrl)) {
-    return { launched: false, reason: "already-running" };
+    // Multi-account safety: the running posting Chrome is bound to one X
+    // login. If it was launched for a different profile, close it and
+    // relaunch with the requested profile so posts never leave from the
+    // wrong handle.
+    const state = readPostingChromeState();
+    if (state && resolve(state.profileDir) === resolve(opts.profileDir)) {
+      return { launched: false, reason: "already-running" };
+    }
+    if (state?.pid) {
+      try {
+        process.kill(state.pid, "SIGTERM");
+      } catch {
+        /* already gone */
+      }
+    }
+    if (launchedChromePid) {
+      try {
+        process.kill(launchedChromePid, "SIGTERM");
+      } catch {
+        /* already gone */
+      }
+      launchedChromePid = null;
+    }
+    const deadline = Date.now() + 3_000;
+    while (await isCdpUp(cdpUrl)) {
+      if (Date.now() > deadline) {
+        return { launched: false, reason: "cdp-port-busy" };
+      }
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, CDP_POLL_INTERVAL_MS));
+    }
   }
 
   assertDedicatedProfileDir(opts.profileDir);
@@ -171,6 +266,7 @@ export async function launchPostingChrome(opts: {
   child.on("error", () => undefined);
   child.unref();
   launchedChromePid = child.pid ?? null;
+  writePostingChromeState({ profileDir: opts.profileDir, pid: launchedChromePid });
 
   const start = Date.now();
   while (Date.now() - start < CDP_POLL_TIMEOUT_MS) {

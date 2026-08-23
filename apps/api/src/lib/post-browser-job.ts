@@ -114,6 +114,19 @@ export async function postBrowserJob(deps: AppDeps, jobId: string, options: Post
   if (!isAccountRunnable(account)) {
     throw new HttpError(409, "Account is not enabled for browser jobs");
   }
+
+  // Single-account rule: the posting Chrome carries exactly one X login, so
+  // only the active account's jobs may reach the browser. Jobs for any other
+  // account are rejected until that account is activated (which relaunches
+  // the posting Chrome with its profile).
+  const browserModuleForGuard = await import("@zyquor/browser");
+  const launchState = browserModuleForGuard.readCdpLaunchState();
+  if (launchState && launchState.profileDir !== resolveProfileDir(account.profileDir)) {
+    throw new HttpError(
+      409,
+      `Only one account can post at a time: the active posting profile belongs to another account. Activate @${account.handle} from the account switcher to post for it.`
+    );
+  }
   if (await isDailyLimitReached(repository, account.id, account.dailyPostLimit)) {
     throw new HttpError(409, "Daily post limit reached for this account");
   }

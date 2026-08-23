@@ -126,12 +126,45 @@ function getCdpPort(): number {
   return Number(process.env.ZYQUOR_BROWSER_CDP_PORT ?? 9222);
 }
 
+function dataRoot(): string {
+  return process.env.ZYQUOR_DATA_ROOT ?? "";
+}
+
+// Single-account rule: the posting Chrome carries one X login. The shared
+// state file records which account profile it carries; hardcoded callers
+// (tray, startup) defer to the recorded active account when one exists.
+async function activePostingAccountId(): Promise<string> {
+  try {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const { createSqliteRepository } = await import("@zyquor/storage");
+    const repository = await createSqliteRepository();
+    const accounts = await repository.listAccounts();
+    const parsed = JSON.parse(readFileSync(resolve(dataRoot(), "posting-chrome.json"), "utf8")) as {
+      profileDir?: string;
+    };
+    if (typeof parsed.profileDir === "string") {
+      const active = accounts.find((a) => resolve(dataRoot(), a.profileDir) === resolve(parsed.profileDir!));
+      if (active) return active.id;
+    }
+  } catch {
+    /* fall through to default */
+  }
+  return "account_personal";
+}
+
 async function createLaunchPostingChrome() {
   const { createSqliteRepository } = await import("@zyquor/storage");
   const repository = await createSqliteRepository();
 
   return async (input: { accountId: string }): Promise<{ launched: boolean; reason?: string }> => {
     const accounts = await repository.listAccounts();
+    // Single-account rule: an explicitly requested accountId must always
+    // launch that exact account. Deferral to the recorded active account
+    // happens upstream (activePostingAccountId for tray/startup, the API
+    // route for unspecified /browser/launch-chrome calls), never here:
+    // "account_personal" is a real seeded account id, so remapping it via
+    // the launch-state file silently launched the wrong account.
     const account = accounts.find((a) => a.id === input.accountId) ?? accounts[0];
     if (!account) {
       return { launched: false, reason: "account-not-found" };
@@ -479,7 +512,7 @@ async function main() {
         if (headlessSmoke) return;
         const dialogParent = win && !win.isDestroyed() ? win : undefined;
         try {
-          const result = await desktopLaunchPostingChrome({ accountId: "account_personal" });
+          const result = await desktopLaunchPostingChrome({ accountId: await activePostingAccountId() });
           const message = result.launched
             ? "Chrome launched"
             : `Chrome not launched: ${result.reason ?? "unknown"}`;
@@ -534,7 +567,7 @@ async function main() {
   tray.setToolTip("Zyquor");
   tray.setContextMenu(contextMenu);
 
-  void desktopLaunchPostingChrome({ accountId: "account_personal" })
+  void activePostingAccountId().then((accountId) => desktopLaunchPostingChrome({ accountId }))
     .then((result) => {
       const message = result.launched ? "Chrome connected" : result.reason === "already-running" ? "Chrome connected" : `Chrome unavailable: ${result.reason ?? "unknown"}`;
       logLine(result.launched || result.reason === "already-running" ? "info" : "warn", `startup chrome: ${message}`);

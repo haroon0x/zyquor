@@ -287,9 +287,37 @@ function App() {
               <select
                 aria-label="Active account"
                 value={activeAccountId}
+                disabled={busyScopes.includes("header")}
                 onChange={(event) => {
-                  setActiveAccountId(event.target.value);
+                  const nextId = event.target.value;
+                  const previousId = activeAccountId;
+                  setActiveAccountId(nextId);
                   setBrowserSession(null);
+                  // Single-account rule: switching accounts activates that
+                  // account for posting (relaunches the posting Chrome with
+                  // its profile) and refreshes the session indicator. On
+                  // failure the selection reverts so the select never shows
+                  // an account whose activation did not happen.
+                  run(async () => {
+                    try {
+                      const result = await api<{ loggedIn: boolean }>("/browser/activate", {
+                        method: "POST",
+                        body: JSON.stringify({ accountId: nextId })
+                      });
+                      setBrowserSession({
+                        accountId: nextId,
+                        cdpUrl: null,
+                        enabled: true,
+                        error: null,
+                        loggedIn: result.loggedIn,
+                        profileDir: "",
+                        url: null
+                      });
+                    } catch (caught) {
+                      setActiveAccountId(previousId);
+                      throw caught;
+                    }
+                  }, "header");
                 }}
               >
                 {accounts.map((account) => <option key={account.id} value={account.id}>{account.displayName} · @{account.handle}</option>)}
