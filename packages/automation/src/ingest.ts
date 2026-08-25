@@ -127,8 +127,11 @@ function envPositiveInt(name: string, fallback: number) {
 // Dead-source feedback, per x-algorithm engagement weights. A source whose posts
 // consistently earn no engagement gets a fraction of its normal daily packet cap,
 // so we stop drafting (and auto-posting) material that X's model ranks near zero.
+// A minimum sample is required first: capping on one or two posts confuses
+// "no distribution yet" with "dead source" and silently narrows the feed.
 const DEAD_SOURCE_ENGAGEMENT_FLOOR = 0.5;
 const DEAD_SOURCE_CAP_RATIO = 0.25;
+const DEAD_SOURCE_MIN_SAMPLE = envPositiveInt("ZYQUOR_DEAD_SOURCE_MIN_SAMPLE", 5);
 
 function configPerformanceKey(config: { sourceType: string }, performance: Map<string, SourcePerformance>) {
   const sourcePerformance = performance.get(config.sourceType);
@@ -142,6 +145,9 @@ function performanceAdjustedTarget(
 ): { target: number; reason: string } {
   if (!sourcePerformance || sourcePerformance.posts < 1) {
     return { target: baseTarget, reason: "no-performance-data" };
+  }
+  if (sourcePerformance.posts < DEAD_SOURCE_MIN_SAMPLE) {
+    return { target: baseTarget, reason: `insufficient-sample posts=${sourcePerformance.posts}` };
   }
   if (sourcePerformance.engagementPerPost < DEAD_SOURCE_ENGAGEMENT_FLOOR) {
     const reduced = Math.max(1, Math.floor(baseTarget * DEAD_SOURCE_CAP_RATIO));

@@ -4,7 +4,7 @@ import { createSqliteRepository } from "@zyquor/storage";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runAutomaticIngest, draftFromSourcePacket, TopicDraftExistsError } from "./index.js";
 import { cleanSentence, inferTweetTypeFromText, packetFieldsFromItem } from "./context.js";
-import { validateSourcePostQuality } from "./quality.js";
+import { analyzePostFeatures, validateSourcePostQuality } from "./quality.js";
 
 const testProvider: DraftGenerationProvider = {
   name: "ollama",
@@ -572,5 +572,25 @@ describe("automatic ingest", () => {
 
     const packets = await repository.listSourcePackets("account_personal");
     expect(packets.filter((packet) => packet.status === "drafted")).toHaveLength(2);
+  });
+});
+
+describe("analyzePostFeatures", () => {
+  it("freezes the features that later performance analysis needs", () => {
+    const features = analyzePostFeatures("Prefix caching pays off 3x. https://x.com/a #perf");
+    expect(features).toMatchObject({
+      chars: expect.any(Number),
+      words: 7,
+      hasDigits: true,
+      endsWithQuestion: false,
+      linkCount: 1,
+      hashtagCount: 1,
+      opener: "prefix caching pays"
+    });
+  });
+
+  it("detects question endings and digit-free posts", () => {
+    expect(analyzePostFeatures("worth it?").endsWithQuestion).toBe(true);
+    expect(analyzePostFeatures("no numbers here").hasDigits).toBe(false);
   });
 });

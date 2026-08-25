@@ -16,7 +16,8 @@ import {
   sourceTweetInput,
   validateGeneratedPostQuality,
   validateSourcePostQuality,
-  withRequiredSourceUrl
+  withRequiredSourceUrl,
+  analyzePostFeatures
 } from "@zyquor/automation";
 import { passesTweetQualityFloor, qualityMinimum, scoreTweetQuality } from "@zyquor/generation";
 import { HttpError } from "../lib/errors.js";
@@ -340,11 +341,31 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
         ...(sourceQuality?.reasons ?? []),
         ...(generatedQuality?.reasons ?? [])
       ];
+      // Score floor for unedited generated text: the deterministic quality
+      // score already exists per candidate, but only the yolo path enforced
+      // it. Shipping a self-scored sub-floor post on autopost defeats the
+      // point of the floor. Operator edits are trusted as-is — the operator
+      // is the authority on their own voice.
+      const qualityMin = qualityMinimum();
+      const selectedScore = selectedCandidate ? Number(selectedCandidate.score.quality ?? NaN) : NaN;
+      const operatorEdited = selectedCandidate
+        ? approvedText.trim() !== selectedCandidate.text.trim()
+        : true;
+      if (Number.isFinite(selectedScore) && selectedScore < qualityMin && !operatorEdited) {
+        reasons.push(`generated_score_below_floor (${selectedScore} < ${qualityMin}); edit the text or regenerate`);
+      }
       if (reasons.length > 0) {
         return reply.code(409).send({ error: `Autopost quality gate failed: ${[...new Set(reasons)].join(", ")}` });
       }
       approvedText = qualityText;
     }
+
+    // Attribution memory: freeze the content features at approval so later
+    // performance analysis can compare features against outcomes.
+    await repository.updateDraftMetadata(id, {
+      ...existing.draft.metadata,
+      features: analyzePostFeatures(approvedText)
+    });
 
     const result = await repository.approveDraft({
       draftId: id,

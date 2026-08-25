@@ -35,7 +35,8 @@
     "dist:desktop": "pnpm build && pnpm --filter @zyquor/desktop dist:win",
     "smoke:desktop": "pnpm build && node apps/desktop/scripts/logic-smoke.mjs",
     "dev:crawl4ai": "node scripts/crawl4ai-service.mjs",
-    "test": "pnpm build && pnpm -r test"
+    "test": "pnpm build && pnpm -r test",
+    "lessons:propose": "node scripts/propose-lessons.mjs"
   },
   "dependencies": {
     "@zyquor/core": "workspace:*",

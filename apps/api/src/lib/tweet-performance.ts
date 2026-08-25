@@ -4,9 +4,12 @@ import type { AppDeps } from "../deps.js";
 import { browserOptions } from "./browser.js";
 import { resolveProfileDir } from "./paths.js";
 
+// The learning loop is data-starved by design otherwise: at personal-account
+// volumes every measured post matters, so measure all pending posts each pass
+// and re-measure after 6h instead of 12h to catch early velocity.
 const MIN_AGE_HOURS = Number(process.env.ZYQUOR_PERFORMANCE_MIN_AGE_HOURS ?? 2);
-const REFETCH_AFTER_HOURS = Number(process.env.ZYQUOR_PERFORMANCE_REFETCH_HOURS ?? 12);
-const MAX_PER_REFRESH = Number(process.env.ZYQUOR_PERFORMANCE_MAX_PER_REFRESH ?? 3);
+const REFETCH_AFTER_HOURS = Number(process.env.ZYQUOR_PERFORMANCE_REFETCH_HOURS ?? 6);
+const MAX_PER_REFRESH = Number(process.env.ZYQUOR_PERFORMANCE_MAX_PER_REFRESH ?? 8);
 
 function hoursAgoIso(hours: number) {
   return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();

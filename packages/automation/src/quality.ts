@@ -183,3 +183,32 @@ export function validateSourcePostQuality(input: PostQualityInput): PostQualityR
     text
   };
 }
+
+export interface PostFeatures {
+  chars: number;
+  words: number;
+  hasDigits: boolean;
+  endsWithQuestion: boolean;
+  linkCount: number;
+  hashtagCount: number;
+  /** First three words, lowercased — the opener is the highest-leverage
+   * stylistic feature and the one standing corrections most often target. */
+  opener: string;
+}
+
+// Attribution memory: recorded on every approval so that later performance
+// analysis can compare FEATURES against outcomes instead of guessing why a
+// post worked. Cheap to compute, impossible to recover after the fact.
+export function analyzePostFeatures(text: string): PostFeatures {
+  const trimmed = text.trim();
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  return {
+    chars: trimmed.length,
+    words: words.length,
+    hasDigits: /\d/.test(trimmed),
+    endsWithQuestion: trimmed.endsWith("?"),
+    linkCount: (trimmed.match(/https?:\/\//g) ?? []).length,
+    hashtagCount: (trimmed.match(/#\w+/g) ?? []).length,
+    opener: words.slice(0, 3).join(" ").toLowerCase()
+  };
+}

@@ -183,3 +183,49 @@ describe("postBrowserJob single-account guard", () => {
     await app.close();
   });
 });
+
+describe("autopost score-floor gate", () => {
+  it("rejects autopost approval of unedited text that scored below the quality minimum", async () => {
+    const repository = await createSqliteRepository(":memory:");
+    const created = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "score gate idea",
+      candidates: [{ text: "weak recap of the source without a point", score: { quality: 4 } }]
+    });
+    await repository.selectCandidate({ draftId: created.draft.id, candidateId: created.candidates[0]!.id });
+
+    const app = buildApp({ repository });
+    const response = await app.inject({
+      method: "POST",
+      url: `/drafts/${created.draft.id}/approve`,
+      payload: { editedText: "weak recap of the source without a point", mode: "autopost" }
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: expect.stringContaining("generated_score_below_floor") });
+    await app.close();
+  });
+
+  it("lets an operator-edited text through even when the generated score was low", async () => {
+    const repository = await createSqliteRepository(":memory:");
+    const created = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "score gate idea two",
+      candidates: [{ text: "weak recap of the source without a point", score: { quality: 4 } }]
+    });
+    await repository.selectCandidate({ draftId: created.draft.id, candidateId: created.candidates[0]!.id });
+
+    const app = buildApp({ repository });
+    const response = await app.inject({
+      method: "POST",
+      url: `/drafts/${created.draft.id}/approve`,
+      payload: { editedText: "Operator rewrote this into something with an actual point and payoff.", mode: "autopost" }
+    });
+
+    expect(response.statusCode).toBe(201);
+    // Attribution memory: features are frozen at approval.
+    const draft = await repository.getDraft(created.draft.id);
+    expect(draft?.draft.metadata.features).toMatchObject({ words: 11, opener: "operator rewrote this" });
+    await app.close();
+  });
+});
