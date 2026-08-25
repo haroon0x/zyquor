@@ -168,6 +168,24 @@ async function api<T>(apiUrl: string, path: string, init?: RequestInit, timeoutM
   return response.json() as Promise<T>;
 }
 
+// Single-account rule: the worker only drives jobs for the account whose
+// profile the running posting Chrome carries (GET /browser/active).
+// - accountId string -> that account is active
+// - accountId explicit null -> nothing is activated; nothing may run
+// - endpoint error or out-of-contract payload -> "unknown": callers keep the
+//   legacy behavior and rely on the API-side 409 post guard as the backstop.
+type ActiveAccountState = { state: "active"; accountId: string } | { state: "none" } | { state: "unknown" };
+
+async function fetchActiveAccount(apiUrl: string): Promise<ActiveAccountState> {
+  try {
+    const data = await api<{ accountId?: string | null }>(apiUrl, "/browser/active");
+    if (typeof data.accountId === "string") return { state: "active", accountId: data.accountId };
+    return "accountId" in data ? { state: "none" } : { state: "unknown" };
+  } catch {
+    return { state: "unknown" };
+  }
+}
+
 export async function heartbeat(options: WorkerOptions, state: WorkerState) {
   try {
     await api(options.apiUrl, "/worker/heartbeat", {
@@ -210,11 +228,29 @@ export async function checkWorkerStartup(options: WorkerOptions) {
     api<{ accounts: Account[] }>(options.apiUrl, "/accounts"),
     api<{ configs: Array<{ enabled: boolean; id: string }> }>(options.apiUrl, "/ingest-configs")
   ]);
-  const runnableAccount = accounts.find((account) => account.enabled);
+  const enabledAccount = accounts.find((account) => account.enabled);
+  // Single-account rule: the session check targets the account the running
+  // posting Chrome carries. First-enabled is only a fallback for when the
+  // active-account endpoint itself is unreachable; an explicit null means no
+  // activation and must surface as a warning, not a silent default.
+  let sessionAccount: Account | null;
+  try {
+    const active = await api<{ accountId?: string | null }>(options.apiUrl, "/browser/active");
+    if (typeof active.accountId === "string") {
+      sessionAccount = accounts.find((account) => account.id === active.accountId) ?? null;
+    } else if ("accountId" in active) {
+      sessionAccount = null;
+    } else {
+      // Out-of-contract payload: treat the endpoint as unavailable.
+      sessionAccount = enabledAccount ?? null;
+    }
+  } catch {
+    sessionAccount = enabledAccount ?? null;
+  }
   const enabledConfigs = configs.filter((config) => config.enabled);
 
   if (enabledConfigs.length === 0) {
-    if (configs.length === 0 && options.autoSeedDefaultIngest !== false && runnableAccount) {
+    if (configs.length === 0 && options.autoSeedDefaultIngest !== false && enabledAccount) {
       const seeded = await api<{ config: { id: string } }>(options.apiUrl, "/ingest-configs/default-news", { method: "POST" });
       seededConfigId = seeded.config.id;
     } else {
@@ -222,7 +258,15 @@ export async function checkWorkerStartup(options: WorkerOptions) {
     }
   }
 
-  if (runnableAccount) {
+  if (!enabledAccount) {
+    warnings.push("No enabled account exists for automatic posting.");
+  } else if (sessionAccount === null) {
+    warnings.push(
+      "No activated account: activate one from the account switcher so browser work runs with the intended X login."
+    );
+  }
+
+  if (enabledAccount && sessionAccount) {
     const browserPrepareEnabled = process.env.ZYQUOR_ENABLE_BROWSER_PREPARE === "1";
     const browserPostEnabled = postEnabled();
 
@@ -232,19 +276,17 @@ export async function checkWorkerStartup(options: WorkerOptions) {
       try {
         const session = await api<{ error: string | null; loggedIn: boolean }>(
           options.apiUrl,
-          `/browser/x-session?accountId=${encodeURIComponent(runnableAccount.id)}`,
+          `/browser/x-session?accountId=${encodeURIComponent(sessionAccount.id)}`,
           undefined,
           15_000
         );
         if (!session.loggedIn) {
-          warnings.push(`X login missing for ${runnableAccount.id}${session.error ? `: ${session.error}` : ""}`);
+          warnings.push(`X login missing for ${sessionAccount.id}${session.error ? `: ${session.error}` : ""}`);
         }
       } catch (error) {
         warnings.push(`X login check failed: ${error instanceof Error ? error.message : error}`);
       }
     }
-  } else {
-    warnings.push("No enabled account exists for automatic posting.");
   }
 
   return { recoveredIngestRunCount, seededConfigId, warnings };
@@ -280,7 +322,7 @@ export async function processApprovedJobs(
   const now = new Date();
   const nowMs = now.getTime();
   const accountById = new Map(accounts.map((account) => [account.id, account]));
-  const approvedJobs = jobs.filter((job) => {
+  let approvedJobs = jobs.filter((job) => {
     const account = accountById.get(job.accountId);
     if (!account || isWithinQuietHours(now, account)) {
       return false;
@@ -291,6 +333,34 @@ export async function processApprovedJobs(
       (job.mode === "prepare_only" || job.mode === "scheduled" || job.mode === "autopost")
     );
   });
+
+  // Single-account rule: only fire jobs for the account the running posting
+  // Chrome carries. With no activation at all, nothing may reach the browser.
+  // When the active-account endpoint is unreachable, fall through unfiltered
+  // and rely on the API-side 409 post guard.
+  const active = await fetchActiveAccount(options.apiUrl);
+  if (active.state === "active") {
+    const skippedByAccount = new Map<string, number>();
+    for (const job of approvedJobs) {
+      if (job.accountId !== active.accountId) {
+        skippedByAccount.set(job.accountId, (skippedByAccount.get(job.accountId) ?? 0) + 1);
+      }
+    }
+    for (const [accountId, count] of skippedByAccount) {
+      const other = accountById.get(accountId);
+      console.log(
+        `[worker] skipping ${count} job(s) for @${other?.handle ?? accountId} — only the activated account can run; activate it from the account switcher`
+      );
+    }
+    approvedJobs = approvedJobs.filter((job) => job.accountId === active.accountId);
+  } else if (active.state === "none") {
+    if (approvedJobs.length > 0) {
+      console.log(
+        `[worker] no activated account — skipping ${approvedJobs.length} browser job(s); activate an account from the account switcher`
+      );
+    }
+    return 0;
+  }
 
   let processed = 0;
   const seenThisRun = new Set<string>();

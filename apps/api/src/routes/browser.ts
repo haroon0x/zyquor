@@ -58,6 +58,39 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: AppDeps): void
     };
   });
 
+  // Single-account rule: reports which account the running posting Chrome
+  // actually carries, resolved from posting-chrome.json against the account
+  // profiles. accountId is null when nothing is activated or the recorded
+  // profile matches no known account; callers must treat null as "nothing may
+  // run", never as a license to assume a default account.
+  // posting-chrome.json is written by whichever OS runs the posting Chrome,
+  // so the stored profileDir may be a Windows absolute path while this API
+  // runs against a POSIX data root. Compare on the profiles/<name> tail so
+  // both spellings of the same dedicated profile resolve to one account.
+  function profileTail(profileDir: string): string {
+    const normalized = profileDir.replaceAll("\\", "/");
+    const marker = "/profiles/";
+    const index = normalized.lastIndexOf(marker);
+    return index === -1 ? normalized : normalized.slice(index + marker.length);
+  }
+
+  app.get("/browser/active", async () => {
+    const repository = await deps.repository;
+    const accounts = await repository.listAccounts();
+    const browser = await import("@zyquor/browser");
+    deps.browserLoaded = true;
+    const state = browser.readCdpLaunchState();
+    if (!state) {
+      return { accountId: null, handle: null, profileDir: null };
+    }
+    const active = accounts.find((item) => profileTail(resolveProfileDir(item.profileDir)) === profileTail(state.profileDir));
+    return {
+      accountId: active?.id ?? null,
+      handle: active?.handle ?? null,
+      profileDir: state.profileDir
+    };
+  });
+
   app.get("/browser/x-session", async (request, reply) => {
     const repository = await deps.repository;
     const { accountId } = request.query as { accountId?: string };

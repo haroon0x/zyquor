@@ -22,6 +22,21 @@ interface CdpLaunchState {
   pid: number | null;
 }
 
+// posting-chrome.json is written by whichever OS runs the posting Chrome, so a
+// record may hold a Windows absolute path ("C:\Users\...\profiles\name") even
+// while this code resolves against a POSIX data root. resolveProfileDir turns
+// such a record into root + "C:\..." garbage; detect that and rebuild the
+// canonical <dataRoot>/profiles/<name> path from the stored tail instead.
+function normalizeStoredProfileDir(stored: string): string {
+  const resolved = resolveProfileDir(stored);
+  if (!/[A-Za-z]:[\\/]/.test(resolved)) return resolved;
+  const normalized = stored.replaceAll("\\", "/");
+  const marker = "/profiles/";
+  const index = normalized.lastIndexOf(marker);
+  if (index === -1) return resolved;
+  return dataPath("profiles", normalized.slice(index + marker.length));
+}
+
 // Shared with apps/desktop/src/chrome.ts so both launchers agree on which
 // X account the running posting Chrome carries.
 export function cdpLaunchStateFile(): string {
@@ -38,7 +53,7 @@ export function readCdpLaunchState(): CdpLaunchState | null {
     ) {
       const record = parsed as { profileDir: string; pid?: unknown };
       return {
-        profileDir: resolveProfileDir(record.profileDir),
+        profileDir: normalizeStoredProfileDir(record.profileDir),
         pid: typeof record.pid === "number" ? record.pid : null
       };
     }

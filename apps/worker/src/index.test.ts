@@ -37,6 +37,14 @@ const baseAccount = {
   updatedAt: "2026-04-25T10:00:00.000Z"
 };
 
+const otherAccount = {
+  ...baseAccount,
+  id: "account_notice",
+  handle: "notice-ai",
+  displayName: "Notice AI",
+  profileDir: "profiles/willainotice"
+};
+
 beforeEach(() => {
   process.env.ZYQUOR_ENABLE_BROWSER_POST = "1";
 });
@@ -469,6 +477,76 @@ describe("worker job processing", () => {
     expect(processed).toBe(0);
     expect(calls).not.toContain("POST http://api.test/jobs/job_quiet/prepare");
   });
+
+  it("fires only jobs of the activated account and skips the rest", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.endsWith("/health")) {
+          return Response.json({ ok: true });
+        }
+        if (url.endsWith("/jobs")) {
+          return Response.json({
+            jobs: [
+              { ...baseJob, id: "job_mine", mode: "autopost", scheduledFor: "2026-04-25T11:00:00.000Z" },
+              { ...baseJob, id: "job_other", mode: "autopost", scheduledFor: "2026-04-25T11:00:00.000Z", accountId: otherAccount.id }
+            ]
+          });
+        }
+        if (url.endsWith("/accounts")) {
+          return Response.json({ accounts: [baseAccount, otherAccount] });
+        }
+        if (url.includes("/browser/active")) {
+          return Response.json({ accountId: baseAccount.id, handle: baseAccount.handle, profileDir: baseAccount.profileDir });
+        }
+        return Response.json({ ok: true });
+      })
+    );
+
+    const processed = await processApprovedJobs({ apiUrl: "http://api.test", pollMs: 1000 }, createWorkerState());
+
+    expect(processed).toBe(1);
+    expect(calls).toContain("POST http://api.test/jobs/job_mine/post");
+    expect(calls).not.toContain("POST http://api.test/jobs/job_other/post");
+  });
+
+  it("fires nothing when no account is activated", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.endsWith("/health")) {
+          return Response.json({ ok: true });
+        }
+        if (url.endsWith("/jobs")) {
+          return Response.json({
+            jobs: [{ ...baseJob, id: "job_auto", mode: "autopost", scheduledFor: "2026-04-25T11:00:00.000Z" }]
+          });
+        }
+        if (url.endsWith("/accounts")) {
+          return Response.json({ accounts: [baseAccount] });
+        }
+        if (url.includes("/browser/active")) {
+          return Response.json({ accountId: null, handle: null, profileDir: null });
+        }
+        return Response.json({ ok: true });
+      })
+    );
+
+    const processed = await processApprovedJobs({ apiUrl: "http://api.test", pollMs: 1000 }, createWorkerState());
+
+    expect(processed).toBe(0);
+    expect(calls).not.toContain("POST http://api.test/jobs/job_auto/post");
+  });
 });
 
 describe("worker ingest processing", () => {
@@ -670,6 +748,49 @@ describe("worker startup checks", () => {
         delete process.env.ZYQUOR_ENABLE_BROWSER_POST;
       }
     }
+  });
+
+  it("targets the X session check at the activated account, not the first enabled one", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.endsWith("/health")) return Response.json({ ok: true });
+        if (url.endsWith("/accounts")) return Response.json({ accounts: [baseAccount, otherAccount] });
+        if (url.endsWith("/ingest-configs")) return Response.json({ configs: [{ id: "cfg1", enabled: true }] });
+        if (url.includes("/browser/active")) {
+          return Response.json({ accountId: otherAccount.id, handle: otherAccount.handle, profileDir: otherAccount.profileDir });
+        }
+        if (url.includes("/browser/x-session")) return Response.json({ loggedIn: true, error: null });
+        return Response.json({ ok: true });
+      })
+    );
+
+    const result = await checkWorkerStartup({ apiUrl: "http://api.test", pollMs: 1000 });
+
+    expect(result.warnings).toEqual([]);
+    const sessionCall = calls.find((call) => call.includes("/browser/x-session"));
+    expect(sessionCall).toBeDefined();
+    expect(sessionCall).toContain(`accountId=${encodeURIComponent(otherAccount.id)}`);
+  });
+
+  it("warns instead of assuming an account when nothing is activated", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.endsWith("/health")) return Response.json({ ok: true });
+        if (url.endsWith("/accounts")) return Response.json({ accounts: [baseAccount] });
+        if (url.endsWith("/ingest-configs")) return Response.json({ configs: [{ id: "cfg1", enabled: true }] });
+        if (url.includes("/browser/active")) return Response.json({ accountId: null, handle: null, profileDir: null });
+        if (url.includes("/browser/x-session")) return Response.json({ loggedIn: true, error: null });
+        return Response.json({ ok: true });
+      })
+    );
+
+    const result = await checkWorkerStartup({ apiUrl: "http://api.test", pollMs: 1000 });
+
+    expect(result.warnings.some((warning) => warning.startsWith("No activated account:"))).toBe(true);
   });
 });
 

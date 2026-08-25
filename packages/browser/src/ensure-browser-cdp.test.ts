@@ -51,6 +51,18 @@ describe("ensureBrowserCdp single-account guard", () => {
     expect(result).toBe(true);
   });
 
+  it("normalizes a Windows-style recorded path to the current data root", async () => {
+    connectOverCDP.mockResolvedValue({});
+    // The native Windows desktop app records absolute Windows paths; a WSL-side
+    // API must still resolve the same dedicated profile.
+    writeCdpLaunchState({ profileDir: "C:\\Users\\asus\\AppData\\Roaming\\Zyquor\\profiles\\personal-main", pid: 23772 });
+
+    expect(readCdpLaunchState()?.profileDir).toBe(join(testDataRoot, "profiles", "personal-main"));
+
+    const result = await ensureBrowserCdp(cdpUrl, join(testDataRoot, "profiles", "personal-main"));
+    expect(result).toBe(true);
+  });
+
   it("refuses to attach when the recorded state belongs to another profile", async () => {
     connectOverCDP.mockResolvedValue({});
     writeCdpLaunchState({ profileDir: "/tmp/root-a/profiles/someone-else", pid: null });

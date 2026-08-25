@@ -34,3 +34,4 @@ apps/api/data/
 # graphify
 cost.json
 graphify-out/cache/
+data/*.jsonl

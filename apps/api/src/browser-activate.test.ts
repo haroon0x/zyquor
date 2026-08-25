@@ -1,5 +1,9 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createSqliteRepository } from "@zyquor/storage";
-import { describe, expect, it, vi } from "vitest";
+import { clearCdpLaunchState, writeCdpLaunchState } from "@zyquor/browser";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { buildApp } from "./app.js";
 
 describe("POST /browser/activate", () => {
@@ -64,6 +68,79 @@ describe("POST /browser/activate", () => {
     expect(response.json()).toMatchObject({
       error: expect.stringContaining("Could not launch the posting Chrome")
     });
+    await app.close();
+  });
+});
+
+describe("GET /browser/active", () => {
+  let testDataRoot: string;
+
+  beforeEach(() => {
+    // Sandbox posting-chrome.json writes: readCdpLaunchState resolves against
+    // ZYQUOR_DATA_ROOT, so point it at a throwaway directory per test.
+    testDataRoot = mkdtempSync(join(tmpdir(), "zyquor-browser-active-test-"));
+    process.env.ZYQUOR_DATA_ROOT = testDataRoot;
+  });
+
+  afterEach(() => {
+    clearCdpLaunchState();
+    if (process.env.ZYQUOR_DATA_ROOT === testDataRoot) delete process.env.ZYQUOR_DATA_ROOT;
+    rmSync(testDataRoot, { recursive: true, force: true });
+  });
+
+  it("reports no active account when there is no launch state", async () => {
+    const app = buildApp({ repository: await createSqliteRepository(":memory:") });
+
+    const response = await app.inject({ method: "GET", url: "/browser/active" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ accountId: null, handle: null, profileDir: null });
+    await app.close();
+  });
+
+  it("resolves the account whose profile the posting Chrome carries", async () => {
+    writeCdpLaunchState({ profileDir: join(testDataRoot, "profiles", "personal-main"), pid: 123 });
+    const app = buildApp({ repository: await createSqliteRepository(":memory:") });
+
+    const response = await app.inject({ method: "GET", url: "/browser/active" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      accountId: "account_personal",
+      handle: "personal-main",
+      profileDir: join(testDataRoot, "profiles", "personal-main")
+    });
+    await app.close();
+  });
+
+  it("matches a Windows-style recorded profile from a native posting Chrome", async () => {
+    const repository = await createSqliteRepository(":memory:");
+    await repository.createAccount({
+      handle: "willainotice",
+      displayName: "Notice AI",
+      profileDir: "profiles/willainotice"
+    });
+    writeCdpLaunchState({ profileDir: "C:\\Users\\asus\\AppData\\Roaming\\Zyquor\\profiles\\willainotice", pid: 456 });
+    const app = buildApp({ repository });
+
+    const response = await app.inject({ method: "GET", url: "/browser/active" });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.accountId).toBeTruthy();
+    expect(body).toMatchObject({ handle: "willainotice" });
+    await app.close();
+  });
+
+  it("returns null when the recorded profile matches no account", async () => {
+    writeCdpLaunchState({ profileDir: join(testDataRoot, "profiles", "unknown-profile"), pid: null });
+    const app = buildApp({ repository: await createSqliteRepository(":memory:") });
+
+    const response = await app.inject({ method: "GET", url: "/browser/active" });
+
+    expect(response.statusCode).toBe(200);
+    // No silent remapping onto a default account: unmatched means inactive.
+    expect(response.json()).toEqual({ accountId: null, handle: null, profileDir: join(testDataRoot, "profiles", "unknown-profile") });
     await app.close();
   });
 });
