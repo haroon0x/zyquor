@@ -24,6 +24,8 @@
     "profile:x:manual": "node scripts/open-x-profile-manual.mjs",
     "profile:x:cdp": "node scripts/open-x-profile-cdp.mjs",
     "profile:x:skywalker": "ZYQUOR_X_PROFILE_DIR=profiles/skywalker node scripts/open-x-profile-cdp.mjs",
+    "x:mentions": "node scripts/poll-x-mentions.mjs",
+    "x:demo-check": "node services/demo-checker/run-queue.mjs",
     "start": "node scripts/zyquor.mjs",
     "dev:api": "pnpm --filter @zyquor/api dev",
     "dev:web": "pnpm --filter @zyquor/web dev",
