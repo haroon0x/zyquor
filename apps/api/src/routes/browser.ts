@@ -48,13 +48,22 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: AppDeps): void
       (async (input: { browserChannel?: string | null; cdpUrl?: string; profileDir: string }) => {
         return browser.checkXLogin(input);
       });
-    const session = await checkXLogin({ profileDir, ...browserOptions(deps) }).catch(() => ({ loggedIn: false }));
+    const session = await checkXLogin({ profileDir, ...browserOptions(deps) }).catch(() => ({ loggedIn: false, handle: null }));
+
+    // Report what we OBSERVED logged in, not what we intended. No persistence:
+    // identity is verified live at post time; this response is the operator's
+    // immediate confirmation of whose account this Chrome actually carries.
+    const expectedHandle = account.handle.replace(/^@/, "").toLowerCase();
 
     return {
       accountId: account.id,
       handle: account.handle,
       active: true,
-      loggedIn: session.loggedIn
+      loggedIn: session.loggedIn,
+      observedHandle: session.handle ?? null,
+      ...(session.handle && session.handle !== expectedHandle
+        ? { warning: `Posting Chrome is logged in as @${session.handle}, not @${expectedHandle}. Posting will be refused until the right login is active.` }
+        : {})
     };
   });
 
@@ -124,6 +133,7 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: AppDeps): void
         enabled: deps.browser.enablePrepare === true,
         error: null,
         loggedIn: result.loggedIn,
+        observedHandle: result.handle ?? null,
         profileDir,
         url: result.url
       };

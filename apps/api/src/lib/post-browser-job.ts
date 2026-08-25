@@ -127,6 +127,35 @@ export async function postBrowserJob(deps: AppDeps, jobId: string, options: Post
       `Only one account can post at a time: the active posting profile belongs to another account. Activate @${account.handle} from the account switcher to post for it.`
     );
   }
+
+  // Identity gate: profile paths say whose Chrome this SHOULD be; ask the
+  // browser itself who is ACTUALLY logged in before any browser action. A
+  // wrong login refuses the job, and so does an unreadable one — fail closed,
+  // with no override flag: an unverifiable identity is not a trusted one.
+  const expectedHandle = account.handle.replace(/^@/, "").toLowerCase();
+  const checkXLogin = deps.browser.checkXLogin ?? (async (input: { profileDir: string }) =>
+    browserModuleForGuard.checkXLogin(input));
+  const session = await checkXLogin({ profileDir: resolveProfileDir(account.profileDir), ...browserOptions(deps) }).catch(
+    (error: unknown) => {
+      throw new HttpError(
+        409,
+        `Cannot verify the X login before posting for @${account.handle}: ${error instanceof Error ? error.message : "unknown error"}`
+      );
+    }
+  );
+  if (!session.loggedIn) {
+    throw new HttpError(409, `The posting Chrome is not logged in to X as @${account.handle}. Log in and activate the account first.`);
+  }
+  if (!session.handle) {
+    throw new HttpError(409, `Cannot read which X account is logged in for @${account.handle}; refusing to act rather than guess.`);
+  }
+  if (session.handle !== expectedHandle) {
+    throw new HttpError(
+      409,
+      `Identity mismatch: the posting Chrome is logged in as @${session.handle}, but this job belongs to @${expectedHandle}. Refusing to post under the wrong account.`
+    );
+  }
+
   if (await isDailyLimitReached(repository, account.id, account.dailyPostLimit)) {
     throw new HttpError(409, "Daily post limit reached for this account");
   }

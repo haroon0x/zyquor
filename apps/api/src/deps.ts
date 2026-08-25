@@ -60,7 +60,9 @@ export interface BuildAppOptions {
   sourceAdapters?: SourceAdapter[];
   checkXLogin?: (input: { browserChannel?: string | null; cdpUrl?: string; profileDir: string }) => Promise<{
     loggedIn: boolean;
-    url: string;
+    url?: string | null;
+    /** Screen name actually logged in, lowercase, no @; null/absent = unverified. */
+    handle?: string | null;
   }>;
   preparePost?: (input: {
     actionDelayMs?: number;

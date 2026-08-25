@@ -24,9 +24,9 @@
     "semantic_hash": ""
   },
   "apps/api/src/app.test.ts": {
-    "mtime": 1787476768.0196629,
-    "seen": 1787479801.01613,
-    "ast_hash": "3f49cf975c254e3725c5a32b02cb2a08",
+    "mtime": 1787681276.2537146,
+    "seen": 1787681380.6612868,
+    "ast_hash": "6d3e980291e45445241cdebd90329b71",
     "semantic_hash": ""
   },
   "apps/api/src/app.ts": {
@@ -36,9 +36,9 @@
     "semantic_hash": ""
   },
   "apps/api/src/deps.ts": {
-    "mtime": 1786765917.0121696,
-    "seen": 1787465206.9812398,
-    "ast_hash": "3ecb525461a92062ffa917f119c3bb81",
+    "mtime": 1787680841.9985237,
+    "seen": 1787681380.6612988,
+    "ast_hash": "48da4a93d425e6017eafaab2a7363bcb",
     "semantic_hash": ""
   },
   "apps/api/src/drafts-evaluate.test.ts": {
@@ -66,9 +66,9 @@
     "semantic_hash": ""
   },
   "apps/api/src/jobs.test.ts": {
-    "mtime": 1787474673.5389466,
-    "seen": 1787479801.016141,
-    "ast_hash": "f8c428e859c93ed5736e93d5c149851d",
+    "mtime": 1787681214.6420915,
+    "seen": 1787681380.6613128,
+    "ast_hash": "aa74d17b673d2221b17e0271420ba379",
     "semantic_hash": ""
   },
   "apps/api/src/launch-chrome.test.ts": {
@@ -126,9 +126,9 @@
     "semantic_hash": ""
   },
   "apps/api/src/lib/post-browser-job.ts": {
-    "mtime": 1787486523.5374897,
-    "seen": 1787678143.7644012,
-    "ast_hash": "a20558e9366214d8dc685f85c550b80c",
+    "mtime": 1787680901.300166,
+    "seen": 1787681380.6613445,
+    "ast_hash": "a96dad51a4bfcf83f4c97019ed2cf8fc",
     "semantic_hash": ""
   },
   "apps/api/src/lib/post-history-snapshot.ts": {
@@ -198,9 +198,9 @@
     "semantic_hash": ""
   },
   "apps/api/src/routes/browser.ts": {
-    "mtime": 1787678419.0269184,
-    "seen": 1787678540.5856812,
-    "ast_hash": "d93cb7c4cce581886986acc0d0522cd1",
+    "mtime": 1787680831.286341,
+    "seen": 1787681380.6613762,
+    "ast_hash": "913476dc40ef7da44c22dee569d4f142",
     "semantic_hash": ""
   },
   "apps/api/src/routes/drafts.ts": {
@@ -876,9 +876,9 @@
     "semantic_hash": ""
   },
   "packages/browser/src/index.ts": {
-    "mtime": 1787494925.9586675,
-    "seen": 1787678143.7645786,
-    "ast_hash": "e034c853948cc0960c1340857c551252",
+    "mtime": 1787680788.412775,
+    "seen": 1787681380.6616223,
+    "ast_hash": "5bfde2e17fc3e537a41794db4e348abe",
     "semantic_hash": ""
   },
   "packages/browser/tsconfig.json": {
@@ -1536,21 +1536,21 @@
     "semantic_hash": ""
   },
   "apps/api/src/browser-activate.test.ts": {
-    "mtime": 1787678492.6736062,
-    "seen": 1787678540.585617,
-    "ast_hash": "c08a34e26288b0b77ed9d1528fa61cdd",
+    "mtime": 1787681186.4549737,
+    "seen": 1787681380.6612957,
+    "ast_hash": "6e3281a75c47f19047740d95866b6c29",
     "semantic_hash": ""
   },
   "apps/api/src/post-browser-guard.test.ts": {
-    "mtime": 1787495401.110064,
-    "seen": 1787678143.7644165,
-    "ast_hash": "fb9d7aec34898c906e7e0090ab0bebb9",
+    "mtime": 1787681028.1782792,
+    "seen": 1787681380.6613677,
+    "ast_hash": "e996176c2c36ca2a11b38ac16318b742",
     "semantic_hash": ""
   },
   "packages/browser/src/ensure-browser-cdp.test.ts": {
-    "mtime": 1787495344.4681945,
-    "seen": 1787678143.7645755,
-    "ast_hash": "cd90e43d08d9d23f757ff426491bd3b8",
+    "mtime": 1787679839.1245112,
+    "seen": 1787681380.6616178,
+    "ast_hash": "5c2015b72d009d6ba141371e8cba848e",
     "semantic_hash": ""
   },
   "scripts/mentions-cron-wrapper.sh": {
@@ -1572,9 +1572,9 @@
     "semantic_hash": ""
   },
   "services/demo-checker/checker.mjs": {
-    "mtime": 1787516267.8802273,
-    "seen": 1787678143.7646613,
-    "ast_hash": "33f1524683061ea73d82bbe39685d363",
+    "mtime": 1787680327.3059447,
+    "seen": 1787681380.661807,
+    "ast_hash": "568f0a97ff521f7f12f68e62c6a40a38",
     "semantic_hash": ""
   },
   "services/demo-checker/cleanup-dupes.mjs": {
@@ -1584,9 +1584,9 @@
     "semantic_hash": ""
   },
   "services/demo-checker/format.mjs": {
-    "mtime": 1787515046.6810741,
-    "seen": 1787678143.7646635,
-    "ast_hash": "932840d5e71a2da5441dae420e4b4dd3",
+    "mtime": 1787680336.74144,
+    "seen": 1787681380.6618156,
+    "ast_hash": "09b8987e9733dda4513420a32eac781b",
     "semantic_hash": ""
   },
   "services/demo-checker/post-approved.mjs": {

@@ -38,6 +38,7 @@ describe("POST /browser/activate", () => {
       payload: { accountId: "account_personal" }
     });
 
+
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       accountId: "account_personal",
@@ -68,6 +69,54 @@ describe("POST /browser/activate", () => {
     expect(response.json()).toMatchObject({
       error: expect.stringContaining("Could not launch the posting Chrome")
     });
+    await app.close();
+  });
+
+  it("reports an identity warning when the observed login belongs to another account", async () => {
+    const repository = await createSqliteRepository(":memory:");
+    await repository.createAccount({
+      handle: "willainotice",
+      displayName: "Notice AI",
+      profileDir: "profiles/willainotice"
+    });
+    const launchPostingChrome = vi.fn().mockResolvedValue({ launched: true });
+    // Operator activated willainotice but the Chrome login is still skywalker's.
+    const checkXLogin = vi.fn().mockResolvedValue({ loggedIn: true, handle: "personal-main" });
+    const app = buildApp({ repository, launchPostingChrome, checkXLogin });
+
+    const willainotice = (await repository.listAccounts()).find((a) => a.handle === "willainotice");
+    const response = await app.inject({
+      method: "POST",
+      url: "/browser/activate",
+      payload: { accountId: willainotice!.id }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      observedHandle: "personal-main",
+      warning: expect.stringContaining("logged in as @personal-main")
+    });
+    await app.close();
+  });
+
+  it("reports no identity warning when the observed login matches", async () => {
+    const launchPostingChrome = vi.fn().mockResolvedValue({ launched: true });
+    const checkXLogin = vi.fn().mockResolvedValue({ loggedIn: true, handle: "personal-main" });
+    const app = buildApp({
+      repository: await createSqliteRepository(":memory:"),
+      launchPostingChrome,
+      checkXLogin
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/browser/activate",
+      payload: { accountId: "account_personal" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ observedHandle: "personal-main" });
+    expect(response.json().warning).toBeUndefined();
     await app.close();
   });
 });

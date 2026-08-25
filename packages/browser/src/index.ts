@@ -274,6 +274,9 @@ export interface CheckXLoginInput {
 export interface CheckXLoginResult {
   loggedIn: boolean;
   url: string;
+  /** Screen name actually logged in inside this browser, lowercase, no @.
+   * null when logged in but the handle could not be read. */
+  handle: string | null;
 }
 
 export interface XFeedTweet {
@@ -713,7 +716,8 @@ export async function checkXLogin(input: CheckXLoginInput): Promise<CheckXLoginR
   try {
     const page = await pageForSessionCheck(context, input);
     await assertNotLoginPage(page);
-    const result = { loggedIn: true, url: page.url() };
+    const handle = await readLoggedInHandle(page).catch(() => null);
+    const result = { loggedIn: true, url: page.url(), handle };
     if (ownsContext) {
       await context.close();
     }
@@ -725,10 +729,45 @@ export async function checkXLogin(input: CheckXLoginInput): Promise<CheckXLoginR
 
     const message = error instanceof Error ? error.message : "Unknown X login check error";
     if (message.startsWith("X profile is not logged in.")) {
-      return { loggedIn: false, url: input.xHomeUrl ?? "https://x.com/home" };
+      return { loggedIn: false, url: input.xHomeUrl ?? "https://x.com/home", handle: null };
     }
     throw error;
   }
+}
+
+// Identity check: which account is REALLY logged in? Reads the side-nav
+// profile link first (cheap, stable), then falls back to the credentials
+// endpoint with the ct0 CSRF cookie, exactly like the X web client does.
+// Guards every downstream action against posting from the wrong account.
+async function readLoggedInHandle(page: Page): Promise<string | null> {
+  const raw = await page.evaluate(async () => {
+    const profileLink = document
+      .querySelector<HTMLAnchorElement>('a[data-testid="AppTabBar_Profile_Link"]')
+      ?.getAttribute("href");
+    if (profileLink && /^\/[A-Za-z0-9_]{1,15}\/?$/.test(profileLink)) {
+      return profileLink.replace(/^\//, "").replace(/\/$/, "");
+    }
+    try {
+      const csrf = document.cookie
+        .split("; ")
+        .find((cookie) => cookie.startsWith("ct0="))
+        ?.split("=")[1];
+      const response = await fetch(
+        "/i/api/1.1/account/verify_credentials.json?skip_status=1",
+        {
+          credentials: "include",
+          headers: csrf ? { "x-csrf-token": decodeURIComponent(csrf) } : {}
+        }
+      );
+      if (!response.ok) return null;
+      const data = await response.json();
+      return typeof data?.screen_name === "string" ? data.screen_name : null;
+    } catch {
+      return null;
+    }
+  });
+  const normalized = typeof raw === "string" ? raw.trim().replace(/^@/, "").toLowerCase() : "";
+  return /^[a-z0-9_]{1,15}$/.test(normalized) ? normalized : null;
 }
 
 async function extractFeedTweets(page: Page, maxTweets: number) {

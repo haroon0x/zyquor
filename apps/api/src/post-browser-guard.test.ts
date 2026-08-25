@@ -58,7 +58,12 @@ describe("postBrowserJob single-account guard", () => {
   it("posts normally when no launch state is recorded", async () => {
     const repository = await createSqliteRepository(":memory:");
     const preparePost = vi.fn(async () => ({ postUrl: "https://x.com/personal/status/2" }));
-    const app = buildApp({ repository, preparePost, enableBrowserPost: true });
+    const app = buildApp({
+      repository,
+      preparePost,
+      enableBrowserPost: true,
+      checkXLogin: vi.fn(async () => ({ loggedIn: true, handle: "personal-main" }))
+    });
     const approved = await createApprovedJob(repository);
 
     readCdpLaunchState.mockReturnValue(null);
@@ -77,7 +82,12 @@ describe("postBrowserJob single-account guard", () => {
     const account = await repository.getAccount("account_personal");
     expect(account).not.toBeNull();
     const preparePost = vi.fn(async () => ({ postUrl: "https://x.com/personal/status/3" }));
-    const app = buildApp({ repository, preparePost, enableBrowserPost: true });
+    const app = buildApp({
+      repository,
+      preparePost,
+      enableBrowserPost: true,
+      checkXLogin: vi.fn(async () => ({ loggedIn: true, handle: "personal-main" }))
+    });
     const approved = await createApprovedJob(repository);
 
     readCdpLaunchState.mockReturnValue({
@@ -89,6 +99,86 @@ describe("postBrowserJob single-account guard", () => {
 
     expect(response.statusCode).toBe(200);
     expect(preparePost).toHaveBeenCalledTimes(1);
+
+    await app.close();
+  });
+
+  it("refuses to post when the live login belongs to another account", async () => {
+    const repository = await createSqliteRepository(":memory:");
+    const account = await repository.getAccount("account_personal");
+    const preparePost = vi.fn(async () => ({ postUrl: "https://x.com/personal/status/4" }));
+    const app = buildApp({
+      repository,
+      preparePost,
+      enableBrowserPost: true,
+      // Right profile, wrong human: the login inside the Chrome does not match.
+      checkXLogin: vi.fn(async () => ({ loggedIn: true, handle: "willainotice" }))
+    });
+    const approved = await createApprovedJob(repository);
+
+    readCdpLaunchState.mockReturnValue({
+      profileDir: resolveProfileDir(account!.profileDir),
+      pid: null
+    });
+
+    const response = await app.inject({ method: "POST", url: `/jobs/${approved.job.id}/post` });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: expect.stringContaining("Identity mismatch") });
+    expect(preparePost).not.toHaveBeenCalled();
+    await expect(repository.getJob(approved.job.id)).resolves.toMatchObject({ status: "approved" });
+
+    await app.close();
+  });
+
+  it("refuses to post when the logged-in handle cannot be read (fail closed)", async () => {
+    const repository = await createSqliteRepository(":memory:");
+    const account = await repository.getAccount("account_personal");
+    const preparePost = vi.fn(async () => ({ postUrl: "https://x.com/personal/status/5" }));
+    const app = buildApp({
+      repository,
+      preparePost,
+      enableBrowserPost: true,
+      checkXLogin: vi.fn(async () => ({ loggedIn: true, handle: null }))
+    });
+    const approved = await createApprovedJob(repository);
+
+    readCdpLaunchState.mockReturnValue({
+      profileDir: resolveProfileDir(account!.profileDir),
+      pid: null
+    });
+
+    const response = await app.inject({ method: "POST", url: `/jobs/${approved.job.id}/post` });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: expect.stringContaining("Cannot read which X account") });
+    expect(preparePost).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("refuses to post when the posting Chrome is not logged in at all", async () => {
+    const repository = await createSqliteRepository(":memory:");
+    const account = await repository.getAccount("account_personal");
+    const preparePost = vi.fn(async () => ({ postUrl: "https://x.com/personal/status/6" }));
+    const app = buildApp({
+      repository,
+      preparePost,
+      enableBrowserPost: true,
+      checkXLogin: vi.fn(async () => ({ loggedIn: false, handle: null }))
+    });
+    const approved = await createApprovedJob(repository);
+
+    readCdpLaunchState.mockReturnValue({
+      profileDir: resolveProfileDir(account!.profileDir),
+      pid: null
+    });
+
+    const response = await app.inject({ method: "POST", url: `/jobs/${approved.job.id}/post` });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: expect.stringContaining("not logged in") });
+    expect(preparePost).not.toHaveBeenCalled();
 
     await app.close();
   });

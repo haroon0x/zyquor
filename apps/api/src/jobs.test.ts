@@ -26,6 +26,7 @@ describe("jobs routes", () => {
     const repository = await createSqliteRepository(":memory:");
     const postedTexts: string[] = [];
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       enableBrowserPost: true,
       generationProvider,
       preparePost: async ({ text }) => {
@@ -58,7 +59,8 @@ describe("jobs routes", () => {
 
   it("sets and clears schedules only for reschedulable jobs", async () => {
     const repository = await createSqliteRepository(":memory:");
-    const app = buildApp({ generationProvider, repository });
+    const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }), generationProvider, repository });
     const created = await repository.createDraft({
       accountId: "account_personal",
       sourceInput: "Reschedule this",

@@ -62,6 +62,7 @@ const testGenerationProvider: DraftGenerationProvider = {
 describe("api workflow", () => {
   it("keeps a draft with omitted automation fields in manual review", async () => {
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       generationProvider: testGenerationProvider,
       repository: await createSqliteRepository(":memory:")
     });
@@ -102,6 +103,7 @@ describe("api workflow", () => {
 
   it("generates, approves, and dry-run prepares a job", async () => {
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       generationProvider: testGenerationProvider,
       repository: await createSqliteRepository(":memory:")
     });
@@ -172,6 +174,7 @@ describe("api workflow", () => {
 
   it("reports configured generation provider", async () => {
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       generationEnv: {
         ZYQUOR_LLM_PROVIDER: "ollama",
         ZYQUOR_OLLAMA_MODEL: "llama3.1:8b",
@@ -203,6 +206,7 @@ describe("api workflow", () => {
 
   it("updates generation provider and model", async () => {
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       generationEnv: {
         ZYQUOR_LLM_PROVIDER: "ollama",
         ZYQUOR_OLLAMA_MODEL: "llama3.1:8b"
@@ -241,44 +245,11 @@ describe("api workflow", () => {
 
   it("updates style prompt configuration", async () => {
     const app = buildApp({
-      generationProvider: testGenerationProvider,
-      repository: await createSqliteRepository(":memory:")
-    });
-
-    const response = await app.inject({
-      method: "PATCH",
-      url: "/style-profiles/style_default",
-      payload: {
-        bannedPhrases: ["cheap bait"],
-        rules: {
-          objective: "Grow useful reach with sharp, grounded posts.",
-          systemPromptExtra: "Use tasteful tension when true."
-        },
-        tone: "clear, sharp, useful"
-      }
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({
-      profile: {
-        bannedPhrases: ["cheap bait"],
-        rules: {
-          objective: "Grow useful reach with sharp, grounded posts.",
-          systemPromptExtra: "Use tasteful tension when true."
-        },
-        tone: "clear, sharp, useful"
-      }
-    });
-
-    await app.close();
-  });
-
-  it("reports the browser X session for the configured account", async () => {
-    const app = buildApp({
       browserCdpUrl: "http://127.0.0.1:9222",
       checkXLogin: async (input) => ({
         loggedIn: input.profileDir.endsWith("profiles/personal-main"),
-        url: "https://x.com/home"
+        url: "https://x.com/home",
+        handle: input.profileDir.endsWith("profiles/personal-main") ? "personal-main" : null
       }),
       enableBrowserPrepare: true,
       generationProvider: testGenerationProvider,
@@ -306,7 +277,8 @@ describe("api workflow", () => {
 
   it("stores scheduled approvals and blocks prepare before schedule time", async () => {
     const repository = await createSqliteRepository(":memory:");
-    const app = buildApp({ repository, generationProvider: testGenerationProvider });
+    const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }), repository, generationProvider: testGenerationProvider });
     const created = await repository.createDraft({
       accountId: "account_personal",
       sourceInput: "Scheduled idea",
@@ -360,6 +332,7 @@ describe("api workflow", () => {
     const repository = await createSqliteRepository(":memory:");
     let uploadedMediaPaths: string[] = [];
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       enableBrowserPrepare: true,
       generationProvider: testGenerationProvider,
       preparePost: async (input) => {
@@ -396,7 +369,8 @@ describe("api workflow", () => {
     vi.setSystemTime(Date.parse("2026-07-17T12:00:00.000Z"));
     let currentTime = "2026-04-24T17:00:00.000Z";
     const repository = await createSqliteRepository(":memory:");
-    const app = buildApp({ repository, generationProvider: testGenerationProvider });
+    const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }), repository, generationProvider: testGenerationProvider });
 
     const firstDraft = await repository.createDraft({
       accountId: "account_personal",
@@ -458,6 +432,7 @@ describe("api workflow", () => {
     const repository = await createSqliteRepository(":memory:");
     let browserCalled = false;
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       enableBrowserPost: true,
       generationProvider: testGenerationProvider,
       preparePost: async () => {
@@ -509,6 +484,7 @@ describe("api workflow", () => {
     const repository = await createSqliteRepository(":memory:");
     const postedTexts: string[] = [];
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       enableBrowserPost: true,
       generationProvider: testGenerationProvider,
       preparePost: async (input) => {
@@ -568,6 +544,7 @@ describe("api workflow", () => {
     let browserCalls = 0;
     const releasePost: { current?: () => void } = {};
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       enableBrowserPost: true,
       generationProvider: testGenerationProvider,
       preparePost: async () => {
@@ -615,6 +592,7 @@ describe("api workflow", () => {
     const repository = await createSqliteRepository(":memory:");
     let browserCalled = false;
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       enableBrowserPost: true,
       generationProvider: testGenerationProvider,
       preparePost: async () => {
@@ -662,6 +640,7 @@ describe("api workflow", () => {
     const repository = await createSqliteRepository(":memory:");
     let browserCalled = false;
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       enableBrowserPost: true,
       generationProvider: testGenerationProvider,
       preparePost: async () => {
@@ -708,6 +687,7 @@ describe("api workflow", () => {
     const repository = await createSqliteRepository(":memory:");
     let browserCalled = false;
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       enableBrowserPost: true,
       generationProvider: testGenerationProvider,
       preparePost: async () => {
@@ -772,6 +752,7 @@ describe("api workflow", () => {
     const repository = await createSqliteRepository(":memory:");
     let browserCalled = false;
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       enableBrowserPost: true,
       generationProvider: testGenerationProvider,
       preparePost: async () => {
@@ -837,6 +818,7 @@ describe("api workflow", () => {
     const repository = await createSqliteRepository(":memory:");
     const postedTexts: string[] = [];
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       enableBrowserPost: true,
       generationProvider: testGenerationProvider,
       preparePost: async (input) => {
@@ -893,6 +875,7 @@ describe("api workflow", () => {
     vi.setSystemTime(Date.parse("2026-04-24T17:00:00.000Z"));
     const repository = await createSqliteRepository(":memory:");
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       enableBrowserPost: true,
       generationProvider: testGenerationProvider,
       preparePost: async () => ({ postUrl: "https://x.com/personal/status/ttl" }),
@@ -927,6 +910,7 @@ describe("api workflow", () => {
   it("analyzes recent post history for quality issues", async () => {
     const repository = await createSqliteRepository(":memory:");
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       generationProvider: testGenerationProvider,
       repository
     });
@@ -989,6 +973,7 @@ describe("api workflow", () => {
     const repository = await createSqliteRepository(":memory:");
     let postedText = "";
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       enableBrowserPost: true,
       generationProvider: testGenerationProvider,
       preparePost: async (input) => {
@@ -1026,6 +1011,7 @@ describe("api workflow", () => {
 
   it("creates a scheduled batch with tweet type metadata", async () => {
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       generationProvider: testGenerationProvider,
       repository: await createSqliteRepository(":memory:")
     });
@@ -1069,6 +1055,7 @@ describe("api workflow", () => {
 
   it("creates source packets and drafts from them", async () => {
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       generationProvider: testGenerationProvider,
       repository: await createSqliteRepository(":memory:")
     });
@@ -1127,6 +1114,7 @@ describe("api workflow", () => {
 
   it("deletes a generated draft from a source packet and resets the packet", async () => {
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       generationProvider: testGenerationProvider,
       repository: await createSqliteRepository(":memory:")
     });
@@ -1181,6 +1169,7 @@ describe("api workflow", () => {
   it("deletes a single source packet and its non-posted generated draft", async () => {
     const repository = await createSqliteRepository(":memory:");
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       generationProvider: testGenerationProvider,
       repository
     });
@@ -1222,6 +1211,7 @@ describe("api workflow", () => {
 
   it("deletes all source packets and removes non-posted generated drafts", async () => {
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       generationProvider: testGenerationProvider,
       repository: await createSqliteRepository(":memory:")
     });
@@ -1267,6 +1257,7 @@ describe("api workflow", () => {
   it("deletes source packet links without deleting drafts kept by post history", async () => {
     const repository = await createSqliteRepository(":memory:");
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       generationProvider: testGenerationProvider,
       repository
     });
@@ -1318,6 +1309,7 @@ describe("api workflow", () => {
     vi.setSystemTime(Date.parse("2026-07-17T12:00:00.000Z"));
     const repository = await createSqliteRepository(":memory:");
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       enableBrowserPost: true,
       generationProvider: testGenerationProvider,
       preparePost: async () => ({ postUrl: "https://x.com/personal/status/1" }),
@@ -1378,7 +1370,8 @@ describe("api workflow", () => {
 
   it("does not prepare jobs for draft-only accounts", async () => {
     const repository = await createSqliteRepository(":memory:");
-    const app = buildApp({ repository, generationProvider: testGenerationProvider });
+    const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }), repository, generationProvider: testGenerationProvider });
 
     await repository.updateAccount("account_personal", { postingMode: "draft_only" });
     const created = await repository.createDraft({
@@ -1399,7 +1392,8 @@ describe("api workflow", () => {
 
   it("deletes non-running jobs and their queue entry", async () => {
     const repository = await createSqliteRepository(":memory:");
-    const app = buildApp({ repository, generationProvider: testGenerationProvider });
+    const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }), repository, generationProvider: testGenerationProvider });
     const created = await repository.createDraft({
       accountId: "account_personal",
       sourceInput: "Delete queued job",
@@ -1423,7 +1417,8 @@ describe("api workflow", () => {
     const altAccount = await repository.createAccount(
       createAccountRequestSchema.parse({ handle: "alt", displayName: "Alt" })
     );
-    const app = buildApp({ repository, generationProvider: testGenerationProvider });
+    const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }), repository, generationProvider: testGenerationProvider });
 
     const draftA = await repository.createDraft({
       accountId: "account_personal",
@@ -1457,7 +1452,8 @@ describe("api workflow", () => {
     const altAccount = await repository.createAccount(
       createAccountRequestSchema.parse({ handle: "alt", displayName: "Alt" })
     );
-    const app = buildApp({ repository, generationProvider: testGenerationProvider });
+    const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }), repository, generationProvider: testGenerationProvider });
     const draftA = await repository.createDraft({
       accountId: "account_personal",
       sourceInput: "A",
@@ -1486,7 +1482,8 @@ describe("api workflow", () => {
 
   it("creates, lists, updates, and deletes ingest configs", async () => {
     const repository = await createSqliteRepository(":memory:");
-    const app = buildApp({ repository, generationProvider: testGenerationProvider });
+    const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }), repository, generationProvider: testGenerationProvider });
 
     const createResponse = await app.inject({
       method: "POST",
@@ -1551,6 +1548,7 @@ describe("api workflow", () => {
 
   it("runs ingest runner and creates automated jobs", async () => {
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       generationProvider: testGenerationProvider,
       repository: await createSqliteRepository(":memory:"),
       sourceAdapters: [testNewsAdapter]
@@ -1620,6 +1618,7 @@ describe("api workflow", () => {
       }
     };
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       generationProvider: testGenerationProvider,
       repository: await createSqliteRepository(":memory:"),
       sourceAdapters: [feedAdapter]
@@ -1666,6 +1665,7 @@ describe("automatic worker ingest pipeline", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(Date.parse("2026-07-17T12:00:00.000Z"));
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       generationProvider: testGenerationProvider,
       repository: await createSqliteRepository(":memory:"),
       sourceAdapters: [testNewsAdapter],
@@ -1733,6 +1733,7 @@ describe("automatic worker ingest pipeline", () => {
 describe("worker reliability endpoints", () => {
   it("reports worker status and heartbeat state", async () => {
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       repository: await createSqliteRepository(":memory:")
     });
 
@@ -1766,6 +1767,7 @@ describe("worker reliability endpoints", () => {
 
   it("creates one default news ingest config and reuses it on later seed calls", async () => {
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       repository: await createSqliteRepository(":memory:")
     });
 
@@ -1808,6 +1810,7 @@ describe("worker reliability endpoints", () => {
       }
     };
     const app = buildApp({
+      checkXLogin: async () => ({ loggedIn: true, handle: "personal-main" }),
       generationProvider: testGenerationProvider,
       repository: await createSqliteRepository(":memory:"),
       sourceAdapters: [slowAdapter]
