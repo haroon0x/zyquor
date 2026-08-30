@@ -332,7 +332,7 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
         ? { ...config.metadata, accountId: config.accountId }
         : config.metadata;
       const fresh = (await adapter.fetch(fetchMetadata)).filter((item) => isFreshSourceItem(item, now));
-      const onTopic = config.sourceType === "job" || config.sourceType === "x-feed" || config.sourceType === "model-releases"
+      const onTopic = config.sourceType === "job" || config.sourceType === "x-feed" || config.sourceType === "model-releases" || config.sourceType === "goldfish"
         ? fresh
         : fresh.filter((item) => isOnTopicSourceItem(item));
       skippedByReason.offTopic += fresh.length - onTopic.length;

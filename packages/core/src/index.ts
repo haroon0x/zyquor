@@ -43,7 +43,8 @@ export const SOURCE_TYPES = [
   "cursor-changelog",
   "xai-news",
   "anthropic-release-notes",
-  "a16z"
+  "a16z",
+  "goldfish"
 ] as const;
 
 export const LLM_PROVIDERS = [

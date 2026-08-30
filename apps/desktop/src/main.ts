@@ -126,6 +126,16 @@ function getCdpPort(): number {
   return Number(process.env.ZYQUOR_BROWSER_CDP_PORT ?? 9222);
 }
 
+function cdpPortForProfile(profileDir: string): number {
+  const base = getCdpPort();
+  const normalized = profileDir.replaceAll("\\", "/").toLowerCase();
+  if (normalized.includes("personal-main")) return base;
+  if (normalized.includes("willainotice")) return base + 1;
+  let h = 0;
+  for (let i = 0; i < normalized.length; i++) h = (h * 31 + normalized.charCodeAt(i)) % 10;
+  return base + h;
+}
+
 function dataRoot(): string {
   return process.env.ZYQUOR_DATA_ROOT ?? "";
 }
@@ -159,18 +169,12 @@ async function createLaunchPostingChrome() {
 
   return async (input: { accountId: string }): Promise<{ launched: boolean; reason?: string }> => {
     const accounts = await repository.listAccounts();
-    // Single-account rule: an explicitly requested accountId must always
-    // launch that exact account. Deferral to the recorded active account
-    // happens upstream (activePostingAccountId for tray/startup, the API
-    // route for unspecified /browser/launch-chrome calls), never here:
-    // "account_personal" is a real seeded account id, so remapping it via
-    // the launch-state file silently launched the wrong account.
     const account = accounts.find((a) => a.id === input.accountId) ?? accounts[0];
     if (!account) {
       return { launched: false, reason: "account-not-found" };
     }
     const profileDir = profilesPath(account.profileDir.replace(/^profiles\//, ""));
-    const port = getCdpPort();
+    const port = cdpPortForProfile(account.profileDir);
     return launchPostingChrome({ profileDir, cdpPort: port });
   };
 }
@@ -273,7 +277,16 @@ async function main() {
 
   const desktopControl = {
     async closeChrome() {
-      const result = await closePostingChrome({ cdpPort: getCdpPort() });
+      const { createSqliteRepository } = await import("@zyquor/storage");
+      const repository = await createSqliteRepository();
+      const accounts = await repository.listAccounts();
+      let closedAny = false;
+      for (const acc of accounts.filter((a) => a.enabled)) {
+        const port = cdpPortForProfile(acc.profileDir);
+        const result = await closePostingChrome({ cdpPort: port }).catch(() => ({ closed: false }));
+        if (result.closed) closedAny = true;
+      }
+      const result = { closed: closedAny, reason: closedAny ? undefined : "not-running" };
       logLine(result.closed ? "info" : "warn", `chrome close: ${result.closed ? "closed" : result.reason ?? "unknown"}`);
       return result;
     },
@@ -298,11 +311,21 @@ async function main() {
     },
     async status() {
       const cdpUrl = `http://127.0.0.1:${getCdpPort()}`;
+      const { createSqliteRepository } = await import("@zyquor/storage");
+      const repository = await createSqliteRepository().catch(() => null);
+      const accounts = repository ? await repository.listAccounts().catch(() => []) : [];
+      const chromes = [];
+      for (const acc of accounts.filter((a) => a.enabled)) {
+        const port = cdpPortForProfile(acc.profileDir);
+        const url = `http://127.0.0.1:${port}`;
+        chromes.push({ accountId: acc.id, handle: acc.handle, cdpUrl: url, port, connected: await isCdpUp(url) });
+      }
       return {
         appVersion: app.getVersion(),
         cdpUrl,
         chromeConnected: await isCdpUp(cdpUrl),
         chromePid: launchedPostingChromePid(),
+        chromes,
         dataRoot,
         logPath: join(dataRoot, "logs", "main.log"),
         platform: process.platform,
@@ -475,7 +498,14 @@ async function main() {
         workerHandle.setPaused(true);
         await workerHandle.stop();
         await api.close();
-        if (launchedPostingChromePid() !== null) {
+        try {
+          const { createSqliteRepository } = await import("@zyquor/storage");
+          const repository = await createSqliteRepository();
+          const accounts = await repository.listAccounts();
+          for (const acc of accounts.filter((a) => a.enabled)) {
+            await closePostingChrome({ cdpPort: cdpPortForProfile(acc.profileDir) }).catch(() => undefined);
+          }
+        } catch {
           await closePostingChrome({ cdpPort: getCdpPort() }).catch(() => undefined);
         }
         logLine("info", "shutdown complete");
@@ -512,7 +542,12 @@ async function main() {
         if (headlessSmoke) return;
         const dialogParent = win && !win.isDestroyed() ? win : undefined;
         try {
-          const result = await desktopLaunchPostingChrome({ accountId: await activePostingAccountId() });
+          const { createSqliteRepository } = await import("@zyquor/storage");
+          const repository = await createSqliteRepository();
+          const accounts = await repository.listAccounts();
+          const enabled = accounts.filter((a) => a.enabled);
+          const results = await Promise.all(enabled.map((acc) => desktopLaunchPostingChrome({ accountId: acc.id })));
+          const result = { launched: results.some((r) => r.launched), reason: results.find((r) => !r.launched)?.reason ?? "already-running" };
           const message = result.launched
             ? "Chrome launched"
             : `Chrome not launched: ${result.reason ?? "unknown"}`;
@@ -567,17 +602,21 @@ async function main() {
   tray.setToolTip("Zyquor");
   tray.setContextMenu(contextMenu);
 
-  void activePostingAccountId().then((accountId) => desktopLaunchPostingChrome({ accountId }))
-    .then((result) => {
-      const message = result.launched ? "Chrome connected" : result.reason === "already-running" ? "Chrome connected" : `Chrome unavailable: ${result.reason ?? "unknown"}`;
-      logLine(result.launched || result.reason === "already-running" ? "info" : "warn", `startup chrome: ${message}`);
-      tray.setToolTip(`Zyquor — ${message}`);
-    })
-    .catch((error) => {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      logLine("error", `startup chrome error: ${message}`);
-      tray.setToolTip(`Zyquor — Chrome error`);
-    });
+  void (async () => {
+    const { createSqliteRepository } = await import("@zyquor/storage");
+    const repository = await createSqliteRepository();
+    const accounts = await repository.listAccounts();
+    const enabled = accounts.filter((a) => a.enabled);
+    const results = await Promise.all(enabled.map((acc) => desktopLaunchPostingChrome({ accountId: acc.id })));
+    const launched = results.filter((r) => r.launched || r.reason === "already-running").length;
+    const message = launched > 0 ? `Chrome connected (${launched}/${enabled.length})` : `Chrome unavailable`;
+    logLine(launched > 0 ? "info" : "warn", `startup chrome: ${message}`);
+    tray.setToolTip(`Zyquor — ${message}`);
+  })().catch((error) => {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    logLine("error", `startup chrome error: ${message}`);
+    tray.setToolTip(`Zyquor — Chrome error`);
+  });
 
   if (app.isPackaged && existsSync(join(process.resourcesPath, "app-update.yml"))) {
     const { autoUpdater } = electronUpdater;

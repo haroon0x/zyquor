@@ -19,3 +19,4 @@ export * from "./cursor-changelog.js";
 export * from "./xai-news.js";
 export * from "./anthropic-release-notes.js";
 export * from "./a16z.js";
+export * from "./goldfish.js";

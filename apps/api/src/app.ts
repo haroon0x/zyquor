@@ -1,5 +1,5 @@
 import cors from "@fastify/cors";
-import { createA16zAdapter, createAggregatedNewsAdapter, createAnthropicReleaseNotesAdapter, createCrawl4AiService, createCursorChangelogAdapter, createDeepSeekUpdatesAdapter, createModelReleasesAdapter, createRssAdapter, createXFeedAdapter, createXaiNewsAdapter, type SourceAdapter } from "@zyquor/adapters";
+import { createA16zAdapter, createAggregatedNewsAdapter, createAnthropicReleaseNotesAdapter, createCrawl4AiService, createCursorChangelogAdapter, createDeepSeekUpdatesAdapter, createGoldfishAdapter, createModelReleasesAdapter, createRssAdapter, createXFeedAdapter, createXaiNewsAdapter, type SourceAdapter } from "@zyquor/adapters";
 import { createGenerationProviderFromEnv } from "@zyquor/generation";
 import { createSqliteRepository, type ZyquorRepository } from "@zyquor/storage";
 import Fastify from "fastify";
@@ -47,6 +47,7 @@ function createDefaultSourceAdapters(options: {
     createAnthropicReleaseNotesAdapter(),
     createA16zAdapter(),
     createRssAdapter(),
+    createGoldfishAdapter(),
     createXFeedAdapter({
       resolveProfileDir: async (accountId) => {
         const repository = await options.repository;

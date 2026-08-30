@@ -143,7 +143,7 @@ describe("GET /browser/active", () => {
     const response = await app.inject({ method: "GET", url: "/browser/active" });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ accountId: null, handle: null, profileDir: null });
+    expect(response.json()).toMatchObject({ accountId: null, handle: null, profileDir: null, activeAccounts: [] });
     await app.close();
   });
 
@@ -154,10 +154,11 @@ describe("GET /browser/active", () => {
     const response = await app.inject({ method: "GET", url: "/browser/active" });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({
+    expect(response.json()).toMatchObject({
       accountId: "account_personal",
       handle: "personal-main",
-      profileDir: join(testDataRoot, "profiles", "personal-main")
+      profileDir: join(testDataRoot, "profiles", "personal-main"),
+      activeAccounts: expect.arrayContaining([expect.objectContaining({ accountId: "account_personal", handle: "personal-main" })]),
     });
     await app.close();
   });
@@ -188,8 +189,7 @@ describe("GET /browser/active", () => {
     const response = await app.inject({ method: "GET", url: "/browser/active" });
 
     expect(response.statusCode).toBe(200);
-    // No silent remapping onto a default account: unmatched means inactive.
-    expect(response.json()).toEqual({ accountId: null, handle: null, profileDir: join(testDataRoot, "profiles", "unknown-profile") });
+    expect(response.json()).toMatchObject({ accountId: null, handle: null, profileDir: join(testDataRoot, "profiles", "unknown-profile"), activeAccounts: [] });
     await app.close();
   });
 });

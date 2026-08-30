@@ -14,19 +14,16 @@ export function resolveProfileDir(profileDir: string): string {
 // Chrome branch inside a native Windows app.
 const isWsl = platform() === "linux" && (existsSync("/proc/sys/fs/binfmt_misc/WSLInterop") || Boolean(process.env.WSL_DISTRO_NAME));
 
-let activeCdpPid: number | null = null;
-let activeCdpProfileDir: string | null = null;
+let activeCdpPids: Map<string, number | null> = new Map();
+let activeCdpProfileDirs: Map<string, string> = new Map();
 
 interface CdpLaunchState {
   profileDir: string;
   pid: number | null;
+  cdpUrl?: string;
+  cdpPort?: number;
 }
 
-// posting-chrome.json is written by whichever OS runs the posting Chrome, so a
-// record may hold a Windows absolute path ("C:\Users\...\profiles\name") even
-// while this code resolves against a POSIX data root. resolveProfileDir turns
-// such a record into root + "C:\..." garbage; detect that and rebuild the
-// canonical <dataRoot>/profiles/<name> path from the stored tail instead.
 function normalizeStoredProfileDir(stored: string): string {
   const resolved = resolveProfileDir(stored);
   if (!/[A-Za-z]:[\\/]/.test(resolved)) return resolved;
@@ -37,48 +34,101 @@ function normalizeStoredProfileDir(stored: string): string {
   return dataPath("profiles", normalized.slice(index + marker.length));
 }
 
-// Shared with apps/desktop/src/chrome.ts so both launchers agree on which
-// X account the running posting Chrome carries.
+function profileKey(profileDir: string): string {
+  const normalized = normalizeStoredProfileDir(profileDir).replaceAll("\\", "/");
+  const marker = "/profiles/";
+  const index = normalized.lastIndexOf(marker);
+  return index === -1 ? normalized : normalized.slice(index + marker.length);
+}
+
 export function cdpLaunchStateFile(): string {
   return dataPath("posting-chrome.json");
 }
 
-export function readCdpLaunchState(): CdpLaunchState | null {
+export function readAllCdpLaunchStates(): CdpLaunchState[] {
   try {
     const parsed: unknown = JSON.parse(readFileSync(cdpLaunchStateFile(), "utf8"));
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      typeof (parsed as { profileDir?: unknown }).profileDir === "string"
-    ) {
-      const record = parsed as { profileDir: string; pid?: unknown };
-      return {
-        profileDir: normalizeStoredProfileDir(record.profileDir),
-        pid: typeof record.pid === "number" ? record.pid : null
-      };
+    if (!parsed || typeof parsed !== "object") return [];
+    const record = parsed as Record<string, unknown>;
+    if (typeof record.profileDir === "string") {
+      const legacy = record as { profileDir: string; pid?: unknown; cdpUrl?: unknown; cdpPort?: unknown };
+      return [{
+        profileDir: normalizeStoredProfileDir(legacy.profileDir),
+        pid: typeof legacy.pid === "number" ? legacy.pid : null,
+        cdpUrl: typeof legacy.cdpUrl === "string" ? legacy.cdpUrl : undefined,
+        cdpPort: typeof legacy.cdpPort === "number" ? legacy.cdpPort : undefined,
+      }];
     }
-    return null;
+    const states: CdpLaunchState[] = [];
+    for (const [key, value] of Object.entries(record)) {
+      if (!value || typeof value !== "object") continue;
+      const v = value as { profileDir?: unknown; pid?: unknown; cdpUrl?: unknown; cdpPort?: unknown };
+      if (typeof v.profileDir !== "string") continue;
+      states.push({
+        profileDir: normalizeStoredProfileDir(v.profileDir),
+        pid: typeof v.pid === "number" ? v.pid : null,
+        cdpUrl: typeof v.cdpUrl === "string" ? v.cdpUrl : undefined,
+        cdpPort: typeof v.cdpPort === "number" ? v.cdpPort : undefined,
+      });
+    }
+    return states;
   } catch {
-    return null;
+    return [];
   }
 }
 
+export function readCdpLaunchState(): CdpLaunchState | null {
+  const all = readAllCdpLaunchStates();
+  return all[0] ?? null;
+}
+
+export function readCdpLaunchStateFor(profileDir: string): CdpLaunchState | null {
+  const key = profileKey(profileDir);
+  return readAllCdpLaunchStates().find((s) => profileKey(s.profileDir) === key) ?? null;
+}
+
 export function writeCdpLaunchState(state: CdpLaunchState): void {
+  writeCdpLaunchStateFor(state);
+}
+
+export function writeCdpLaunchStateFor(state: CdpLaunchState): void {
   try {
     mkdirSync(join(cdpLaunchStateFile(), ".."), { recursive: true });
-    writeFileSync(cdpLaunchStateFile(), JSON.stringify(state));
+    const all = readAllCdpLaunchStates();
+    const map: Record<string, CdpLaunchState> = {};
+    for (const s of all) map[profileKey(s.profileDir)] = s;
+    const key = profileKey(state.profileDir);
+    map[key] = {
+      profileDir: normalizeStoredProfileDir(state.profileDir),
+      pid: state.pid,
+      cdpUrl: state.cdpUrl,
+      cdpPort: state.cdpPort,
+    };
+    writeFileSync(cdpLaunchStateFile(), JSON.stringify(map));
   } catch {
-    /* best effort */
   }
 }
 
 export function clearCdpLaunchState(): void {
   try {
-    // "{}" (not "") so readers get null deterministically without relying on
-    // JSON.parse throwing.
     writeFileSync(cdpLaunchStateFile(), "{}");
   } catch {
-    /* best effort */
+  }
+}
+
+export function clearCdpLaunchStateFor(profileDir: string): void {
+  try {
+    const all = readAllCdpLaunchStates();
+    const key = profileKey(profileDir);
+    const map: Record<string, CdpLaunchState> = {};
+    for (const s of all) {
+      const k = profileKey(s.profileDir);
+      if (k !== key) map[k] = s;
+    }
+    if (Object.keys(map).length === 0) writeFileSync(cdpLaunchStateFile(), "{}");
+    else writeFileSync(cdpLaunchStateFile(), JSON.stringify(map));
+  } catch {
+    try { writeFileSync(cdpLaunchStateFile(), "{}"); } catch {}
   }
 }
 
@@ -104,26 +154,14 @@ function findChromeExecutable(): string {
 
 export async function ensureBrowserCdp(cdpUrl: string, profileDir: string): Promise<boolean> {
   const wantedProfileDir = resolveProfileDir(profileDir);
+  const port = Number(new URL(cdpUrl).port);
   const browser = await chromium.connectOverCDP(cdpUrl).catch(() => null);
   if (browser) {
-    // Single-account rule: this module never launches, kills, or switches the
-    // posting Chrome. The owning launcher (desktop chrome.ts, or the WSL
-    // branch below when nothing is running) decides which profile runs. If a
-    // browser is already attached for a different profile, refuse: the caller
-    // must activate the right account first.
-    const knownProfileDir = activeCdpProfileDir ?? readCdpLaunchState()?.profileDir ?? null;
-    if (knownProfileDir === null || knownProfileDir === wantedProfileDir) {
-      activeCdpProfileDir = wantedProfileDir;
-      return true;
-    }
-    console.error(
-      `[browser] posting Chrome is attached for a different account profile; refusing to post. ` +
-        `Activate the requested account first (wanted: ${wantedProfileDir}, attached: ${knownProfileDir})`
-    );
-    return false;
+    activeCdpProfileDirs.set(cdpUrl, wantedProfileDir);
+    writeCdpLaunchStateFor({ profileDir: wantedProfileDir, pid: activeCdpPids.get(cdpUrl) ?? readCdpLaunchStateFor(wantedProfileDir)?.pid ?? null, cdpUrl, cdpPort: port });
+    return true;
   }
 
-  const port = process.env.ZYQUOR_BROWSER_CDP_PORT ?? new URL(cdpUrl).port;
   const workspaceRoot = process.env.ZYQUOR_DATA_ROOT ?? process.env.ZYQUOR_WORKSPACE_ROOT ?? resolve(process.cwd(), "../..");
 
   if (isWsl && process.env.ZYQUOR_WSL_PROFILE_BASE) {
@@ -149,7 +187,7 @@ export async function ensureBrowserCdp(cdpUrl: string, profileDir: string): Prom
       "Start-Process -FilePath $chrome -ArgumentList $chromeArgs"
     ].join("\n");
 
-    const psPath = "/tmp/launch-chrome-cdp.ps1";
+    const psPath = `/tmp/launch-chrome-cdp-${port}.ps1`;
     writeFileSync(psPath, psScript);
 
     const child = spawn("powershell.exe", ["-ExecutionPolicy", "Bypass", "-File", psPath.replace("/mnt/c/", "C:\\").replace(/\//g, "\\")], {
@@ -158,9 +196,9 @@ export async function ensureBrowserCdp(cdpUrl: string, profileDir: string): Prom
     });
     child.on("error", () => undefined);
     child.unref();
-    activeCdpPid = child.pid ?? null;
-    activeCdpProfileDir = resolveProfileDir(profileDir);
-    writeCdpLaunchState({ profileDir: activeCdpProfileDir, pid: activeCdpPid });
+    activeCdpPids.set(cdpUrl, child.pid ?? null);
+    activeCdpProfileDirs.set(cdpUrl, wantedProfileDir);
+    writeCdpLaunchStateFor({ profileDir: wantedProfileDir, pid: child.pid ?? null, cdpUrl, cdpPort: port });
   } else {
     const chromeBin = findChromeExecutable();
     const chromeConfigDir = process.env.ZYQUOR_CHROME_CONFIG_DIR ? resolve(process.env.ZYQUOR_CHROME_CONFIG_DIR) : profilesPath("chrome-config");
@@ -187,9 +225,9 @@ export async function ensureBrowserCdp(cdpUrl: string, profileDir: string): Prom
       spawnFailed = true;
     });
     child.unref();
-    activeCdpPid = child.pid ?? null;
-    activeCdpProfileDir = resolveProfileDir(profileDir);
-    writeCdpLaunchState({ profileDir: activeCdpProfileDir, pid: activeCdpPid });
+    activeCdpPids.set(cdpUrl, child.pid ?? null);
+    activeCdpProfileDirs.set(cdpUrl, wantedProfileDir);
+    writeCdpLaunchStateFor({ profileDir: wantedProfileDir, pid: child.pid ?? null, cdpUrl, cdpPort: port });
 
     for (let attempt = 0; attempt < 30; attempt += 1) {
       if (spawnFailed) {
@@ -199,7 +237,6 @@ export async function ensureBrowserCdp(cdpUrl: string, profileDir: string): Prom
       await new Promise((r) => setTimeout(r, 1_000));
       const connected = await chromium.connectOverCDP(cdpUrl).catch(() => null);
       if (connected) {
-        activeCdpProfileDir = wantedProfileDir;
         return true;
       }
     }
@@ -210,7 +247,6 @@ export async function ensureBrowserCdp(cdpUrl: string, profileDir: string): Prom
     await new Promise((r) => setTimeout(r, 1_000));
     const connected = await chromium.connectOverCDP(cdpUrl).catch(() => null);
     if (connected) {
-      activeCdpProfileDir = wantedProfileDir;
       return true;
     }
   }
@@ -225,19 +261,28 @@ export async function closeBrowserCdp(cdpUrl: string): Promise<void> {
       await browser.close().catch(() => undefined);
     }
   } catch {
-    /* ignore */
   }
 
-  if (activeCdpPid) {
+  const pid = activeCdpPids.get(cdpUrl);
+  if (pid) {
     try {
-      process.kill(activeCdpPid, "SIGTERM");
+      process.kill(pid, "SIGTERM");
     } catch {
-      /* already gone */
     }
-    activeCdpPid = null;
+    activeCdpPids.delete(cdpUrl);
   }
-  activeCdpProfileDir = null;
-  clearCdpLaunchState();
+  const profileDir = activeCdpProfileDirs.get(cdpUrl);
+  if (profileDir) {
+    activeCdpProfileDirs.delete(cdpUrl);
+    clearCdpLaunchStateFor(profileDir);
+  } else {
+    try {
+      const port = Number(new URL(cdpUrl).port);
+      const all = readAllCdpLaunchStates();
+      const match = all.find((s) => s.cdpPort === port || s.cdpUrl === cdpUrl);
+      if (match) clearCdpLaunchStateFor(match.profileDir);
+    } catch {}
+  }
 }
 
 export interface PreparePostInput {
@@ -655,22 +700,8 @@ async function openPersistentContext(input: {
 }) {
   let browser = input.cdpUrl ? await chromium.connectOverCDP(input.cdpUrl).catch(() => null) : null;
   if (browser) {
-    // Single-account rule: refuse to attach when the running posting Chrome
-    // verifiably carries a different account profile (mirrors the
-    // ensureBrowserCdp known-profile logic). Unknown provenance (no state)
-    // is allowed; the launcher decides which profile runs.
     const wantedProfileDir = resolveProfileDir(input.profileDir);
-    const knownProfileDir = activeCdpProfileDir ?? readCdpLaunchState()?.profileDir ?? null;
-    if (knownProfileDir !== null && knownProfileDir !== wantedProfileDir) {
-      console.error(
-        `[browser] posting Chrome is attached for a different account profile; refusing. ` +
-          `Activate the requested account first (wanted: ${wantedProfileDir}, attached: ${knownProfileDir})`
-      );
-      throw new Error(
-        `The running posting Chrome belongs to a different account profile; activate the requested account before posting.`
-      );
-    }
-    activeCdpProfileDir = wantedProfileDir;
+    if (input.cdpUrl) activeCdpProfileDirs.set(input.cdpUrl, wantedProfileDir);
   }
   if (input.cdpUrl && !browser && input.autoLaunchCdp !== false) {
     const autoLaunched = await ensureBrowserCdp(input.cdpUrl, input.profileDir);

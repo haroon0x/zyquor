@@ -8,11 +8,15 @@ import { buildApp } from "./app.js";
 beforeEach(() => {
   process.env.ZYQUOR_QUALITY_MIN = "3";
   process.env.ZYQUOR_POST_GAP_MIN_MINUTES = "0";
+  process.env.ZYQUOR_DAILY_POST_VARIANCE_MIN = "4";
+  process.env.ZYQUOR_DAILY_POST_VARIANCE_MAX = "4";
 });
 
 afterEach(() => {
   delete process.env.ZYQUOR_QUALITY_MIN;
   delete process.env.ZYQUOR_POST_GAP_MIN_MINUTES;
+  delete process.env.ZYQUOR_DAILY_POST_VARIANCE_MIN;
+  delete process.env.ZYQUOR_DAILY_POST_VARIANCE_MAX;
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -869,8 +873,8 @@ describe("api workflow", () => {
   });
 
   it("purges posted tweet history after 24 hours", async () => {
-    // Freeze the whole clock so the posted history is stamped at a known time,
-    // then move 24h past the TTL before re-reading /history.
+    const prevLongPause = process.env.ZYQUOR_POST_LONG_PAUSE_CHANCE;
+    process.env.ZYQUOR_POST_LONG_PAUSE_CHANCE = "0";
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(Date.parse("2026-04-24T17:00:00.000Z"));
     const repository = await createSqliteRepository(":memory:");
@@ -893,17 +897,19 @@ describe("api workflow", () => {
     });
 
     // Move past the autopost schedule (random gap up to 90 minutes) so
-    // the explicit post action is allowed.
-    vi.setSystemTime(Date.parse("2026-04-24T20:00:00.000Z"));
+    // the explicit post action is allowed. Long pause disabled for determinism.
+    vi.setSystemTime(Date.parse("2026-04-25T00:00:00.000Z"));
     const ttlPost = await app.inject({ method: "POST", url: `/jobs/${approved.job.id}/post` });
     if (ttlPost.statusCode !== 200) console.log("TTL POST BODY:", ttlPost.body);
     expect(ttlPost.statusCode).toBe(200);
     expect((await app.inject({ method: "GET", url: "/history" })).json().history).toHaveLength(1);
 
-    vi.setSystemTime(Date.parse("2026-04-25T21:00:01.000Z")); // past 20:00 + 24h TTL
+    vi.setSystemTime(Date.parse("2026-04-26T01:00:01.000Z")); // past 00:00 + 24h TTL
     expect((await app.inject({ method: "GET", url: "/history" })).json().history).toHaveLength(0);
 
     vi.useRealTimers();
+    if (prevLongPause === undefined) delete process.env.ZYQUOR_POST_LONG_PAUSE_CHANCE;
+    else process.env.ZYQUOR_POST_LONG_PAUSE_CHANCE = prevLongPause;
     await app.close();
   });
 

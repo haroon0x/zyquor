@@ -56,13 +56,31 @@ async function postSourceLinkReply(
   if (process.env.ZYQUOR_SOURCE_REPLY_DISABLED === "1") return null;
   const target = parseReplyTargetUrl(mainPostUrl);
   if (!target) return null;
+  const perProfileUrl = (() => {
+    const base = deps.browser.cdpUrl ?? "http://127.0.0.1:9222";
+    try {
+      const url = new URL(base);
+      const basePort = Number(url.port || 9222);
+      const normalized = account.profileDir.replaceAll("\\", "/").toLowerCase();
+      let offset = 0;
+      if (normalized.includes("willainotice")) offset = 1;
+      else if (!normalized.includes("personal-main")) {
+        let h = 0;
+        for (let i = 0; i < normalized.length; i++) h = (h * 31 + normalized.charCodeAt(i)) % 10;
+        offset = h;
+      }
+      url.port = String(basePort + offset);
+      return url.toString().replace(/\/$/, "");
+    } catch { return base; }
+  })();
   const browserModule = await import("@zyquor/browser");
   const result = await (deps.browser.preparePost ?? browserModule.preparePost)({
     profileDir: resolveProfileDir(account.profileDir),
     text: sourceUrl.trim(),
     replyTo: target,
     submit: true,
-    ...browserOptions(deps)
+    ...browserOptions(deps),
+    cdpUrl: perProfileUrl,
   });
   if (result.postUrl) {
     const repository = await deps.repository;
@@ -115,27 +133,29 @@ export async function postBrowserJob(deps: AppDeps, jobId: string, options: Post
     throw new HttpError(409, "Account is not enabled for browser jobs");
   }
 
-  // Single-account rule: the posting Chrome carries exactly one X login, so
-  // only the active account's jobs may reach the browser. Jobs for any other
-  // account are rejected until that account is activated (which relaunches
-  // the posting Chrome with its profile).
-  const browserModuleForGuard = await import("@zyquor/browser");
-  const launchState = browserModuleForGuard.readCdpLaunchState();
-  if (launchState && launchState.profileDir !== resolveProfileDir(account.profileDir)) {
-    throw new HttpError(
-      409,
-      `Only one account can post at a time: the active posting profile belongs to another account. Activate @${account.handle} from the account switcher to post for it.`
-    );
-  }
+  const perProfileCdpUrl = (() => {
+    const base = deps.browser.cdpUrl ?? "http://127.0.0.1:9222";
+    try {
+      const url = new URL(base);
+      const basePort = Number(url.port || 9222);
+      const normalized = account.profileDir.replaceAll("\\", "/").toLowerCase();
+      let offset = 0;
+      if (normalized.includes("willainotice")) offset = 1;
+      else if (!normalized.includes("personal-main")) {
+        let h = 0;
+        for (let i = 0; i < normalized.length; i++) h = (h * 31 + normalized.charCodeAt(i)) % 10;
+        offset = h;
+      }
+      url.port = String(basePort + offset);
+      return url.toString().replace(/\/$/, "");
+    } catch { return base; }
+  })();
 
-  // Identity gate: profile paths say whose Chrome this SHOULD be; ask the
-  // browser itself who is ACTUALLY logged in before any browser action. A
-  // wrong login refuses the job, and so does an unreadable one — fail closed,
-  // with no override flag: an unverifiable identity is not a trusted one.
+  const browserModuleForGuard = await import("@zyquor/browser");
   const expectedHandle = account.handle.replace(/^@/, "").toLowerCase();
   const checkXLogin = deps.browser.checkXLogin ?? (async (input: { profileDir: string }) =>
     browserModuleForGuard.checkXLogin(input));
-  const session = await checkXLogin({ profileDir: resolveProfileDir(account.profileDir), ...browserOptions(deps) }).catch(
+  const session = await checkXLogin({ profileDir: resolveProfileDir(account.profileDir), ...browserOptions(deps), cdpUrl: perProfileCdpUrl }).catch(
     (error: unknown) => {
       throw new HttpError(
         409,
@@ -250,6 +270,7 @@ export async function postBrowserJob(deps: AppDeps, jobId: string, options: Post
       ...(job.replyTo ? { replyTo: job.replyTo } : {}),
       ...(mediaPaths.length ? { mediaPaths } : {}),
       ...browserOptions(deps),
+      cdpUrl: perProfileCdpUrl,
       submit: true
     });
     await repository.createAttempt({ jobId: job.id, status: "post_clicked" });
@@ -284,14 +305,14 @@ export async function postBrowserJob(deps: AppDeps, jobId: string, options: Post
       }
     }
 
-    if (deps.browser.closeAfterPost && deps.browser.cdpUrl) {
-      await browserModule.closeBrowserCdp(deps.browser.cdpUrl).catch(() => undefined);
+    if (deps.browser.closeAfterPost) {
+      await browserModule.closeBrowserCdp(perProfileCdpUrl).catch(() => undefined);
     }
 
     return { job: posted, history };
   } catch (error) {
-    if (deps.browser.closeAfterPost && deps.browser.cdpUrl) {
-      await browserModule.closeBrowserCdp(deps.browser.cdpUrl).catch(() => undefined);
+    if (deps.browser.closeAfterPost) {
+      try { const bm = await import("@zyquor/browser"); await bm.closeBrowserCdp(perProfileCdpUrl).catch(() => undefined); } catch {}
     }
     const message = error instanceof Error ? error.message : "Unknown browser error";
     const artifacts = browserArtifacts(error);

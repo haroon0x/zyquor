@@ -5,9 +5,27 @@ import { HttpError } from "../lib/errors.js";
 import { browserOptions } from "../lib/browser.js";
 import { resolveProfileDir } from "../lib/paths.js";
 
+function cdpUrlForProfile(profileDir: string, baseUrl: string | undefined): string {
+  const base = baseUrl ?? "http://127.0.0.1:9222";
+  try {
+    const url = new URL(base);
+    const basePort = Number(url.port || 9222);
+    const normalized = profileDir.replaceAll("\\", "/").toLowerCase();
+    let offset = 0;
+    if (normalized.includes("willainotice")) offset = 1;
+    else if (!normalized.includes("personal-main")) {
+      let h = 0;
+      for (let i = 0; i < normalized.length; i++) h = (h * 31 + normalized.charCodeAt(i)) % 10;
+      offset = h;
+    }
+    url.port = String(basePort + offset);
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return base;
+  }
+}
+
 export function registerBrowserRoutes(app: FastifyInstance, deps: AppDeps): void {
-  // Single-account rule: activating an account relaunches the posting Chrome
-  // with that account's profile. Only the activated account can post.
   app.post("/browser/activate", async (request, reply) => {
     const { accountId } = request.body as { accountId?: string };
     const repository = await deps.repository;
@@ -19,15 +37,11 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: AppDeps): void
 
     assertDedicatedProfileDir(account.profileDir);
     const profileDir = resolveProfileDir(account.profileDir);
-    const cdpUrl = deps.browser.cdpUrl ?? "http://127.0.0.1:9222";
+    const cdpUrl = cdpUrlForProfile(account.profileDir, deps.browser.cdpUrl);
 
     const browser = await import("@zyquor/browser");
     deps.browserLoaded = true;
 
-    // The owning launcher (desktop chrome.ts) performs the switch: close the
-    // current posting Chrome and relaunch with this account's profile. Only
-    // when no launcher is configured (headless API in WSL) do we fall back to
-    // the browser package, which launches only when nothing is running.
     if (deps.launchPostingChrome) {
       const result = await deps.launchPostingChrome({ accountId: account.id });
       if (!result.launched && result.reason !== "already-running") {
@@ -36,10 +50,7 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: AppDeps): void
     } else {
       const launched = await browser.ensureBrowserCdp(cdpUrl, profileDir);
       if (!launched) {
-        throw new HttpError(
-          409,
-          `The running posting Chrome belongs to a different account. Close it, then activate @${account.handle}.`
-        );
+        throw new HttpError(409, `Could not launch Chrome for @${account.handle}: ${cdpUrl} unavailable`);
       }
     }
 
@@ -48,7 +59,7 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: AppDeps): void
       (async (input: { browserChannel?: string | null; cdpUrl?: string; profileDir: string }) => {
         return browser.checkXLogin(input);
       });
-    const session = await checkXLogin({ profileDir, ...browserOptions(deps) }).catch(() => ({ loggedIn: false, handle: null }));
+    const session = await checkXLogin({ profileDir, ...browserOptions(deps), cdpUrl }).catch(() => ({ loggedIn: false, handle: null }));
 
     // Report what we OBSERVED logged in, not what we intended. No persistence:
     // identity is verified live at post time; this response is the operator's
@@ -88,15 +99,31 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: AppDeps): void
     const accounts = await repository.listAccounts();
     const browser = await import("@zyquor/browser");
     deps.browserLoaded = true;
-    const state = browser.readCdpLaunchState();
-    if (!state) {
-      return { accountId: null, handle: null, profileDir: null };
+    const states = (browser as unknown as { readAllCdpLaunchStates?: () => Array<{ profileDir: string; pid: unknown; cdpUrl?: string; cdpPort?: number }> }).readAllCdpLaunchStates
+      ? (browser as unknown as { readAllCdpLaunchStates: () => Array<{ profileDir: string; pid: unknown; cdpUrl?: string; cdpPort?: number }> }).readAllCdpLaunchStates()
+      : browser.readCdpLaunchState() ? [browser.readCdpLaunchState()!] : [];
+    if (states.length === 0) {
+      return { accountId: null, handle: null, profileDir: null, cdpUrl: null, activeAccounts: [] };
     }
-    const active = accounts.find((item) => profileTail(resolveProfileDir(item.profileDir)) === profileTail(state.profileDir));
+    const activeAccounts = states
+      .map((state) => {
+        const active = accounts.find((item) => profileTail(resolveProfileDir(item.profileDir)) === profileTail(state.profileDir));
+        return {
+          accountId: active?.id ?? null,
+          handle: active?.handle ?? null,
+          profileDir: state.profileDir,
+          cdpUrl: (state as { cdpUrl?: string }).cdpUrl ?? cdpUrlForProfile(state.profileDir, deps.browser.cdpUrl),
+          cdpPort: (state as { cdpPort?: number }).cdpPort ?? null,
+        };
+      })
+      .filter((a) => a.accountId);
+    const first = activeAccounts[0] ?? { accountId: null, handle: null, profileDir: states[0]!.profileDir, cdpUrl: (states[0] as { cdpUrl?: string }).cdpUrl ?? null };
     return {
-      accountId: active?.id ?? null,
-      handle: active?.handle ?? null,
-      profileDir: state.profileDir
+      accountId: first.accountId,
+      handle: first.handle,
+      profileDir: first.profileDir,
+      cdpUrl: first.cdpUrl ?? null,
+      activeAccounts,
     };
   });
 
@@ -114,6 +141,7 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: AppDeps): void
     const profileDir = resolveProfileDir(account.profileDir);
 
     try {
+      const cdpUrl = cdpUrlForProfile(account.profileDir, deps.browser.cdpUrl);
       const checkXLogin =
         deps.browser.checkXLogin ??
         (async (input: { browserChannel?: string | null; cdpUrl?: string; profileDir: string }) => {
@@ -123,13 +151,14 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: AppDeps): void
         });
       const result = await checkXLogin({
         profileDir,
-        ...browserOptions(deps)
+        ...browserOptions(deps),
+        cdpUrl,
       });
       if (result.loggedIn) deps.onboarding.xSessionCheckedOk = true;
 
       return {
         accountId: account.id,
-        cdpUrl: deps.browser.cdpUrl ?? null,
+        cdpUrl: cdpUrlForProfile(account.profileDir, deps.browser.cdpUrl),
         enabled: deps.browser.enablePrepare === true,
         error: null,
         loggedIn: result.loggedIn,
@@ -141,7 +170,7 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: AppDeps): void
       const message = error instanceof Error ? error.message : "Unknown browser session error";
       return {
         accountId: account.id,
-        cdpUrl: deps.browser.cdpUrl ?? null,
+        cdpUrl: cdpUrlForProfile(account.profileDir, deps.browser.cdpUrl),
         enabled: deps.browser.enablePrepare === true,
         error: message,
         loggedIn: false,

@@ -478,7 +478,7 @@ describe("worker job processing", () => {
     expect(calls).not.toContain("POST http://api.test/jobs/job_quiet/prepare");
   });
 
-  it("fires only jobs of the activated account and skips the rest", async () => {
+  it("fires jobs for all enabled accounts concurrently", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
     vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -510,12 +510,12 @@ describe("worker job processing", () => {
 
     const processed = await processApprovedJobs({ apiUrl: "http://api.test", pollMs: 1000 }, createWorkerState());
 
-    expect(processed).toBe(1);
+    expect(processed).toBe(2);
     expect(calls).toContain("POST http://api.test/jobs/job_mine/post");
-    expect(calls).not.toContain("POST http://api.test/jobs/job_other/post");
+    expect(calls).toContain("POST http://api.test/jobs/job_other/post");
   });
 
-  it("fires nothing when no account is activated", async () => {
+  it("fires jobs even when no single account is marked active", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-25T12:00:00.000Z"));
     vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -544,8 +544,8 @@ describe("worker job processing", () => {
 
     const processed = await processApprovedJobs({ apiUrl: "http://api.test", pollMs: 1000 }, createWorkerState());
 
-    expect(processed).toBe(0);
-    expect(calls).not.toContain("POST http://api.test/jobs/job_auto/post");
+    expect(processed).toBe(1);
+    expect(calls).toContain("POST http://api.test/jobs/job_auto/post");
   });
 });
 
@@ -750,7 +750,7 @@ describe("worker startup checks", () => {
     }
   });
 
-  it("targets the X session check at the activated account, not the first enabled one", async () => {
+  it("checks X session for all enabled accounts", async () => {
     const calls: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -770,12 +770,13 @@ describe("worker startup checks", () => {
     const result = await checkWorkerStartup({ apiUrl: "http://api.test", pollMs: 1000 });
 
     expect(result.warnings).toEqual([]);
-    const sessionCall = calls.find((call) => call.includes("/browser/x-session"));
-    expect(sessionCall).toBeDefined();
-    expect(sessionCall).toContain(`accountId=${encodeURIComponent(otherAccount.id)}`);
+    const sessionCalls = calls.filter((call) => call.includes("/browser/x-session"));
+    expect(sessionCalls.length).toBe(2);
+    expect(sessionCalls.some((c) => c.includes(`accountId=${encodeURIComponent(baseAccount.id)}`))).toBe(true);
+    expect(sessionCalls.some((c) => c.includes(`accountId=${encodeURIComponent(otherAccount.id)}`))).toBe(true);
   });
 
-  it("warns instead of assuming an account when nothing is activated", async () => {
+  it("does not warn about activation when accounts are enabled", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
@@ -790,7 +791,7 @@ describe("worker startup checks", () => {
 
     const result = await checkWorkerStartup({ apiUrl: "http://api.test", pollMs: 1000 });
 
-    expect(result.warnings.some((warning) => warning.startsWith("No activated account:"))).toBe(true);
+    expect(result.warnings.some((warning) => warning.startsWith("No activated account:"))).toBe(false);
   });
 });
 

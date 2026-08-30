@@ -228,29 +228,11 @@ export async function checkWorkerStartup(options: WorkerOptions) {
     api<{ accounts: Account[] }>(options.apiUrl, "/accounts"),
     api<{ configs: Array<{ enabled: boolean; id: string }> }>(options.apiUrl, "/ingest-configs")
   ]);
-  const enabledAccount = accounts.find((account) => account.enabled);
-  // Single-account rule: the session check targets the account the running
-  // posting Chrome carries. First-enabled is only a fallback for when the
-  // active-account endpoint itself is unreachable; an explicit null means no
-  // activation and must surface as a warning, not a silent default.
-  let sessionAccount: Account | null;
-  try {
-    const active = await api<{ accountId?: string | null }>(options.apiUrl, "/browser/active");
-    if (typeof active.accountId === "string") {
-      sessionAccount = accounts.find((account) => account.id === active.accountId) ?? null;
-    } else if ("accountId" in active) {
-      sessionAccount = null;
-    } else {
-      // Out-of-contract payload: treat the endpoint as unavailable.
-      sessionAccount = enabledAccount ?? null;
-    }
-  } catch {
-    sessionAccount = enabledAccount ?? null;
-  }
+  const enabledAccounts = accounts.filter((account) => account.enabled);
   const enabledConfigs = configs.filter((config) => config.enabled);
 
   if (enabledConfigs.length === 0) {
-    if (configs.length === 0 && options.autoSeedDefaultIngest !== false && enabledAccount) {
+    if (configs.length === 0 && options.autoSeedDefaultIngest !== false && enabledAccounts[0]) {
       const seeded = await api<{ config: { id: string } }>(options.apiUrl, "/ingest-configs/default-news", { method: "POST" });
       seededConfigId = seeded.config.id;
     } else {
@@ -258,33 +240,29 @@ export async function checkWorkerStartup(options: WorkerOptions) {
     }
   }
 
-  if (!enabledAccount) {
+  if (enabledAccounts.length === 0) {
     warnings.push("No enabled account exists for automatic posting.");
-  } else if (sessionAccount === null) {
-    warnings.push(
-      "No activated account: activate one from the account switcher so browser work runs with the intended X login."
-    );
-  }
-
-  if (enabledAccount && sessionAccount) {
+  } else {
     const browserPrepareEnabled = process.env.ZYQUOR_ENABLE_BROWSER_PREPARE === "1";
     const browserPostEnabled = postEnabled();
 
     if (!browserPrepareEnabled && !browserPostEnabled) {
       console.log("skipping X session check (browser actions disabled)");
     } else {
-      try {
-        const session = await api<{ error: string | null; loggedIn: boolean }>(
-          options.apiUrl,
-          `/browser/x-session?accountId=${encodeURIComponent(sessionAccount.id)}`,
-          undefined,
-          15_000
-        );
-        if (!session.loggedIn) {
-          warnings.push(`X login missing for ${sessionAccount.id}${session.error ? `: ${session.error}` : ""}`);
+      for (const acc of enabledAccounts) {
+        try {
+          const session = await api<{ error: string | null; loggedIn: boolean }>(
+            options.apiUrl,
+            `/browser/x-session?accountId=${encodeURIComponent(acc.id)}`,
+            undefined,
+            15_000
+          );
+          if (!session.loggedIn) {
+            warnings.push(`X login missing for ${acc.id} (@${acc.handle})${session.error ? `: ${session.error}` : ""}`);
+          }
+        } catch (error) {
+          warnings.push(`X login check failed for @${acc.handle}: ${error instanceof Error ? error.message : error}`);
         }
-      } catch (error) {
-        warnings.push(`X login check failed: ${error instanceof Error ? error.message : error}`);
       }
     }
   }
@@ -334,38 +312,19 @@ export async function processApprovedJobs(
     );
   });
 
-  // Single-account rule: only fire jobs for the account the running posting
-  // Chrome carries. With no activation at all, nothing may reach the browser.
-  // When the active-account endpoint is unreachable, fall through unfiltered
-  // and rely on the API-side 409 post guard.
-  const active = await fetchActiveAccount(options.apiUrl);
-  if (active.state === "active") {
-    const skippedByAccount = new Map<string, number>();
-    for (const job of approvedJobs) {
-      if (job.accountId !== active.accountId) {
-        skippedByAccount.set(job.accountId, (skippedByAccount.get(job.accountId) ?? 0) + 1);
-      }
-    }
-    for (const [accountId, count] of skippedByAccount) {
-      const other = accountById.get(accountId);
-      console.log(
-        `[worker] skipping ${count} job(s) for @${other?.handle ?? accountId} — only the activated account can run; activate it from the account switcher`
-      );
-    }
-    approvedJobs = approvedJobs.filter((job) => job.accountId === active.accountId);
-  } else if (active.state === "none") {
-    if (approvedJobs.length > 0) {
-      console.log(
-        `[worker] no activated account — skipping ${approvedJobs.length} browser job(s); activate an account from the account switcher`
-      );
-    }
-    return 0;
+  const jobsByAccount = new Map<string, typeof approvedJobs>();
+  for (const job of approvedJobs) {
+    const list = jobsByAccount.get(job.accountId) ?? [];
+    list.push(job);
+    jobsByAccount.set(job.accountId, list);
   }
 
   let processed = 0;
   const seenThisRun = new Set<string>();
-  const loginByAccount = new Map<string, boolean>();
-  for (const job of approvedJobs) {
+  await Promise.all(
+    Array.from(jobsByAccount.entries()).map(async ([accountId, jobs]) => {
+      jobs.sort((a, b) => (Date.parse(a.scheduledFor ?? "") || 0) - (Date.parse(b.scheduledFor ?? "") || 0));
+      for (const job of jobs) {
     if (options.shouldContinue && !options.shouldContinue()) break;
     if (seenThisRun.has(job.id)) {
       continue;
@@ -471,8 +430,10 @@ export async function processApprovedJobs(
       if (action === "post" && message.includes("Another browser job is already running for this account")) {
         break;
       }
-    }
-  }
+      }
+      }
+    })
+  );
 
   return processed;
 }

@@ -13,10 +13,14 @@ const generationProvider: DraftGenerationProvider = {
 
 beforeEach(() => {
   process.env.ZYQUOR_POST_GAP_MIN_MINUTES = "0";
+  process.env.ZYQUOR_DAILY_POST_VARIANCE_MIN = "4";
+  process.env.ZYQUOR_DAILY_POST_VARIANCE_MAX = "4";
 });
 
 afterEach(() => {
   delete process.env.ZYQUOR_POST_GAP_MIN_MINUTES;
+  delete process.env.ZYQUOR_DAILY_POST_VARIANCE_MIN;
+  delete process.env.ZYQUOR_DAILY_POST_VARIANCE_MAX;
   vi.restoreAllMocks();
 });
 

@@ -32,7 +32,7 @@ afterEach(() => {
   rmSync(testDataRoot, { recursive: true, force: true });
 });
 
-describe("ensureBrowserCdp single-account guard", () => {
+describe("ensureBrowserCdp per-profile concurrency", () => {
   it("allows attaching when no launch state is recorded", async () => {
     connectOverCDP.mockResolvedValue({});
     expect(existsSync(join(testDataRoot, "posting-chrome.json"))).toBe(false);
@@ -53,8 +53,6 @@ describe("ensureBrowserCdp single-account guard", () => {
 
   it("normalizes a Windows-style recorded path to the current data root", async () => {
     connectOverCDP.mockResolvedValue({});
-    // The native Windows desktop app records absolute Windows paths; a WSL-side
-    // API must still resolve the same dedicated profile.
     writeCdpLaunchState({ profileDir: "C:\\Users\\asus\\AppData\\Roaming\\Zyquor\\profiles\\personal-main", pid: 23772 });
 
     expect(readCdpLaunchState()?.profileDir).toBe(join(testDataRoot, "profiles", "personal-main"));
@@ -63,18 +61,14 @@ describe("ensureBrowserCdp single-account guard", () => {
     expect(result).toBe(true);
   });
 
-  it("refuses to attach when the recorded state belongs to another profile", async () => {
+  it("allows attaching when a different profile is already recorded on another port", async () => {
     connectOverCDP.mockResolvedValue({});
     writeCdpLaunchState({ profileDir: "/tmp/root-a/profiles/someone-else", pid: null });
     expect(readCdpLaunchState()?.profileDir).toBe("/tmp/root-a/profiles/someone-else");
 
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    try {
-      const result = await ensureBrowserCdp(cdpUrl, "/tmp/root-a/profiles/personal-main");
-      expect(result).toBe(false);
-      expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("different account profile"));
-    } finally {
-      consoleError.mockRestore();
-    }
+    const otherCdpUrl = "http://127.0.0.1:9226";
+    connectOverCDP.mockResolvedValue({});
+    const result = await ensureBrowserCdp(otherCdpUrl, "/tmp/root-a/profiles/personal-main");
+    expect(result).toBe(true);
   });
 });

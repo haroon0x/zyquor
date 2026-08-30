@@ -3,19 +3,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { resolveProfileDir } from "./lib/paths.js";
 
-const { readCdpLaunchState } = vi.hoisted(() => ({
-  readCdpLaunchState: vi.fn<() => { profileDir: string; pid: number | null } | null>(() => null)
+const { readCdpLaunchState, readAllCdpLaunchStates } = vi.hoisted(() => ({
+  readCdpLaunchState: vi.fn<() => { profileDir: string; pid: number | null } | null>(() => null),
+  readAllCdpLaunchStates: vi.fn<() => Array<{ profileDir: string; pid: number | null }>>(() => []),
 }));
 
 vi.mock("@zyquor/browser", () => ({
   readCdpLaunchState,
-  closeBrowserCdp: vi.fn(async () => undefined)
+  readAllCdpLaunchStates,
+  closeBrowserCdp: vi.fn(async () => undefined),
+  checkXLogin: vi.fn(async () => ({ loggedIn: true, handle: "personal-main", url: "https://x.com/home" })),
+  ensureBrowserCdp: vi.fn(async () => true),
 }));
 
 beforeEach(() => {
   process.env.ZYQUOR_POST_GAP_MIN_MINUTES = "0";
   readCdpLaunchState.mockReset();
   readCdpLaunchState.mockReturnValue(null);
+  readAllCdpLaunchStates.mockReset();
+  readAllCdpLaunchStates.mockReturnValue([]);
 });
 
 async function createApprovedJob(repository: ZyquorRepository) {
@@ -30,27 +36,24 @@ async function createApprovedJob(repository: ZyquorRepository) {
   });
 }
 
-describe("postBrowserJob single-account guard", () => {
-  it("rejects the post when the recorded posting Chrome carries another profile", async () => {
+describe("postBrowserJob per-profile concurrency", () => {
+  it("allows posting even when another profile is recorded on a different port", async () => {
     const repository = await createSqliteRepository(":memory:");
     const preparePost = vi.fn(async () => ({ postUrl: "https://x.com/personal/status/1" }));
-    const app = buildApp({ repository, preparePost, enableBrowserPost: true });
+    const app = buildApp({ repository, preparePost, enableBrowserPost: true, checkXLogin: vi.fn(async () => ({ loggedIn: true, handle: "personal-main", url: "https://x.com/home" })) });
     const approved = await createApprovedJob(repository);
 
     readCdpLaunchState.mockReturnValue({
       profileDir: "/tmp/other-data-root/profiles/someone-else",
       pid: null
     });
+    readAllCdpLaunchStates.mockReturnValue([{ profileDir: "/tmp/other-data-root/profiles/someone-else", pid: null }]);
 
     const response = await app.inject({ method: "POST", url: `/jobs/${approved.job.id}/post` });
 
-    expect(response.statusCode).toBe(409);
-    expect(response.json()).toMatchObject({
-      error: expect.stringContaining("Only one account can post at a time")
-    });
-    expect(preparePost).not.toHaveBeenCalled();
-    // The guard runs before the job is claimed, so it stays approved.
-    await expect(repository.getJob(approved.job.id)).resolves.toMatchObject({ status: "approved" });
+    expect(response.statusCode).toBe(200);
+    expect(preparePost).toHaveBeenCalled();
+    await expect(repository.getJob(approved.job.id)).resolves.toMatchObject({ status: "posted" });
 
     await app.close();
   });
