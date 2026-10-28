@@ -674,15 +674,44 @@ async function visibleEditorTexts(page: Page) {
     .evaluateAll((elements) => elements.map((element) => element.textContent?.trim() ?? ""));
 }
 
+async function activateBrowserWindow(page: Page) {
+  // Chrome stops producing animation frames for a minimized or fully occluded
+  // window. Playwright's pointer actionability (stability, scroll into view,
+  // hit target) is measured across frames, so every click would wait out its
+  // timeout with no progress while the element still resolved as visible.
+  // Activating the page also restores a minimized window, which restores
+  // frames for the rest of the run.
+  await page.bringToFront().catch(() => undefined);
+}
+
+async function focusEditor(page: Page, editor: Locator) {
+  // Focusing the contenteditable does not need a pointer event, and it is the
+  // only reliable way to start typing when the window cannot produce frames.
+  await activateBrowserWindow(page);
+  return editor
+    .evaluate((element) => {
+      const target = element as HTMLElement;
+      target.focus();
+      const active = document.activeElement;
+      return active === target || (active !== null && target.contains(active));
+    })
+    .catch(() => false);
+}
+
 async function typeIntoEditor(page: Page, editor: Locator, text: string, typingDelayMs: number) {
-  await editor.click({ timeout: 15_000 });
+  const focused = await focusEditor(page, editor);
+  if (!focused) {
+    // Shells that ignore programmatic focus until the first pointer event:
+    // force skips the actionability waits that stall on a throttled window.
+    await editor.click({ timeout: 15_000, force: true });
+  }
   await editor.fill("", { timeout: 15_000 }).catch(async () => {
     await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
     await page.keyboard.press("Backspace");
   });
   await page.waitForTimeout(250);
   await editor.fill(text, { timeout: 15_000 }).catch(async () => {
-    await editor.click({ timeout: 15_000 });
+    await focusEditor(page, editor);
     await page.keyboard.insertText(text);
   });
   if (typingDelayMs > 0) {
@@ -1733,6 +1762,7 @@ export async function preparePost(input: PreparePostInput): Promise<PreparePostR
     context.setDefaultNavigationTimeout(45_000);
     await context.tracing.start({ screenshots: true, snapshots: true });
     const page = await pageForPost(context, input);
+    await activateBrowserWindow(page);
     await openPostComposer(page, input.xUrl ?? "https://x.com/compose/post", input.replyTo, input.replyToUrl);
     await page.waitForTimeout(actionDelayMs);
     await assertNotLoginPage(page);
