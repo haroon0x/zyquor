@@ -21,6 +21,7 @@
 //   ZYQUOR_REPLY_LOOP_QUERIES      comma separated search queries
 //   ZYQUOR_REPLY_LOOP_MAX_POSTS    posts per cycle, default 1
 //   ZYQUOR_REPLY_LOOP_MAX_PER_DAY  replies per rolling 24h, default 20
+//   ZYQUOR_REPLY_LOOP_RETRY_HOURS  retry a failed draft after N hours, default 6
 //   ZYQUOR_REPLY_LOOP_MIN_QUALITY  auto-post floor, default 5 (matches
 //                                  replyQualityMinimum in @zyquor/generation)
 
@@ -49,6 +50,7 @@ const maxPosts = Number(process.env.ZYQUOR_REPLY_LOOP_MAX_POSTS ?? 1);
 const minQuality = Number(process.env.ZYQUOR_REPLY_LOOP_MIN_QUALITY ?? 5);
 const count = Number(process.env.ZYQUOR_REPLY_LOOP_CANDIDATES ?? 4);
 const maxPerDay = Number(process.env.ZYQUOR_REPLY_LOOP_MAX_PER_DAY ?? 20);
+const retryAfterMs = Number(process.env.ZYQUOR_REPLY_LOOP_RETRY_HOURS ?? 6) * 3_600_000;
 
 let apiUrl = configuredApiUrl || "http://127.0.0.1:3001";
 const dataDir = join(repoRoot, "apps/api/data");
@@ -98,6 +100,21 @@ function saveState(state) {
 
 function record(entry) {
   appendFileSync(logPath, `${JSON.stringify(entry)}\n`);
+}
+
+// A provider outage must not burn the candidate pool. Failures are remembered
+// for a few hours so the next cycle moves on, then the target becomes eligible
+// again. Real decisions (posted, rejected by the screen) stay permanent.
+const TRANSIENT_REASON = /^(?:draft_failed|post_failed)/;
+
+function isSeen(state, url) {
+  const entry = state.seen[url];
+  if (!entry) return false;
+  if (TRANSIENT_REASON.test(String(entry.reason ?? ""))) {
+    const at = Date.parse(entry.at ?? "");
+    return Number.isFinite(at) && Date.now() - at < retryAfterMs;
+  }
+  return true;
 }
 
 function markSeen(state, url, reason, extra = {}) {
@@ -279,7 +296,7 @@ async function runCycle(state) {
 
   for (const item of all) {
     if (posted >= maxPosts) break;
-    if (state.seen[item.url]) continue;
+    if (isSeen(state, item.url)) continue;
     if (item.author?.toLowerCase() === "haroon0x") continue;
     if (seenAuthors.has(item.author?.toLowerCase())) continue;
     const targetReason = acceptableTarget(item);

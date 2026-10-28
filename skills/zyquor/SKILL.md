@@ -142,7 +142,8 @@ node scripts/reply-loop.mjs                # run continuously, default 30 min in
 - Discovery runs feed first, then search, each query on its own browser connection. Running search concurrently with the feed scan kills the search page, because the API feed request closes its own browser context.
 - The filter rejects: too short or over 279 chars, questions the target did not ask, advice imperatives, formula contrasts, slop words, numbers not present in the target, fabricated experience (`I've run`, `my team uses`), an all-lowercase opener, `Point 2` when the target is not a numbered list, and anything under the quality floor.
 - The floor is 5, matching `replyQualityMinimum`. A one-line reply rarely reaches the post floor of 7 even when it is clean, because the post scorer was calibrated on 220 to 480 character posts.
-- Volume guards: 30 minutes between cycles and a rolling 24 hour cap of 20 replies counted from `GET /performance`. Env: `ZYQUOR_REPLY_LOOP_INTERVAL_MS`, `ZYQUOR_REPLY_LOOP_MAX_PER_DAY`, `ZYQUOR_REPLY_LOOP_MIN_QUALITY`, `ZYQUOR_REPLY_LOOP_CANDIDATES`.
+- Volume guards: 30 minutes between cycles and a rolling 24 hour cap of 20 replies counted from `GET /performance`. Env: `ZYQUOR_REPLY_LOOP_INTERVAL_MS`, `ZYQUOR_REPLY_LOOP_MAX_PER_DAY`, `ZYQUOR_REPLY_LOOP_MIN_QUALITY`, `ZYQUOR_REPLY_LOOP_CANDIDATES`, `ZYQUOR_REPLY_LOOP_RETRY_HOURS` (default 6).
+- A failed draft is retried after `ZYQUOR_REPLY_LOOP_RETRY_HOURS` instead of being marked seen forever, so a provider outage cannot empty the pool. Posted and screen-rejected targets stay permanent.
 - This starts a real posting lane. Run it only on an explicit ask, never as a diagnostic. `--dry` is safe.
 - Prompt rules are added only when a rejection reason repeats in the log. Do not bolt speculative instructions onto the prompt.
 

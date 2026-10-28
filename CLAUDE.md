@@ -248,7 +248,9 @@ node scripts/reply-loop.mjs --once         # one cycle, may post
 node scripts/reply-loop.mjs                # every 30 min, max 1 post per cycle
 ```
 
-Env: `ZYQUOR_REPLY_LOOP_QUERIES`, `ZYQUOR_REPLY_LOOP_INTERVAL_MS` (default 30 min), `ZYQUOR_REPLY_LOOP_MAX_POSTS` (default 1), `ZYQUOR_REPLY_LOOP_MAX_PER_DAY` (default 20, rolling 24 hours counted from `/performance`), `ZYQUOR_REPLY_LOOP_MIN_QUALITY` (default 5), `ZYQUOR_REPLY_LOOP_CANDIDATES` (default 4). Starts a posting lane, so run it only on an explicit ask.
+Env: `ZYQUOR_REPLY_LOOP_QUERIES`, `ZYQUOR_REPLY_LOOP_INTERVAL_MS` (default 30 min), `ZYQUOR_REPLY_LOOP_MAX_POSTS` (default 1), `ZYQUOR_REPLY_LOOP_MAX_PER_DAY` (default 20, rolling 24 hours counted from `/performance`), `ZYQUOR_REPLY_LOOP_MIN_QUALITY` (default 5), `ZYQUOR_REPLY_LOOP_CANDIDATES` (default 4), `ZYQUOR_REPLY_LOOP_RETRY_HOURS` (default 6). Starts a posting lane, so run it only on an explicit ask.
+
+Failed drafts are remembered for `ZYQUOR_REPLY_LOOP_RETRY_HOURS`, not forever, so a provider outage cannot burn the whole candidate pool. Posted and screen-rejected targets stay permanent.
 
 ### Original Post Loop
 
