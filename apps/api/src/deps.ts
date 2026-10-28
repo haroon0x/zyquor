@@ -17,6 +17,7 @@ export interface DesktopSettingsData {
   enableBrowserPrepare?: boolean;
   enableBrowserPost?: boolean;
   closeChromeAfterPost?: boolean;
+  headless?: boolean;
   commandCodePath?: string;
   opencodePath?: string;
   opencodeVariant?: string;

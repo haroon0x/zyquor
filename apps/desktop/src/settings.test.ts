@@ -178,8 +178,10 @@ describe("applyDesktopEnvDefaults", () => {
   function withCleanBrowserEnv(fn: () => void) {
     const savedChannel = process.env.ZYQUOR_BROWSER_CHANNEL;
     const savedCdpUrl = process.env.ZYQUOR_BROWSER_CDP_URL;
+    const savedHeadless = process.env.ZYQUOR_BROWSER_HEADLESS;
     delete process.env.ZYQUOR_BROWSER_CHANNEL;
     delete process.env.ZYQUOR_BROWSER_CDP_URL;
+    delete process.env.ZYQUOR_BROWSER_HEADLESS;
     try {
       fn();
     } finally {
@@ -187,8 +189,36 @@ describe("applyDesktopEnvDefaults", () => {
       else process.env.ZYQUOR_BROWSER_CHANNEL = savedChannel;
       if (savedCdpUrl === undefined) delete process.env.ZYQUOR_BROWSER_CDP_URL;
       else process.env.ZYQUOR_BROWSER_CDP_URL = savedCdpUrl;
+      if (savedHeadless === undefined) delete process.env.ZYQUOR_BROWSER_HEADLESS;
+      else process.env.ZYQUOR_BROWSER_HEADLESS = savedHeadless;
     }
   }
+
+  it("maps the headless setting to ZYQUOR_BROWSER_HEADLESS", () => {
+    withCleanBrowserEnv(() => {
+      applySettingsToEnv({ headless: true });
+      expect(process.env.ZYQUOR_BROWSER_HEADLESS).toBe("1");
+    });
+  });
+
+  it("defaults headless off when unset", () => {
+    withCleanBrowserEnv(() => {
+      applyDesktopEnvDefaults({});
+      expect(process.env.ZYQUOR_BROWSER_HEADLESS).toBe("0");
+    });
+  });
+
+  it("uses the repo default opencode model", () => {
+    const savedModel = process.env.ZYQUOR_OPENCODE_MODEL;
+    delete process.env.ZYQUOR_OPENCODE_MODEL;
+    try {
+      applyDesktopEnvDefaults({});
+      expect(process.env.ZYQUOR_OPENCODE_MODEL).toBe("opencode/deepseek-v4.1-flash-free");
+    } finally {
+      if (savedModel === undefined) delete process.env.ZYQUOR_OPENCODE_MODEL;
+      else process.env.ZYQUOR_OPENCODE_MODEL = savedModel;
+    }
+  });
 
   it("sets default channel and CDP URL when both unset", () => {
     withCleanBrowserEnv(() => {

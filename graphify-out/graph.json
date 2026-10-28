@@ -495,7 +495,7 @@
       "label": "DesktopSettingsConfig",
       "file_type": "code",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L33",
+      "source_location": "L34",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast"
@@ -505,7 +505,7 @@
       "label": ".get()",
       "file_type": "code",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L34",
+      "source_location": "L35",
       "_callable": true,
       "_origin": "ast"
     },
@@ -514,7 +514,7 @@
       "label": ".update()",
       "file_type": "code",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L35",
+      "source_location": "L36",
       "_callable": true,
       "_origin": "ast"
     },
@@ -523,7 +523,7 @@
       "label": "DesktopRuntimeStatus",
       "file_type": "code",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L38",
+      "source_location": "L39",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast"
@@ -533,7 +533,7 @@
       "label": "DesktopControl",
       "file_type": "code",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L50",
+      "source_location": "L51",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast"
@@ -543,7 +543,7 @@
       "label": ".closeChrome()",
       "file_type": "code",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L51",
+      "source_location": "L52",
       "_callable": true,
       "_origin": "ast"
     },
@@ -552,7 +552,7 @@
       "label": ".logTail()",
       "file_type": "code",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L52",
+      "source_location": "L53",
       "_callable": true,
       "_origin": "ast"
     },
@@ -561,7 +561,7 @@
       "label": ".quit()",
       "file_type": "code",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L53",
+      "source_location": "L54",
       "_callable": true,
       "_origin": "ast"
     },
@@ -570,7 +570,7 @@
       "label": ".restart()",
       "file_type": "code",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L54",
+      "source_location": "L55",
       "_callable": true,
       "_origin": "ast"
     },
@@ -579,7 +579,7 @@
       "label": ".setWorkerPaused()",
       "file_type": "code",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L55",
+      "source_location": "L56",
       "_callable": true,
       "_origin": "ast"
     },
@@ -588,7 +588,7 @@
       "label": ".status()",
       "file_type": "code",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L56",
+      "source_location": "L57",
       "_callable": true,
       "_origin": "ast"
     },
@@ -597,7 +597,7 @@
       "label": "BuildAppOptions",
       "file_type": "code",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L59",
+      "source_location": "L60",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast"
@@ -607,7 +607,7 @@
       "label": "write()",
       "file_type": "code",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L106",
+      "source_location": "L107",
       "_callable": true,
       "_origin": "ast"
     },
@@ -616,7 +616,7 @@
       "label": "AppDeps",
       "file_type": "code",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L109",
+      "source_location": "L110",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast"
@@ -1058,24 +1058,6 @@
       "file_type": "code",
       "source_file": "apps/api/src/lib/per-profile-cdp.ts",
       "source_location": "L1",
-      "_origin": "ast"
-    },
-    {
-      "id": "apps_api_src_lib_per_profile_cdp_baseportprofiles",
-      "label": "basePortProfiles()",
-      "file_type": "code",
-      "source_file": "apps/api/src/lib/per-profile-cdp.ts",
-      "source_location": "L5",
-      "_callable": true,
-      "_origin": "ast"
-    },
-    {
-      "id": "apps_api_src_lib_per_profile_cdp_perprofilecdpurl",
-      "label": "perProfileCdpUrl()",
-      "file_type": "code",
-      "source_file": "apps/api/src/lib/per-profile-cdp.ts",
-      "source_location": "L12",
-      "_callable": true,
       "_origin": "ast"
     },
     {
@@ -3400,11 +3382,28 @@
       "_origin": "ast"
     },
     {
+      "id": "apps_desktop_src_log_buffer",
+      "label": "_buffer",
+      "file_type": "code",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L9",
+      "_origin": "ast"
+    },
+    {
       "id": "apps_desktop_src_log_baseconsolelog",
       "label": "baseConsoleLog",
       "file_type": "code",
       "source_file": "apps/desktop/src/log.ts",
-      "source_location": "L8",
+      "source_location": "L14",
+      "_origin": "ast"
+    },
+    {
+      "id": "apps_desktop_src_log_rotate",
+      "label": "rotate()",
+      "file_type": "code",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L16",
+      "_callable": true,
       "_origin": "ast"
     },
     {
@@ -3412,7 +3411,52 @@
       "label": "rotateIfNeeded()",
       "file_type": "code",
       "source_file": "apps/desktop/src/log.ts",
-      "source_location": "L10",
+      "source_location": "L30",
+      "_callable": true,
+      "_origin": "ast"
+    },
+    {
+      "id": "apps_desktop_src_log_filesize",
+      "label": "fileSize()",
+      "file_type": "code",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L39",
+      "_callable": true,
+      "_origin": "ast"
+    },
+    {
+      "id": "apps_desktop_src_log_writenow",
+      "label": "writeNow()",
+      "file_type": "code",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L47",
+      "_callable": true,
+      "_origin": "ast"
+    },
+    {
+      "id": "apps_desktop_src_log_flushlog",
+      "label": "flushLog()",
+      "file_type": "code",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L61",
+      "_callable": true,
+      "_origin": "ast"
+    },
+    {
+      "id": "apps_desktop_src_log_flushlogsync",
+      "label": "flushLogSync()",
+      "file_type": "code",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L84",
+      "_callable": true,
+      "_origin": "ast"
+    },
+    {
+      "id": "apps_desktop_src_log_scheduleflush",
+      "label": "scheduleFlush()",
+      "file_type": "code",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L88",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3421,7 +3465,7 @@
       "label": "logFilePath()",
       "file_type": "code",
       "source_file": "apps/desktop/src/log.ts",
-      "source_location": "L21",
+      "source_location": "L97",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3430,7 +3474,16 @@
       "label": "logTail()",
       "file_type": "code",
       "source_file": "apps/desktop/src/log.ts",
-      "source_location": "L25",
+      "source_location": "L101",
+      "_callable": true,
+      "_origin": "ast"
+    },
+    {
+      "id": "apps_desktop_src_log_installprocesshandlers",
+      "label": "installProcessHandlers()",
+      "file_type": "code",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L114",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3439,7 +3492,7 @@
       "label": "initFileLog()",
       "file_type": "code",
       "source_file": "apps/desktop/src/log.ts",
-      "source_location": "L36",
+      "source_location": "L134",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3448,7 +3501,7 @@
       "label": "logLine()",
       "file_type": "code",
       "source_file": "apps/desktop/src/log.ts",
-      "source_location": "L61",
+      "source_location": "L155",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3469,11 +3522,20 @@
       "_origin": "ast"
     },
     {
+      "id": "apps_desktop_src_main_withtimeout",
+      "label": "withTimeout()",
+      "file_type": "code",
+      "source_file": "apps/desktop/src/main.ts",
+      "source_location": "L16",
+      "_callable": true,
+      "_origin": "ast"
+    },
+    {
       "id": "apps_desktop_src_main_updatestatus",
       "label": "UpdateStatus",
       "file_type": "code",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L14",
+      "source_location": "L34",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast"
@@ -3483,7 +3545,7 @@
       "label": "setUpdateStatus()",
       "file_type": "code",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L21",
+      "source_location": "L41",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3492,7 +3554,7 @@
       "label": "makeTrayIcon()",
       "file_type": "code",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L30",
+      "source_location": "L50",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3501,7 +3563,7 @@
       "label": "loadAppIcon()",
       "file_type": "code",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L42",
+      "source_location": "L62",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3510,7 +3572,7 @@
       "label": "captureConsole()",
       "file_type": "code",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L51",
+      "source_location": "L71",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3519,7 +3581,7 @@
       "label": "makeApiLogStream()",
       "file_type": "code",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L66",
+      "source_location": "L94",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3528,7 +3590,7 @@
       "label": "getCdpPort()",
       "file_type": "code",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L120",
+      "source_location": "L148",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3537,25 +3599,7 @@
       "label": "cdpPortForProfile()",
       "file_type": "code",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L129",
-      "_callable": true,
-      "_origin": "ast"
-    },
-    {
-      "id": "apps_desktop_src_main_dataroot",
-      "label": "dataRoot()",
-      "file_type": "code",
-      "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L139",
-      "_callable": true,
-      "_origin": "ast"
-    },
-    {
-      "id": "apps_desktop_src_main_activepostingaccountid",
-      "label": "activePostingAccountId()",
-      "file_type": "code",
-      "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L146",
+      "source_location": "L157",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3564,7 +3608,7 @@
       "label": "createLaunchPostingChrome()",
       "file_type": "code",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L166",
+      "source_location": "L164",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3573,7 +3617,7 @@
       "label": "main()",
       "file_type": "code",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L182",
+      "source_location": "L180",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3582,7 +3626,7 @@
       "label": "showOrCreateWindow()",
       "file_type": "code",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L420",
+      "source_location": "L418",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3591,16 +3635,8 @@
       "label": "clearPolls()",
       "file_type": "code",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L481",
+      "source_location": "L497",
       "_callable": true,
-      "_origin": "ast"
-    },
-    {
-      "id": "node_path",
-      "label": "node:path",
-      "file_type": "code",
-      "source_file": "node:path",
-      "confidence": "EXTRACTED",
       "_origin": "ast"
     },
     {
@@ -3695,7 +3731,7 @@
       "label": "SECRET_FIELDS",
       "file_type": "code",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L23",
+      "source_location": "L24",
       "_origin": "ast"
     },
     {
@@ -3703,7 +3739,7 @@
       "label": "warnEncryptionUnavailable()",
       "file_type": "code",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L28",
+      "source_location": "L29",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3712,7 +3748,7 @@
       "label": "decryptSecrets()",
       "file_type": "code",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L34",
+      "source_location": "L35",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3721,7 +3757,7 @@
       "label": "encryptSecrets()",
       "file_type": "code",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L62",
+      "source_location": "L63",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3730,7 +3766,7 @@
       "label": "settingsPath()",
       "file_type": "code",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L81",
+      "source_location": "L82",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3739,7 +3775,7 @@
       "label": "loadSettings()",
       "file_type": "code",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L85",
+      "source_location": "L86",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3748,7 +3784,7 @@
       "label": "saveSettings()",
       "file_type": "code",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L103",
+      "source_location": "L104",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3757,7 +3793,7 @@
       "label": "applySettingsToEnv()",
       "file_type": "code",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L110",
+      "source_location": "L111",
       "_callable": true,
       "_origin": "ast"
     },
@@ -3766,7 +3802,7 @@
       "label": "applyDesktopEnvDefaults()",
       "file_type": "code",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L135",
+      "source_location": "L137",
       "_callable": true,
       "_origin": "ast"
     },
@@ -5590,7 +5626,7 @@
       "label": "SystemStatus",
       "file_type": "code",
       "source_file": "apps/web/src/types.ts",
-      "source_location": "L256",
+      "source_location": "L257",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast"
@@ -5600,7 +5636,7 @@
       "label": "PanelProps",
       "file_type": "code",
       "source_file": "apps/web/src/types.ts",
-      "source_location": "L320",
+      "source_location": "L321",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast"
@@ -5610,7 +5646,7 @@
       "label": "tweetTypeOptions",
       "file_type": "code",
       "source_file": "apps/web/src/types.ts",
-      "source_location": "L329",
+      "source_location": "L330",
       "_origin": "ast"
     },
     {
@@ -12592,6 +12628,24 @@
       "_origin": "ast"
     },
     {
+      "id": "packages_core_src_paths_baseportprofiles",
+      "label": "basePortProfiles()",
+      "file_type": "code",
+      "source_file": "packages/core/src/paths.ts",
+      "source_location": "L21",
+      "_callable": true,
+      "_origin": "ast"
+    },
+    {
+      "id": "packages_core_src_paths_perprofilecdpurl",
+      "label": "perProfileCdpUrl()",
+      "file_type": "code",
+      "source_file": "packages/core/src/paths.ts",
+      "source_location": "L28",
+      "_callable": true,
+      "_origin": "ast"
+    },
+    {
       "id": "packages_core_src_schema_test",
       "label": "schema.test.ts",
       "file_type": "code",
@@ -18397,7 +18451,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "CLAUDE.md",
-      "source_location": "L190",
+      "source_location": "L192",
       "_origin": "ast"
     },
     {
@@ -18406,7 +18460,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "CLAUDE.md",
-      "source_location": "L197",
+      "source_location": "L199",
       "_origin": "ast"
     },
     {
@@ -18415,7 +18469,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "CLAUDE.md",
-      "source_location": "L203",
+      "source_location": "L205",
       "_origin": "ast"
     },
     {
@@ -18424,7 +18478,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "CLAUDE.md",
-      "source_location": "L211",
+      "source_location": "L213",
       "_origin": "ast"
     },
     {
@@ -18433,7 +18487,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "CLAUDE.md",
-      "source_location": "L217",
+      "source_location": "L219",
       "_origin": "ast"
     },
     {
@@ -18442,7 +18496,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "CLAUDE.md",
-      "source_location": "L224",
+      "source_location": "L226",
       "_origin": "ast"
     },
     {
@@ -18451,7 +18505,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "CLAUDE.md",
-      "source_location": "L230",
+      "source_location": "L232",
       "_origin": "ast"
     },
     {
@@ -18460,7 +18514,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "CLAUDE.md",
-      "source_location": "L242",
+      "source_location": "L244",
       "_origin": "ast"
     },
     {
@@ -18469,7 +18523,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "CLAUDE.md",
-      "source_location": "L252",
+      "source_location": "L254",
       "_origin": "ast"
     },
     {
@@ -18478,7 +18532,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "CLAUDE.md",
-      "source_location": "L262",
+      "source_location": "L264",
       "_origin": "ast"
     },
     {
@@ -18487,7 +18541,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "CLAUDE.md",
-      "source_location": "L270",
+      "source_location": "L272",
       "_origin": "ast"
     },
     {
@@ -18496,7 +18550,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "CLAUDE.md",
-      "source_location": "L278",
+      "source_location": "L280",
       "_origin": "ast"
     },
     {
@@ -18505,7 +18559,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "CLAUDE.md",
-      "source_location": "L283",
+      "source_location": "L285",
       "_origin": "ast"
     },
     {
@@ -18514,7 +18568,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "CLAUDE.md",
-      "source_location": "L290",
+      "source_location": "L292",
       "_origin": "ast"
     },
     {
@@ -18523,7 +18577,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "CLAUDE.md",
-      "source_location": "L306",
+      "source_location": "L308",
       "_origin": "ast"
     },
     {
@@ -18532,7 +18586,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "CLAUDE.md",
-      "source_location": "L319",
+      "source_location": "L321",
       "_origin": "ast"
     },
     {
@@ -18541,7 +18595,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "CLAUDE.md",
-      "source_location": "L323",
+      "source_location": "L325",
       "_origin": "ast"
     },
     {
@@ -18550,7 +18604,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "CLAUDE.md",
-      "source_location": "L328",
+      "source_location": "L330",
       "_origin": "ast"
     },
     {
@@ -18559,7 +18613,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "CLAUDE.md",
-      "source_location": "L335",
+      "source_location": "L337",
       "_origin": "ast"
     },
     {
@@ -18568,7 +18622,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "CLAUDE.md",
-      "source_location": "L342",
+      "source_location": "L344",
       "_origin": "ast"
     },
     {
@@ -19022,7 +19076,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L21",
+      "source_location": "L22",
       "_origin": "ast"
     },
     {
@@ -19031,7 +19085,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L36",
+      "source_location": "L37",
       "_origin": "ast"
     },
     {
@@ -19040,7 +19094,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L47",
+      "source_location": "L48",
       "_origin": "ast"
     },
     {
@@ -19049,7 +19103,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L56",
+      "source_location": "L57",
       "_origin": "ast"
     },
     {
@@ -19058,7 +19112,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L110",
+      "source_location": "L111",
       "_origin": "ast"
     },
     {
@@ -19067,7 +19121,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L128",
+      "source_location": "L131",
       "_origin": "ast"
     },
     {
@@ -19076,7 +19130,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L144",
+      "source_location": "L147",
       "_origin": "ast"
     },
     {
@@ -19085,7 +19139,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L153",
+      "source_location": "L156",
       "_origin": "ast"
     },
     {
@@ -19094,7 +19148,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L178",
+      "source_location": "L181",
       "_origin": "ast"
     },
     {
@@ -19103,7 +19157,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L189",
+      "source_location": "L192",
       "_origin": "ast"
     },
     {
@@ -19112,7 +19166,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L197",
+      "source_location": "L200",
       "_origin": "ast"
     },
     {
@@ -19121,7 +19175,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L206",
+      "source_location": "L209",
       "_origin": "ast"
     },
     {
@@ -19130,7 +19184,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L217",
+      "source_location": "L220",
       "_origin": "ast"
     },
     {
@@ -19139,7 +19193,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L224",
+      "source_location": "L227",
       "_origin": "ast"
     },
     {
@@ -19148,7 +19202,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L236",
+      "source_location": "L239",
       "_origin": "ast"
     },
     {
@@ -21641,7 +21695,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L33",
+      "source_location": "L34",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -21651,7 +21705,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L34",
+      "source_location": "L35",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -21661,7 +21715,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L35",
+      "source_location": "L36",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -21671,7 +21725,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L38",
+      "source_location": "L39",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -21681,7 +21735,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L50",
+      "source_location": "L51",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -21691,7 +21745,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L51",
+      "source_location": "L52",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -21701,7 +21755,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L52",
+      "source_location": "L53",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -21711,7 +21765,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L53",
+      "source_location": "L54",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -21721,7 +21775,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L54",
+      "source_location": "L55",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -21731,7 +21785,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L55",
+      "source_location": "L56",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -21741,7 +21795,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L56",
+      "source_location": "L57",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -21751,7 +21805,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L59",
+      "source_location": "L60",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -21761,7 +21815,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L106",
+      "source_location": "L107",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -21771,7 +21825,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/api/src/deps.ts",
-      "source_location": "L109",
+      "source_location": "L110",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -23138,7 +23192,7 @@
     },
     {
       "source": "apps_api_src_lib_per_profile_cdp_test",
-      "target": "apps_api_src_lib_per_profile_cdp",
+      "target": "packages_core_dist_index",
       "relation": "imports_from",
       "context": "import",
       "confidence": "EXTRACTED",
@@ -23149,7 +23203,7 @@
     },
     {
       "source": "apps_api_src_lib_per_profile_cdp_test",
-      "target": "apps_api_src_lib_per_profile_cdp_perprofilecdpurl",
+      "target": "packages_core_dist_index_perprofilecdpurl",
       "relation": "imports",
       "context": "import",
       "confidence": "EXTRACTED",
@@ -23159,33 +23213,46 @@
       "_origin": "ast"
     },
     {
-      "source": "apps_api_src_lib_per_profile_cdp",
-      "target": "apps_api_src_lib_per_profile_cdp_baseportprofiles",
-      "relation": "contains",
+      "source": "apps_api_src_lib_per_profile_cdp_test",
+      "target": "apps_api_src_lib_per_profile_cdp",
+      "relation": "imports_from",
+      "context": "import",
       "confidence": "EXTRACTED",
-      "source_file": "apps/api/src/lib/per-profile-cdp.ts",
-      "source_location": "L5",
+      "source_file": "apps/api/src/lib/per-profile-cdp.test.ts",
+      "source_location": "L3",
       "weight": 1.0,
       "_origin": "ast"
     },
     {
-      "source": "apps_api_src_lib_per_profile_cdp",
+      "source": "apps_api_src_lib_per_profile_cdp_test",
       "target": "apps_api_src_lib_per_profile_cdp_perprofilecdpurl",
-      "relation": "contains",
+      "relation": "imports",
+      "context": "import",
       "confidence": "EXTRACTED",
-      "source_file": "apps/api/src/lib/per-profile-cdp.ts",
-      "source_location": "L12",
+      "source_file": "apps/api/src/lib/per-profile-cdp.test.ts",
+      "source_location": "L3",
       "weight": 1.0,
       "_origin": "ast"
     },
     {
-      "source": "apps_api_src_lib_per_profile_cdp_perprofilecdpurl",
-      "target": "apps_api_src_lib_per_profile_cdp_baseportprofiles",
-      "relation": "calls",
-      "context": "call",
+      "source": "apps_api_src_lib_per_profile_cdp",
+      "target": "packages_core_dist_index",
+      "relation": "imports_from",
+      "context": "re-export",
       "confidence": "EXTRACTED",
       "source_file": "apps/api/src/lib/per-profile-cdp.ts",
-      "source_location": "L19",
+      "source_location": "L3",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_api_src_lib_per_profile_cdp",
+      "target": "packages_core_dist_index_perprofilecdpurl",
+      "relation": "re_exports",
+      "context": "re-export",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/api/src/lib/per-profile-cdp.ts",
+      "source_location": "L3",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31105,7 +31172,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/chrome.ts",
-      "source_location": "L276",
+      "source_location": "L284",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31176,6 +31243,28 @@
       "_origin": "ast"
     },
     {
+      "source": "apps_desktop_src_log_test",
+      "target": "apps_desktop_src_log_flushlogsync",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/log.test.ts",
+      "source_location": "L4",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_log_test",
+      "target": "apps_desktop_src_log_logtail",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/log.test.ts",
+      "source_location": "L4",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
       "source": "apps_desktop_src_log",
       "target": "ref_node_fs",
       "relation": "imports_from",
@@ -31199,11 +31288,31 @@
     },
     {
       "source": "apps_desktop_src_log",
+      "target": "apps_desktop_src_log_buffer",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L9",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_log",
       "target": "apps_desktop_src_log_baseconsolelog",
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/log.ts",
-      "source_location": "L8",
+      "source_location": "L14",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_log",
+      "target": "apps_desktop_src_log_rotate",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L16",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31213,7 +31322,57 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/log.ts",
-      "source_location": "L10",
+      "source_location": "L30",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_log",
+      "target": "apps_desktop_src_log_filesize",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L39",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_log",
+      "target": "apps_desktop_src_log_writenow",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L47",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_log",
+      "target": "apps_desktop_src_log_flushlog",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L61",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_log",
+      "target": "apps_desktop_src_log_flushlogsync",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L84",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_log",
+      "target": "apps_desktop_src_log_scheduleflush",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L88",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31223,7 +31382,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/log.ts",
-      "source_location": "L21",
+      "source_location": "L97",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31233,7 +31392,17 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/log.ts",
-      "source_location": "L25",
+      "source_location": "L101",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_log",
+      "target": "apps_desktop_src_log_installprocesshandlers",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L114",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31243,7 +31412,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/log.ts",
-      "source_location": "L36",
+      "source_location": "L134",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31253,7 +31422,95 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/log.ts",
-      "source_location": "L61",
+      "source_location": "L155",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_log_rotateifneeded",
+      "target": "apps_desktop_src_log_rotate",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L33",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_log_flushlog",
+      "target": "apps_desktop_src_log_rotate",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L76",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_log_flushlog",
+      "target": "apps_desktop_src_log_writenow",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L80",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_log_flushlogsync",
+      "target": "apps_desktop_src_log_flushlog",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L85",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_log_scheduleflush",
+      "target": "apps_desktop_src_log_flushlog",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L92",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_log_installprocesshandlers",
+      "target": "apps_desktop_src_log_logline",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L120",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_log_installprocesshandlers",
+      "target": "apps_desktop_src_log_flushlogsync",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L121",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_log_initfilelog",
+      "target": "apps_desktop_src_log_filesize",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L141",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31264,18 +31521,29 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/log.ts",
-      "source_location": "L41",
+      "source_location": "L142",
       "weight": 1.0,
       "_origin": "ast"
     },
     {
       "source": "apps_desktop_src_log_initfilelog",
-      "target": "apps_desktop_src_log_logline",
+      "target": "apps_desktop_src_log_writenow",
       "relation": "calls",
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/log.ts",
-      "source_location": "L43",
+      "source_location": "L147",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_log_initfilelog",
+      "target": "apps_desktop_src_log_installprocesshandlers",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L149",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31286,7 +31554,29 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/log.ts",
-      "source_location": "L65",
+      "source_location": "L159",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_log_logline",
+      "target": "apps_desktop_src_log_flushlog",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L166",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_log_logline",
+      "target": "apps_desktop_src_log_scheduleflush",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/log.ts",
+      "source_location": "L169",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31369,6 +31659,17 @@
     },
     {
       "source": "apps_desktop_src_main",
+      "target": "packages_core_dist_index_perprofilecdpurl",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/main.ts",
+      "source_location": "L6",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_main",
       "target": "apps_desktop_src_chrome",
       "relation": "imports_from",
       "context": "import",
@@ -31436,6 +31737,17 @@
     {
       "source": "apps_desktop_src_main",
       "target": "apps_desktop_src_log_initfilelog",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/main.ts",
+      "source_location": "L8",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_main",
+      "target": "apps_desktop_src_log_flushlogsync",
       "relation": "imports",
       "context": "import",
       "confidence": "EXTRACTED",
@@ -31544,11 +31856,21 @@
     },
     {
       "source": "apps_desktop_src_main",
+      "target": "apps_desktop_src_main_withtimeout",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/main.ts",
+      "source_location": "L16",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_main",
       "target": "apps_desktop_src_main_updatestatus",
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L14",
+      "source_location": "L34",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31558,7 +31880,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L21",
+      "source_location": "L41",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31568,7 +31890,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L30",
+      "source_location": "L50",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31578,7 +31900,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L42",
+      "source_location": "L62",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31588,7 +31910,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L51",
+      "source_location": "L71",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31598,7 +31920,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L66",
+      "source_location": "L94",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31608,7 +31930,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L120",
+      "source_location": "L148",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31618,27 +31940,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L129",
-      "weight": 1.0,
-      "_origin": "ast"
-    },
-    {
-      "source": "apps_desktop_src_main",
-      "target": "apps_desktop_src_main_dataroot",
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L139",
-      "weight": 1.0,
-      "_origin": "ast"
-    },
-    {
-      "source": "apps_desktop_src_main",
-      "target": "apps_desktop_src_main_activepostingaccountid",
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L146",
+      "source_location": "L157",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31648,7 +31950,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L166",
+      "source_location": "L164",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31658,7 +31960,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L182",
+      "source_location": "L180",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31668,7 +31970,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L420",
+      "source_location": "L418",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31678,7 +31980,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L481",
+      "source_location": "L497",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31689,54 +31991,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L130",
-      "weight": 1.0,
-      "_origin": "ast"
-    },
-    {
-      "source": "apps_desktop_src_main_activepostingaccountid",
-      "target": "ref_node_fs",
-      "relation": "imports_from",
-      "context": "import",
-      "deferred": true,
-      "confidence": "EXTRACTED",
-      "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L148",
-      "weight": 1.0,
-      "_origin": "ast"
-    },
-    {
-      "source": "apps_desktop_src_main_activepostingaccountid",
-      "target": "ref_node_path",
-      "relation": "imports_from",
-      "context": "import",
-      "deferred": true,
-      "confidence": "EXTRACTED",
-      "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L149",
-      "weight": 1.0,
-      "_origin": "ast"
-    },
-    {
-      "source": "apps_desktop_src_main_activepostingaccountid",
-      "target": "packages_storage_dist_index",
-      "relation": "imports_from",
-      "context": "import",
-      "deferred": true,
-      "confidence": "EXTRACTED",
-      "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L150",
-      "weight": 1.0,
-      "_origin": "ast"
-    },
-    {
-      "source": "apps_desktop_src_main_activepostingaccountid",
-      "target": "apps_desktop_src_main_dataroot",
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L153",
+      "source_location": "L160",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31748,7 +32003,7 @@
       "deferred": true,
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L167",
+      "source_location": "L165",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31759,7 +32014,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L177",
+      "source_location": "L175",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31770,7 +32025,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L196",
+      "source_location": "L194",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31782,7 +32037,7 @@
       "deferred": true,
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L217",
+      "source_location": "L215",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31794,7 +32049,7 @@
       "deferred": true,
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L226",
+      "source_location": "L224",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31806,7 +32061,7 @@
       "deferred": true,
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L227",
+      "source_location": "L225",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31817,7 +32072,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L242",
+      "source_location": "L240",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31828,7 +32083,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L350",
+      "source_location": "L348",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31839,7 +32094,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L416",
+      "source_location": "L414",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31850,7 +32105,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L466",
+      "source_location": "L482",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31861,7 +32116,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L474",
+      "source_location": "L490",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31872,7 +32127,18 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L497",
+      "source_location": "L513",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_main_main",
+      "target": "apps_desktop_src_main_withtimeout",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/main.ts",
+      "source_location": "L515",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31883,7 +32149,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L506",
+      "source_location": "L526",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31894,7 +32160,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L509",
+      "source_location": "L529",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31905,7 +32171,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L629",
+      "source_location": "L651",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -31917,24 +32183,8 @@
       "confidence": "INFERRED",
       "confidence_score": 0.85,
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L714",
+      "source_location": "L740",
       "weight": 1.0,
-      "_origin": "ast"
-    },
-    {
-      "source": "apps_desktop_src_main",
-      "target": "node_fs",
-      "relation": "dynamic_import",
-      "confidence": "EXTRACTED",
-      "source_file": "apps/desktop/src/main.ts",
-      "_origin": "ast"
-    },
-    {
-      "source": "apps_desktop_src_main",
-      "target": "node_path",
-      "relation": "dynamic_import",
-      "confidence": "EXTRACTED",
-      "source_file": "apps/desktop/src/main.ts",
       "_origin": "ast"
     },
     {
@@ -32202,7 +32452,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L23",
+      "source_location": "L24",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -32212,7 +32462,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L28",
+      "source_location": "L29",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -32222,7 +32472,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L34",
+      "source_location": "L35",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -32232,7 +32482,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L62",
+      "source_location": "L63",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -32242,7 +32492,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L81",
+      "source_location": "L82",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -32252,7 +32502,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L85",
+      "source_location": "L86",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -32262,7 +32512,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L103",
+      "source_location": "L104",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -32272,7 +32522,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L110",
+      "source_location": "L111",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -32282,7 +32532,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L135",
+      "source_location": "L137",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -32293,7 +32543,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L40",
+      "source_location": "L41",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -32304,7 +32554,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L68",
+      "source_location": "L69",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -32315,7 +32565,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L86",
+      "source_location": "L87",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -32326,7 +32576,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L96",
+      "source_location": "L97",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -32337,7 +32587,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L104",
+      "source_location": "L105",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -32348,7 +32598,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L106",
+      "source_location": "L107",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -36346,7 +36596,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/web/src/types.ts",
-      "source_location": "L256",
+      "source_location": "L257",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -36356,7 +36606,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/web/src/types.ts",
-      "source_location": "L320",
+      "source_location": "L321",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -36366,7 +36616,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/web/src/types.ts",
-      "source_location": "L329",
+      "source_location": "L330",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -51065,6 +51315,17 @@
     },
     {
       "source": "packages_core_src_index",
+      "target": "packages_core_src_paths_perprofilecdpurl",
+      "relation": "re_exports",
+      "context": "re-export",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/core/src/index.ts",
+      "source_location": "L789",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "packages_core_src_index",
       "target": "packages_core_src_index_ai_slop_phrases",
       "relation": "contains",
       "confidence": "EXTRACTED",
@@ -51250,6 +51511,17 @@
     },
     {
       "source": "packages_core_src_paths_test",
+      "target": "packages_core_src_paths_perprofilecdpurl",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/core/src/paths.test.ts",
+      "source_location": "L3",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "packages_core_src_paths_test",
       "target": "packages_core_src_paths_test_withenv",
       "relation": "contains",
       "confidence": "EXTRACTED",
@@ -51300,6 +51572,26 @@
       "_origin": "ast"
     },
     {
+      "source": "packages_core_src_paths",
+      "target": "packages_core_src_paths_baseportprofiles",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/core/src/paths.ts",
+      "source_location": "L21",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "packages_core_src_paths",
+      "target": "packages_core_src_paths_perprofilecdpurl",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/core/src/paths.ts",
+      "source_location": "L28",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
       "source": "packages_core_src_paths_datapath",
       "target": "packages_core_src_paths_resolvedataroot",
       "relation": "calls",
@@ -51318,6 +51610,17 @@
       "confidence": "EXTRACTED",
       "source_file": "packages/core/src/paths.ts",
       "source_location": "L14",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "packages_core_src_paths_perprofilecdpurl",
+      "target": "packages_core_src_paths_baseportprofiles",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/core/src/paths.ts",
+      "source_location": "L35",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -64530,7 +64833,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CLAUDE.md",
-      "source_location": "L190",
+      "source_location": "L192",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -64540,7 +64843,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CLAUDE.md",
-      "source_location": "L197",
+      "source_location": "L199",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -64550,7 +64853,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CLAUDE.md",
-      "source_location": "L203",
+      "source_location": "L205",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -64560,7 +64863,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CLAUDE.md",
-      "source_location": "L211",
+      "source_location": "L213",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -64570,7 +64873,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CLAUDE.md",
-      "source_location": "L217",
+      "source_location": "L219",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -64580,7 +64883,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CLAUDE.md",
-      "source_location": "L224",
+      "source_location": "L226",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -64590,7 +64893,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CLAUDE.md",
-      "source_location": "L230",
+      "source_location": "L232",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -64600,7 +64903,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CLAUDE.md",
-      "source_location": "L242",
+      "source_location": "L244",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -64610,7 +64913,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CLAUDE.md",
-      "source_location": "L252",
+      "source_location": "L254",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -64620,7 +64923,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CLAUDE.md",
-      "source_location": "L262",
+      "source_location": "L264",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -64630,7 +64933,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CLAUDE.md",
-      "source_location": "L270",
+      "source_location": "L272",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -64640,7 +64943,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CLAUDE.md",
-      "source_location": "L278",
+      "source_location": "L280",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -64650,7 +64953,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CLAUDE.md",
-      "source_location": "L283",
+      "source_location": "L285",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -64660,7 +64963,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CLAUDE.md",
-      "source_location": "L290",
+      "source_location": "L292",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -64670,7 +64973,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CLAUDE.md",
-      "source_location": "L306",
+      "source_location": "L308",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -64680,7 +64983,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CLAUDE.md",
-      "source_location": "L319",
+      "source_location": "L321",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -64690,7 +64993,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CLAUDE.md",
-      "source_location": "L323",
+      "source_location": "L325",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -64700,7 +65003,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CLAUDE.md",
-      "source_location": "L328",
+      "source_location": "L330",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -64710,7 +65013,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CLAUDE.md",
-      "source_location": "L335",
+      "source_location": "L337",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -64720,7 +65023,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CLAUDE.md",
-      "source_location": "L342",
+      "source_location": "L344",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -65070,7 +65373,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "docs/development.md",
-      "source_location": "L240",
+      "source_location": "L241",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -65170,7 +65473,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L21",
+      "source_location": "L22",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -65180,7 +65483,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L36",
+      "source_location": "L37",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -65190,7 +65493,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L47",
+      "source_location": "L48",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -65200,7 +65503,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L56",
+      "source_location": "L57",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -65210,7 +65513,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L110",
+      "source_location": "L111",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -65220,7 +65523,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L128",
+      "source_location": "L131",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -65230,7 +65533,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L144",
+      "source_location": "L147",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -65240,7 +65543,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L153",
+      "source_location": "L156",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -65250,7 +65553,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L178",
+      "source_location": "L181",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -65260,7 +65563,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L189",
+      "source_location": "L192",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -65270,7 +65573,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L197",
+      "source_location": "L200",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -65280,7 +65583,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L206",
+      "source_location": "L209",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -65290,7 +65593,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L217",
+      "source_location": "L220",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -65300,7 +65603,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L224",
+      "source_location": "L227",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -65310,7 +65613,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "skills/zyquor/SKILL.md",
-      "source_location": "L236",
+      "source_location": "L239",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -66061,6 +66364,17 @@
       "_origin": "ast"
     },
     {
+      "source": "apps_api_src_lib_per_profile_cdp",
+      "target": "packages_core_dist_index",
+      "relation": "re_exports",
+      "context": "export",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/api/src/lib/per-profile-cdp.ts",
+      "source_location": "L3",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
       "source": "packages_core_src_index",
       "target": "packages_core_src_state",
       "relation": "re_exports",
@@ -66469,17 +66783,6 @@
     },
     {
       "source": "apps_api_src_lib_post_browser_job_postsourcelinkreply",
-      "target": "apps_api_src_lib_per_profile_cdp_perprofilecdpurl",
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "apps/api/src/lib/post-browser-job.ts",
-      "source_location": "L60",
-      "weight": 1.0,
-      "_origin": "ast"
-    },
-    {
-      "source": "apps_api_src_lib_post_browser_job_postsourcelinkreply",
       "target": "apps_api_src_lib_paths_resolveprofiledir",
       "relation": "calls",
       "context": "call",
@@ -66589,18 +66892,18 @@
       "_origin": "ast"
     },
     {
-      "source": "apps_desktop_src_main_captureconsole",
+      "source": "apps_desktop_src_main_withtimeout",
       "target": "apps_desktop_src_log_logline",
       "relation": "calls",
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L56",
+      "source_location": "L23",
       "weight": 1.0,
       "_origin": "ast"
     },
     {
-      "source": "apps_desktop_src_main_makeapilogstream",
+      "source": "apps_desktop_src_main_captureconsole",
       "target": "apps_desktop_src_log_logline",
       "relation": "calls",
       "context": "call",
@@ -66611,13 +66914,24 @@
       "_origin": "ast"
     },
     {
+      "source": "apps_desktop_src_main_makeapilogstream",
+      "target": "apps_desktop_src_log_logline",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/main.ts",
+      "source_location": "L112",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
       "source": "apps_desktop_src_main_createlaunchpostingchrome",
       "target": "apps_desktop_src_chrome_launchpostingchrome",
       "relation": "calls",
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L178",
+      "source_location": "L176",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -66628,7 +66942,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L195",
+      "source_location": "L193",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -66639,7 +66953,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L197",
+      "source_location": "L195",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -66650,7 +66964,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L208",
+      "source_location": "L206",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -66661,7 +66975,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L210",
+      "source_location": "L208",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -66672,7 +66986,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L211",
+      "source_location": "L209",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -66683,7 +66997,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L259",
+      "source_location": "L257",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -66694,7 +67008,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L286",
+      "source_location": "L284",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -66705,7 +67019,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L294",
+      "source_location": "L292",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -66716,7 +67030,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L321",
+      "source_location": "L319",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -66727,7 +67041,18 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L327",
+      "source_location": "L325",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "apps_desktop_src_main_main",
+      "target": "apps_desktop_src_log_flushlogsync",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "apps/desktop/src/main.ts",
+      "source_location": "L532",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -66738,7 +67063,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L31",
+      "source_location": "L32",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -66749,7 +67074,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/desktop/src/settings.ts",
-      "source_location": "L55",
+      "source_location": "L56",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -67339,18 +67664,6 @@
     },
     {
       "source": "apps_api_src_lib_delete_history_post_deletehistorypost",
-      "target": "apps_api_src_lib_per_profile_cdp_perprofilecdpurl",
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "apps/api/src/lib/delete-history-post.ts",
-      "source_location": "L66",
-      "weight": 1.0,
-      "_origin": "ast"
-    },
-    {
-      "source": "apps_api_src_lib_delete_history_post_deletehistorypost",
       "target": "apps_api_src_lib_paths_resolveprofiledir",
       "relation": "calls",
       "context": "call",
@@ -67519,18 +67832,6 @@
     },
     {
       "source": "apps_api_src_lib_retry_job_retrybrowserjob",
-      "target": "apps_api_src_lib_per_profile_cdp_perprofilecdpurl",
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "apps/api/src/lib/retry-job.ts",
-      "source_location": "L83",
-      "weight": 1.0,
-      "_origin": "ast"
-    },
-    {
-      "source": "apps_api_src_lib_retry_job_retrybrowserjob",
       "target": "apps_api_src_lib_paths_resolveprofiledir",
       "relation": "calls",
       "context": "call",
@@ -67598,18 +67899,6 @@
       "confidence_score": 1.0,
       "source_file": "apps/api/src/routes/browser.ts",
       "source_location": "L20",
-      "weight": 1.0,
-      "_origin": "ast"
-    },
-    {
-      "source": "apps_api_src_routes_browser_registerbrowserroutes",
-      "target": "apps_api_src_lib_per_profile_cdp_perprofilecdpurl",
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "apps/api/src/routes/browser.ts",
-      "source_location": "L21",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -67969,7 +68258,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/desktop/src/main.ts",
-      "source_location": "L451",
+      "source_location": "L467",
       "weight": 1.0,
       "_origin": "ast"
     },

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { initFileLog, logLine } from "./log.js";
+import { initFileLog, logLine, flushLogSync, logTail } from "./log.js";
 
 const tmpRoot = "/tmp/zyquor-desktop-log-test";
 
@@ -61,6 +61,7 @@ describe("logLine", () => {
   it("appends a timestamped line", () => {
     initFileLog(tmpRoot);
     logLine("info", "test message");
+    flushLogSync();
 
     const content = readFileSync(join(tmpRoot, "logs", "main.log"), "utf8");
     const lines = content.trim().split("\n");
@@ -72,5 +73,21 @@ describe("logLine", () => {
 
   it("does not crash when called before initFileLog", () => {
     expect(() => logLine("info", "pre-init")).not.toThrow();
+  });
+
+  it("keeps buffered lines visible to logTail before the flush", () => {
+    initFileLog(tmpRoot);
+    logLine("info", "buffered line");
+    expect(logTail(1)[0]).toContain("buffered line");
+  });
+
+  it("batches many lines into a single write", () => {
+    initFileLog(tmpRoot);
+    for (let i = 0; i < 200; i++) logLine("info", `burst ${i}`);
+    flushLogSync();
+
+    const content = readFileSync(join(tmpRoot, "logs", "main.log"), "utf8");
+    expect(content).toContain("burst 199");
+    expect(content.match(/burst 199/g)).toHaveLength(1);
   });
 });

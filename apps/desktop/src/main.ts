@@ -1,15 +1,35 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell, Tray } from "electron";
 import electronUpdater, { type AppUpdater, type ProgressInfo, type UpdateInfo } from "electron-updater";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
-import { profilesPath } from "@zyquor/core";
+import { profilesPath, perProfileCdpUrl } from "@zyquor/core";
 import { closePostingChrome, isCdpUp, launchedPostingChromePid, launchPostingChrome } from "./chrome.js";
-import { initFileLog, logLine, logTail } from "./log.js";
+import { initFileLog, flushLogSync, logLine, logTail } from "./log.js";
 import { applyDesktopEnvDefaults, applySettingsToEnv, loadSettings, saveSettings, type DesktopSettings } from "./settings.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+/** Resolve when `work` does, or after `ms` with a logged timeout. Shutdown must
+ * always finish, even when a child process or socket hangs. */
+async function withTimeout<T>(work: Promise<T>, ms: number, label: string): Promise<T | null> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => {
+          logLine("error", `${label} timed out after ${ms}ms, continuing`);
+          resolve(null);
+        }, ms);
+        timer.unref();
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 type UpdateStatus = {
   state: "checking" | "available" | "downloaded" | "error";
@@ -49,10 +69,18 @@ function loadAppIcon(): Electron.NativeImage | null {
 }
 
 function captureConsole(): void {
+  const formatArg = (arg: unknown): string => {
+    if (arg instanceof Error) return arg.stack ?? arg.message;
+    if (typeof arg === "string") return arg;
+    try {
+      return JSON.stringify(arg) ?? String(arg);
+    } catch {
+      // Circular objects used to throw from inside the logger itself.
+      return String(arg);
+    }
+  };
   const forward = (level: string) => (...args: unknown[]) => {
-    const text = args
-      .map((arg) => (arg instanceof Error ? arg.stack ?? arg.message : typeof arg === "string" ? arg : JSON.stringify(arg)))
-      .join(" ");
+    const text = args.map(formatArg).join(" ");
     if (text.length > 0) logLine(level, text);
   };
   console.log = forward("info");
@@ -127,40 +155,10 @@ function getCdpPort(): number {
 }
 
 function cdpPortForProfile(profileDir: string): number {
-  const base = getCdpPort();
-  const normalized = profileDir.replaceAll("\\", "/").toLowerCase();
-  if (normalized.includes("personal-main")) return base;
-  if (normalized.includes("willainotice")) return base + 1;
-  let h = 0;
-  for (let i = 0; i < normalized.length; i++) h = (h * 31 + normalized.charCodeAt(i)) % 10;
-  return base + h;
-}
-
-function dataRoot(): string {
-  return process.env.ZYQUOR_DATA_ROOT ?? "";
-}
-
-// Single-account rule: the posting Chrome carries one X login. The shared
-// state file records which account profile it carries; hardcoded callers
-// (tray, startup) defer to the recorded active account when one exists.
-async function activePostingAccountId(): Promise<string> {
-  try {
-    const { readFileSync } = await import("node:fs");
-    const { resolve } = await import("node:path");
-    const { createSqliteRepository } = await import("@zyquor/storage");
-    const repository = await createSqliteRepository();
-    const accounts = await repository.listAccounts();
-    const parsed = JSON.parse(readFileSync(resolve(dataRoot(), "posting-chrome.json"), "utf8")) as {
-      profileDir?: string;
-    };
-    if (typeof parsed.profileDir === "string") {
-      const active = accounts.find((a) => resolve(dataRoot(), a.profileDir) === resolve(parsed.profileDir!));
-      if (active) return active.id;
-    }
-  } catch {
-    /* fall through to default */
-  }
-  return "account_personal";
+  // Shared with the API so the desktop launcher and the posting path always
+  // agree on the port, including ZYQUOR_BROWSER_CDP_BASE_PROFILES.
+  const base = process.env.ZYQUOR_BROWSER_CDP_URL ?? `http://127.0.0.1:${getCdpPort()}`;
+  return Number(new URL(perProfileCdpUrl(base, profileDir)).port || 9222);
 }
 
 async function createLaunchPostingChrome() {
@@ -442,6 +440,24 @@ async function main() {
       win!.show();
     });
 
+    // External links belong in the user's browser. Without this, target=_blank
+    // opens a second Electron window with no address bar, and a same-window
+    // link can navigate the local app away from itself.
+    let appLoaded = false;
+    win.webContents.on("did-finish-load", () => {
+      appLoaded = true;
+    });
+    win.webContents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:/i.test(url)) void shell.openExternal(url);
+      return { action: "deny" };
+    });
+    win.webContents.on("will-navigate", (event, url) => {
+      if (!appLoaded || !win || win.isDestroyed()) return;
+      if (url === win.webContents.getURL()) return;
+      event.preventDefault();
+      if (/^https?:/i.test(url)) void shell.openExternal(url);
+    });
+
     win.on("closed", () => {
       win = null;
     });
@@ -496,22 +512,28 @@ async function main() {
         isQuitting = true;
         clearPolls();
         workerHandle.setPaused(true);
-        await workerHandle.stop();
-        await api.close();
+        await withTimeout(workerHandle.stop(), 5_000, "worker stop");
+        await withTimeout(api.close(), 5_000, "api close");
         try {
           const { createSqliteRepository } = await import("@zyquor/storage");
           const repository = await createSqliteRepository();
           const accounts = await repository.listAccounts();
-          for (const acc of accounts.filter((a) => a.enabled)) {
-            await closePostingChrome({ cdpPort: cdpPortForProfile(acc.profileDir) }).catch(() => undefined);
-          }
+          // Accounts are independent, so close their browsers together instead
+          // of waiting on each one in turn.
+          await Promise.allSettled(
+            accounts
+              .filter((a) => a.enabled)
+              .map((acc) => closePostingChrome({ cdpPort: cdpPortForProfile(acc.profileDir) }))
+          );
         } catch {
-          await closePostingChrome({ cdpPort: getCdpPort() }).catch(() => undefined);
+          await withTimeout(closePostingChrome({ cdpPort: getCdpPort() }), 4_000, "close posting browser");
         }
         logLine("info", "shutdown complete");
+        flushLogSync();
       })();
     }
-    await shutdown;
+    // A hung subprocess or socket must not trap the user in a half-closed app.
+    await withTimeout(shutdown, 10_000, "shutdown");
   };
 
   const contextMenu = Menu.buildFromTemplate([
@@ -699,7 +721,11 @@ async function main() {
     if (shutdown) return;
     event.preventDefault();
     logLine("info", "app quitting");
-    void quitEverything().finally(() => app.exit(0));
+    void quitEverything().finally(() => {
+      // The shutdown path flushes too, but a timed-out step can skip it.
+      flushLogSync();
+      app.exit(0);
+    });
   });
 }
 

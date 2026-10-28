@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { resolve } from "node:path";
-import { resolveDataRoot, dataPath, profilesPath } from "./paths.js";
+import { resolveDataRoot, dataPath, profilesPath, perProfileCdpUrl } from "./paths.js";
 
 function withEnv(key: string, value: string | undefined, fn: () => void) {
   const before = process.env[key];
@@ -81,5 +81,40 @@ describe("profilesPath", () => {
     withEnv("ZYQUOR_DATA_ROOT", "/tmp/zyq-test", () => {
       expect(profilesPath()).toBe(resolve("/tmp/zyq-test", "profiles"));
     });
+  });
+});
+
+describe("perProfileCdpUrl", () => {
+  const base = "http://172.31.96.1:9223";
+
+  afterEach(() => {
+    delete process.env.ZYQUOR_BROWSER_CDP_BASE_PROFILES;
+  });
+
+  it("keeps the default personal-main profile on the base port", () => {
+    expect(perProfileCdpUrl(base, "profiles/personal-main")).toBe(base);
+  });
+
+  it("gives each unlisted profile a stable, distinct port", () => {
+    const first = perProfileCdpUrl(base, "profiles/another-account");
+    const second = perProfileCdpUrl(base, "profiles/another-account");
+    const other = perProfileCdpUrl(base, "profiles/third-account");
+    expect(first).toBe(second);
+    expect(new URL(first).port).toBe("9225");
+    expect(other).not.toBe(first);
+  });
+
+  it("honours the configured base-port profile list", () => {
+    process.env.ZYQUOR_BROWSER_CDP_BASE_PROFILES = "personal-main,reply-loop-test";
+    expect(perProfileCdpUrl(base, "profiles/reply-loop-test")).toBe(base);
+  });
+
+  it("matches profile names case-insensitively through Windows paths", () => {
+    process.env.ZYQUOR_BROWSER_CDP_BASE_PROFILES = "reply-loop-test";
+    expect(perProfileCdpUrl(base, "C:\\Users\\asus\\zyquor-profiles\\Reply-Loop-Test")).toBe(base);
+  });
+
+  it("falls back to the base URL when the input is unparseable", () => {
+    expect(perProfileCdpUrl("not a url", "profiles/x")).toBe("not a url");
   });
 });

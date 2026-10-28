@@ -78,6 +78,11 @@ export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
           Close Chrome after post
         </label>
         <label className="checkbox-row switch-row">
+          <input checked={desktopSettings.headless ?? false} type="checkbox" onChange={(event) => patchSetting("headless", event.target.checked)} />
+          <span aria-hidden="true" className="switch" />
+          Headless posting Chrome
+        </label>
+        <label className="checkbox-row switch-row">
           <input checked={desktopSettings.startWithWindows ?? false} type="checkbox" onChange={(event) => patchSetting("startWithWindows", event.target.checked)} />
           <span aria-hidden="true" className="switch" />
           Start with Windows

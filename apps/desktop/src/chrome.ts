@@ -265,6 +265,14 @@ async function runLaunchPostingChrome(opts: {
     `--remote-debugging-port=${opts.cdpPort}`,
     "--remote-debugging-address=127.0.0.1",
     `--user-data-dir=${opts.profileDir}`,
+    ...(process.env.ZYQUOR_BROWSER_HEADLESS === "1"
+      ? [
+          "--headless=new",
+          "--disable-background-timer-throttling",
+          "--disable-backgrounding-occluded-windows",
+          "--disable-renderer-backgrounding",
+        ]
+      : []),
     "--no-first-run",
     "--no-default-browser-check",
   ];

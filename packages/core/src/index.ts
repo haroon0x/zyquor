@@ -786,7 +786,7 @@ export function loadDotEnv(filePath?: string) {
 export { canTransitionDraft, canTransitionPostJob } from "./state.js";
 export { evaluatePostGate, nextAutopostScheduledFor } from "./spacing.js";
 export type { NextAutopostInput, NextAutopostResult, PostGateInput, PostGateResult } from "./spacing.js";
-export { resolveDataRoot, dataPath, profilesPath } from "./paths.js";
+export { resolveDataRoot, dataPath, profilesPath, perProfileCdpUrl } from "./paths.js";
 export const AI_SLOP_PHRASES = [
   "let's dive in",
   "let us dive in",

@@ -235,7 +235,8 @@ pnpm dist:desktop       # produce NSIS installer (CI: dist-desktop-win job)
 
 - **Data root**: `%APPDATA%/Zyquor` on Windows (overridable via `ZYQUOR_DATA_ROOT`).
 - **Settings**: `settings.json` in the data root instead of `.env`. UI panel gated on `window.zyquor`.
-- **Posting Chrome**: starts with the app and remains available as a tray action, using a dedicated Chrome profile with CDP on port 9222.
-- **Main-process logging**: `logs/main.log` under the data root (rotates at 5 MB).
+- **Posting Chrome**: starts with the app and remains available as a tray action, using a dedicated Chrome profile with CDP on port 9222. Per-account ports come from `perProfileCdpUrl` in `@zyquor/core`, shared with the API.
+- **Main-process logging**: `logs/main.log` under the data root. Lines are batched and flushed every 100 ms or 256 KB, so logging never blocks the main thread; the file rotates to `main.log.1` at 5 MB, checked on write and at startup.
+- **Shutdown**: each step (worker stop, API close, browser close) has a timeout, and the whole quit path gives up after 10 s so a hung child cannot trap the app.
 - **Windows releases** use the configured app icon and can be signed through Azure Trusted Signing. See [Windows code signing](code-signing.md).
 - **Entry points**: `src/main.ts` (main process), `src/preload.ts` (context bridge), `src/chrome.ts` (CDP launch), `src/settings.ts` (JSON config), `src/log.ts` (file logging).

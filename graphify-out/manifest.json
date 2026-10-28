@@ -36,9 +36,9 @@
     "semantic_hash": ""
   },
   "apps/api/src/deps.ts": {
-    "mtime": 1793090900.8842003,
-    "seen": 1793123934.5639582,
-    "ast_hash": "75475c439fcb5a8acce95cee5b722a82",
+    "mtime": 1793176265.8018382,
+    "seen": 1793176698.4425411,
+    "ast_hash": "d4fbd1707b4d2a648327c0b8e8d6f78b",
     "semantic_hash": ""
   },
   "apps/api/src/drafts-evaluate.test.ts": {
@@ -354,27 +354,27 @@
     "semantic_hash": ""
   },
   "apps/desktop/src/chrome.ts": {
-    "mtime": 1787994110.8913999,
-    "seen": 1787994398.8613517,
-    "ast_hash": "1e20d9841c74295bc8921461f4c610c2",
+    "mtime": 1793176245.3938441,
+    "seen": 1793176698.4426348,
+    "ast_hash": "fc84093b667ddfc2f09b43b145895da5",
     "semantic_hash": ""
   },
   "apps/desktop/src/log.test.ts": {
-    "mtime": 1785776677.5196407,
-    "seen": 1787465206.9813094,
-    "ast_hash": "5dafdd4e34f4f676e80bf8c62d1e5884",
+    "mtime": 1793176521.1537654,
+    "seen": 1793176698.4426358,
+    "ast_hash": "b101eb4027dc4b3156965ebabff81d4e",
     "semantic_hash": ""
   },
   "apps/desktop/src/log.ts": {
-    "mtime": 1785915574.6788905,
-    "seen": 1787465206.9813104,
-    "ast_hash": "5452022842d7ec74ba25084820a1f089",
+    "mtime": 1793176544.7617595,
+    "seen": 1793176698.442637,
+    "ast_hash": "4191e78b5a08b9351c982c3e0976fab7",
     "semantic_hash": ""
   },
   "apps/desktop/src/main.ts": {
-    "mtime": 1787992888.4337463,
-    "seen": 1787994398.8613553,
-    "ast_hash": "980df148675f5ff4c9c47eb15f3bfe23",
+    "mtime": 1793176655.9217267,
+    "seen": 1793176698.4426384,
+    "ast_hash": "2763698dada8a3cfa5b4f9dcb9909234",
     "semantic_hash": ""
   },
   "apps/desktop/src/preload.ts": {
@@ -384,15 +384,15 @@
     "semantic_hash": ""
   },
   "apps/desktop/src/settings.test.ts": {
-    "mtime": 1785776677.627649,
-    "seen": 1787465206.981314,
-    "ast_hash": "e56013d1cf55a4b08c9d60ca5d76fb9d",
+    "mtime": 1793176298.0138285,
+    "seen": 1793176698.4426408,
+    "ast_hash": "2cea9b9de2d91a427853de703dbfbd2a",
     "semantic_hash": ""
   },
   "apps/desktop/src/settings.ts": {
-    "mtime": 1787293299.9407058,
-    "seen": 1787465206.9813156,
-    "ast_hash": "5f7f6ce7b45161fe74369af5b2ba2bf4",
+    "mtime": 1793176261.7898393,
+    "seen": 1793176698.4426422,
+    "ast_hash": "dcba0ce4dcaed9dbef3f062c7be0c813",
     "semantic_hash": ""
   },
   "apps/desktop/tsconfig.json": {
@@ -450,9 +450,9 @@
     "semantic_hash": ""
   },
   "apps/web/src/components/DesktopSettingsPanel.tsx": {
-    "mtime": 1786766247.5801396,
-    "seen": 1787465206.9813275,
-    "ast_hash": "368404e616009f39f9d03a44fdbd798e",
+    "mtime": 1793176280.0738337,
+    "seen": 1793176698.4426556,
+    "ast_hash": "e121d6979e37c6e40e962c613042c18c",
     "semantic_hash": ""
   },
   "apps/web/src/components/Feedback.tsx": {
@@ -504,9 +504,9 @@
     "semantic_hash": ""
   },
   "apps/web/src/types.ts": {
-    "mtime": 1793004844.9573946,
-    "seen": 1793006865.3980606,
-    "ast_hash": "5dba32fa641ed289b10dd99d75376166",
+    "mtime": 1793176274.1738355,
+    "seen": 1793176698.4426692,
+    "ast_hash": "f1d53f60db955d6428b3ed75eec93515",
     "semantic_hash": ""
   },
   "apps/web/src/views/Automation.tsx": {
@@ -870,9 +870,9 @@
     "semantic_hash": ""
   },
   "packages/browser/src/index.ts": {
-    "mtime": 1793174349.6184125,
-    "seen": 1793174828.212018,
-    "ast_hash": "2db0c60c9afabe2784a0b8b401811fe3",
+    "mtime": 1793175956.5379279,
+    "seen": 1793176698.4427562,
+    "ast_hash": "dde686712c574aeebf7ae7df41b5d9f0",
     "semantic_hash": ""
   },
   "packages/browser/tsconfig.json": {
@@ -888,21 +888,21 @@
     "semantic_hash": ""
   },
   "packages/core/src/index.ts": {
-    "mtime": 1793090347.7842846,
-    "seen": 1793123934.5641978,
-    "ast_hash": "7e43e8a64a991883912265d2611e27fb",
+    "mtime": 1793176172.9218636,
+    "seen": 1793176698.4427598,
+    "ast_hash": "6fcf99c4d6559023a21d7b3bfc53d897",
     "semantic_hash": ""
   },
   "packages/core/src/paths.test.ts": {
-    "mtime": 1785776679.235773,
-    "seen": 1787465206.9814262,
-    "ast_hash": "76ad1784299e10f6cd461d4d9713379d",
+    "mtime": 1793176364.8921633,
+    "seen": 1793176698.4427607,
+    "ast_hash": "0003dd10e85106cf5318508ad1886ffb",
     "semantic_hash": ""
   },
   "packages/core/src/paths.ts": {
-    "mtime": 1785776679.2437737,
-    "seen": 1787465206.9814272,
-    "ast_hash": "557958588867ad0ef0bcfbb678d0018e",
+    "mtime": 1793176169.8018644,
+    "seen": 1793176698.442762,
+    "ast_hash": "e2fae2856fffd51ae2608603604e5889",
     "semantic_hash": ""
   },
   "packages/core/src/schema.test.ts": {
@@ -1272,15 +1272,15 @@
     "semantic_hash": ""
   },
   "CLAUDE.md": {
-    "mtime": 1793174420.266393,
-    "seen": 1793174828.212161,
-    "ast_hash": "a995cb4fd8928a40c24302c44974b565",
+    "mtime": 1793176571.1177518,
+    "seen": 1793176698.4428542,
+    "ast_hash": "70c1ddc59044459461cb98da6221b4c8",
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1785930473.6097925,
-    "seen": 1787465206.9815137,
-    "ast_hash": "76e24064275c636e860b30808d802d97",
+    "mtime": 1793175977.301922,
+    "seen": 1793176698.4428551,
+    "ast_hash": "b98865a3b5e8ea2d13c3e853912ff299",
     "semantic_hash": ""
   },
   "apps/desktop/electron-builder.yml": {
@@ -1308,9 +1308,9 @@
     "semantic_hash": ""
   },
   "docs/development.md": {
-    "mtime": 1788520342.3994296,
-    "seen": 1788520900.033267,
-    "ast_hash": "c79ba1ed142be7fd2188e1d05c2def44",
+    "mtime": 1793176577.74575,
+    "seen": 1793176698.4428613,
+    "ast_hash": "3ee76ff4b6daf4e275b394fb6cd1e240",
     "semantic_hash": ""
   },
   "docs/ubuntu-setup.md": {
@@ -1416,9 +1416,9 @@
     "semantic_hash": ""
   },
   "apps/api/src/lib/per-profile-cdp.ts": {
-    "mtime": 1793131645.368138,
-    "seen": 1793170798.3850439,
-    "ast_hash": "1569c608753653ed53e38d4f234b4f0d",
+    "mtime": 1793176176.1258628,
+    "seen": 1793176698.4425695,
+    "ast_hash": "d1ffdcbb31686b54fe46145b2366d581",
     "semantic_hash": ""
   },
   "opencode.json": {
@@ -1470,9 +1470,9 @@
     "semantic_hash": ""
   },
   "skills/zyquor/SKILL.md": {
-    "mtime": 1793174446.9863849,
-    "seen": 1793174828.212178,
-    "ast_hash": "efbdac567d64957f7d0f17090145be93",
+    "mtime": 1793176586.7497468,
+    "seen": 1793176698.4428647,
+    "ast_hash": "887840a316ec5e4b17f4b1f827ae0023",
     "semantic_hash": ""
   },
   "apps/api/src/replies-autoapprove.test.ts": {
@@ -1512,9 +1512,9 @@
     "semantic_hash": ""
   },
   "apps/api/src/lib/per-profile-cdp.test.ts": {
-    "mtime": 1793131676.6681335,
-    "seen": 1793170798.3850405,
-    "ast_hash": "12129e85c13271514c130982711d2c93",
+    "mtime": 1793176368.657809,
+    "seen": 1793176698.4425673,
+    "ast_hash": "dd5efb9bacb023b19bcdb8a70d7fbcf2",
     "semantic_hash": ""
   }
 }
