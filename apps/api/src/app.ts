@@ -1,5 +1,5 @@
 import cors from "@fastify/cors";
-import { createA16zAdapter, createAggregatedNewsAdapter, createAnthropicReleaseNotesAdapter, createCrawl4AiService, createCursorChangelogAdapter, createDeepSeekUpdatesAdapter, createGoldfishAdapter, createModelReleasesAdapter, createRssAdapter, createXFeedAdapter, createXaiNewsAdapter, type SourceAdapter } from "@zyquor/adapters";
+import { createA16zAdapter, createAggregatedNewsAdapter, createAnthropicReleaseNotesAdapter, createCrawl4AiService, createCursorChangelogAdapter, createDeepSeekUpdatesAdapter, createGoldfishAdapter, createModelReleasesAdapter, createRssAdapter, createXFeedAdapter, createXaiNewsAdapter, fetchGoldfishReplyContext, type SourceAdapter } from "@zyquor/adapters";
 import { createGenerationProviderFromEnv } from "@zyquor/generation";
 import { createSqliteRepository, type ZyquorRepository } from "@zyquor/storage";
 import Fastify from "fastify";
@@ -30,6 +30,19 @@ export { type BuildAppOptions };
 
 function adaptersBySourceType(adapters: SourceAdapter[]) {
   return new Map(adapters.map((adapter) => [adapter.sourceType, adapter]));
+}
+
+// Default browser fetch hooks merge the app-level browser options the same way
+// createXFeedAdapter does, so routes can call deps.browser.* without knowing
+// about channel/cdp wiring. Tests inject their own hooks instead.
+function withBrowserOptions<T extends object>(input: T, options: BuildAppOptions): T {
+  return {
+    ...input,
+    ...(options.browserChannel !== undefined ? { browserChannel: options.browserChannel } : {}),
+    ...(options.browserCdpUrl !== undefined ? { cdpUrl: options.browserCdpUrl } : {}),
+    ...(options.browserActionDelayMs !== undefined ? { actionDelayMs: options.browserActionDelayMs } : {}),
+    ...(options.browserTypingDelayMs !== undefined ? { typingDelayMs: options.browserTypingDelayMs } : {})
+  } as T;
 }
 
 function createDefaultSourceAdapters(options: {
@@ -69,6 +82,14 @@ function createDefaultSourceAdapters(options: {
 export function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({ logger: options.logStream ? { stream: options.logStream as never } : true });
   const repositoryPromise = options.repository ? Promise.resolve(options.repository) : createSqliteRepository();
+  const defaultBrowserFetch = async (
+    fn: "fetchTweet" | "fetchAccountTimeline" | "fetchXHomeFeed" | "fetchXMentions",
+    input: object
+  ) => {
+    const browser = await import("@zyquor/browser");
+    const fetcher: (...args: never[]) => Promise<unknown> = browser[fn];
+    return (await fetcher(withBrowserOptions(input, options) as never)) as never;
+  };
   const sourceAdapters = adaptersBySourceType(options.sourceAdapters ?? createDefaultSourceAdapters({
     repository: repositoryPromise,
     ...(options.browserChannel !== undefined ? { browserChannel: options.browserChannel } : {}),
@@ -81,19 +102,21 @@ export function buildApp(options: BuildAppOptions = {}) {
         ? null
         : defaultGenerationConfigPath()
       : options.generationConfigPath;
+  const savedGenerationEnv = readSavedGenerationEnv(generationConfigPath);
 
   const deps: AppDeps = {
     repository: repositoryPromise,
     sourceAdapters,
     generationEnv: {
       ...baseGenerationEnv,
-      ...readSavedGenerationEnv(generationConfigPath)
+      ...savedGenerationEnv
     },
     generationProvider: options.generationProvider ?? createGenerationProviderFromEnv({
       ...baseGenerationEnv,
-      ...readSavedGenerationEnv(generationConfigPath)
+      ...savedGenerationEnv
     }),
     generationConfigPath,
+    goldfishReplyContext: options.goldfishReplyContext ?? fetchGoldfishReplyContext,
     launchPostingChrome: options.launchPostingChrome,
     desktopSettings: options.desktopSettings,
     desktopControl: options.desktopControl,
@@ -118,8 +141,25 @@ export function buildApp(options: BuildAppOptions = {}) {
       typingDelayMs: options.browserTypingDelayMs,
       checkXLogin: options.checkXLogin,
       preparePost: options.preparePost,
+      deletePost: options.deletePost,
       closeAfterPrepare: options.closeAfterPrepare,
-      closeAfterPost: options.closeAfterPost
+      closeAfterPost: options.closeAfterPost,
+      fetchTweet: (input) =>
+        options.fetchTweet
+          ? options.fetchTweet(input)
+          : defaultBrowserFetch("fetchTweet", input),
+      fetchAccountTimeline: (input) =>
+        options.fetchAccountTimeline
+          ? options.fetchAccountTimeline(input)
+          : defaultBrowserFetch("fetchAccountTimeline", input),
+      fetchXHomeFeed: (input) =>
+        options.fetchXHomeFeed
+          ? options.fetchXHomeFeed(input)
+          : defaultBrowserFetch("fetchXHomeFeed", input),
+      fetchXMentions: (input) =>
+        options.fetchXMentions
+          ? options.fetchXMentions(input)
+          : defaultBrowserFetch("fetchXMentions", input)
     }
   };
 

@@ -13,6 +13,7 @@ export function StylePanel({ panel, styleProfileId }: { panel: PanelProps; style
   const [examplePosts, setExamplePosts] = useState("");
   const [systemFeedback, setSystemFeedback] = useState<SystemFeedback[]>([]);
   const [feedbackText, setFeedbackText] = useState("");
+  const [replyMemory, setReplyMemory] = useState(true);
 
   async function loadStyleProfile() {
     setLoadError(null);
@@ -26,6 +27,9 @@ export function StylePanel({ panel, styleProfileId }: { panel: PanelProps; style
     );
     setBannedPhrases(profile.bannedPhrases.join("\n"));
     setExamplePosts(profile.examplePosts.join("\n\n"));
+    // Absent means enabled: reply memory is on unless a rule explicitly
+    // switches it off.
+    setReplyMemory(profile.rules.replyMemory !== false);
     const { items } = await api<{ items: SystemFeedback[] }>(`/system-feedback?accountId=${encodeURIComponent(accountId)}`);
     setSystemFeedback(items);
   }
@@ -42,7 +46,7 @@ export function StylePanel({ panel, styleProfileId }: { panel: PanelProps; style
         body: JSON.stringify({
           bannedPhrases: bannedPhrases.split(/\n+/).map((line) => line.trim()).filter(Boolean),
           examplePosts: examplePosts.split(/\n{2,}/).map((post) => post.trim()).filter(Boolean),
-          rules: { ...styleProfile.rules, objective, systemPromptExtra },
+          rules: { ...styleProfile.rules, objective, systemPromptExtra, replyMemory },
           tone: styleProfile.tone
         })
       });
@@ -100,6 +104,15 @@ export function StylePanel({ panel, styleProfileId }: { panel: PanelProps; style
         <label>
           Extra system prompt
           <textarea value={systemPromptExtra} onChange={(event) => setSystemPromptExtra(event.target.value)} rows={5} />
+        </label>
+        <label className="switch-row">
+          <input
+            checked={replyMemory}
+            type="checkbox"
+            onChange={(event) => setReplyMemory(event.target.checked)}
+          />
+          <span aria-hidden="true" className="switch" />
+          Ground replies with Goldfish memory
         </label>
       </div>
       <button disabled={busy} onClick={saveStyleProfile}><Busy active={busy} />Save prompt</button>

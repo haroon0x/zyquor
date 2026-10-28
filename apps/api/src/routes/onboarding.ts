@@ -27,11 +27,11 @@ export function registerOnboardingRoutes(app: FastifyInstance, deps: AppDeps): v
     const [accounts, hasDrafts, jobs] = await Promise.all([
       repository.listAccounts(),
       repository.hasDrafts(),
-      repository.listJobs()
+      repository.hasPostJobs()
     ]);
     const generation = resolveGenerationProviderConfig(deps.generationEnv);
     const generationIsDefault = !hasExplicitGenerationConfig(deps);
-    const hasJobs = jobs.length > 0;
+    const hasJobs = jobs;
     const xSessionCheckedOk = deps.onboarding.xSessionCheckedOk;
 
     return {

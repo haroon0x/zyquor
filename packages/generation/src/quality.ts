@@ -9,6 +9,20 @@ export function qualityMinimum() {
   return Number.isFinite(value) ? Math.min(10, Math.max(0, value)) : DEFAULT_QUALITY_MIN;
 }
 
+export const DEFAULT_REPLY_QUALITY_MIN = 5;
+
+// Reply floor for the approval screen. `scoreTweetQuality`'s payoff and
+// specific-noun checks were calibrated on full-length posts (220-480 chars);
+// one-line replies rarely accumulate enough of that vocabulary to reach the
+// post floor even when they are clean and carry a real consequence. The reply
+// screen still enforces cleanliness, the recap/artifact checks, and a payoff
+// signal through the same scorer, just with a floor that matches the format.
+export function replyQualityMinimum() {
+  const configured = process.env.ZYQUOR_REPLY_QUALITY_MIN?.trim();
+  const value = configured ? Number(configured) : Number.NaN;
+  return Number.isFinite(value) ? Math.min(10, Math.max(0, value)) : DEFAULT_REPLY_QUALITY_MIN;
+}
+
 const INTERNAL_LEAK_PATTERNS = [
   /\bSourcePackets?\b/i,
   /\bsource packets?\b/i,
@@ -78,7 +92,9 @@ const WEAK_ENDING_PATTERN = /(?:\b(?:etc\.?|so|and|but|or|thoughts\??|agree\??|w
 const EM_DASH_OVERUSE_PATTERN = /(?:[—–][^—–]*){2,}/;
 
 export function normalizeCount(count: number | undefined) {
-  return Math.min(Math.max(count ?? 1, 1), 5);
+  // Cap is a request-size guard, not a quality decision: a large pool just
+  // means the top-up loop fills until it exhausts its bounded attempts.
+  return Math.min(Math.max(count ?? 1, 1), 50);
 }
 
 function processTweetText(text: string, preserveCase: boolean) {
@@ -180,7 +196,29 @@ function countPayoffSignals(text: string) {
 }
 
 function looksLikeSourceRecap(text: string) {
+  // First-person-led posts carry the author's own stake, so release verbs
+  // ("I shipped v2.4") describe personal work rather than a third-party recap.
+  if (/^(i|we|my|our)\b/i.test(text.trim())) return false;
   return RECAP_OPENERS.some((pattern) => pattern.test(text.trim()));
+}
+
+// Third-party changelog regurgitation: version-led ("llm 0.33"), dense with
+// API/method tokens (embed_multi, self.key, Foo.bar()), and no first-person
+// stake. Reads as jargon noise even when factually correct, so it must never
+// ride the autopost lane. First-person posts about the author's own work are
+// exempt: the personal stake is exactly what makes them postable.
+const CHANGELOG_VERSION_PATTERN = /\bv?\d+\.\d+(?:\.\d+)?\b/;
+const CODE_TOKEN_PATTERNS = [
+  /\b[a-zA-Z_][\w$]*\([^()\n]*\)/,
+  /\b[a-z]+(?:_[a-z0-9]+){1,}\b/,
+  /\bself\.\w+\b/
+];
+const FIRST_PERSON_PATTERN = /\b(i|we|my|our|i'm|i've)\b/i;
+
+function looksLikeThirdPartyChangelog(text: string) {
+  if (FIRST_PERSON_PATTERN.test(text)) return false;
+  if (!CHANGELOG_VERSION_PATTERN.test(text)) return false;
+  return CODE_TOKEN_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 function containsSourceArtifact(text: string) {
@@ -202,6 +240,7 @@ export function scoreTweetQuality(text: string) {
   if (payoffSignals > 0) score += 2;                     // real consequence/tradeoff/decision
   if (containsSourceArtifact(trimmed)) score -= 3;
   if (looksLikeSourceRecap(trimmed)) score -= 3;
+  if (looksLikeThirdPartyChangelog(trimmed)) score -= 4;
   if (WEAK_OPENER_PATTERN.test(trimmed)) score -= 2;
   if (containsAdjectiveBloat(trimmed)) score -= 2;
   if (containsAphorism(trimmed)) score -= 3;

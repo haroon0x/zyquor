@@ -45,6 +45,29 @@ export interface Candidate {
 export interface DraftResponse {
   draft: Draft;
   candidates: Candidate[];
+  memory?: ReplyMemoryInfo;
+}
+
+export interface ReplyMemoryInfo {
+  used: boolean;
+  reason?: "disabled" | "empty" | "unavailable";
+  terms?: string[];
+  wikiCount?: number;
+  memoryCount?: number;
+}
+
+export interface MentionItem {
+  id: string;
+  authorHandle: string;
+  authorName: string;
+  text: string;
+  url: string;
+  publishedAt: string | null;
+  isRetweet?: boolean;
+  isPromoted?: boolean;
+  hasLink?: boolean;
+  drafted: boolean;
+  posted: boolean;
 }
 
 export interface QualityGateMetadata {

@@ -30,6 +30,7 @@ export {
   passesTweetQualityFloor,
   postProcessTweetText,
   qualityMinimum,
+  replyQualityMinimum,
   scoreTweetQuality
 } from "./quality.js";
 export { generateDraftCandidates } from "./refine.js";

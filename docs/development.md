@@ -88,6 +88,7 @@ Browser:
 
 History:
 - `GET /history` — posted tweet history
+- `POST /history/:id/delete` — delete the live X post via the account's posting Chrome (requires browser-post flag), marks the history row deleted
 - `GET /history/analysis?accountId=&sinceHours=` — recent post quality analysis
 
 Worker:

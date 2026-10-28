@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { chromium } from "playwright-core";
 import type { Page } from "playwright-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { checkXLogin, fetchXHomeFeed, openPostComposer, preparePost, resolveProfileDir } from "./index.js";
+import { checkXLogin, fetchXHomeFeed, fetchXMentions, openPostComposer, preparePost, resolveProfileDir } from "./index.js";
 
 function htmlUrl(html: string) {
   return `data:text/html,${encodeURIComponent(html)}`;
@@ -275,6 +275,60 @@ describeBrowser("preparePost", () => {
       id: "222",
       authorHandle: "bob",
       isRetweet: true
+    });
+  }, 30_000);
+});
+
+describeBrowser("fetchXMentions", () => {
+  it("scrapes the mentions tab through the mentionsUrl test hook", async () => {
+    const profileDir = mkdtempSync(join(tmpdir(), "zyquor-browser-profile-"));
+    const artifactsDir = mkdtempSync(join(tmpdir(), "zyquor-browser-artifacts-"));
+    const html = `
+      <!doctype html>
+      <html>
+        <body>
+          <a data-testid="AppTabBar_Profile_Link" href="/me">me</a>
+          <article data-testid="tweet">
+            <div data-testid="User-Name">Alice @alice</div>
+            <div data-testid="tweetText">Hey @me, loved your post about audit trails</div>
+            <time datetime="2026-10-25T09:00:00.000Z">2h</time>
+            <a href="/alice/status/331">open</a>
+          </article>
+          <article data-testid="tweet">
+            <div data-testid="socialContext">Ad by sponsor</div>
+            <div data-testid="User-Name">Spammy @spammy</div>
+            <div data-testid="tweetText">Check out my totally real tool</div>
+            <time datetime="2026-10-25T10:00:00.000Z">1h</time>
+            <a href="/spammy/status/332">open</a>
+          </article>
+          <article data-testid="tweet">
+            <div data-testid="User-Name">Bob @bob</div>
+            <div data-testid="tweetText">Second mention with no permalink anchor</div>
+            <time datetime="2026-10-25T11:00:00.000Z">30m</time>
+          </article>
+        </body>
+      </html>
+    `;
+
+    const result = await fetchXMentions({
+      profileDir,
+      artifactsDir,
+      actionDelayMs: 10,
+      browserChannel: null,
+      headless: true,
+      maxTweets: 20,
+      scrolls: 0,
+      mentionsUrl: htmlUrl(html)
+    });
+
+    expect(result.tweets).toHaveLength(1);
+    expect(result.tweets[0]).toMatchObject({
+      authorHandle: "alice",
+      authorName: "Alice",
+      text: "Hey @me, loved your post about audit trails",
+      url: "https://x.com/alice/status/331",
+      publishedAt: "2026-10-25T09:00:00.000Z",
+      isRetweet: false
     });
   }, 30_000);
 });

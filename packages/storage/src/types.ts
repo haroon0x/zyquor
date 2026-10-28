@@ -50,6 +50,7 @@ export interface ZyquorRepository {
     metadata?: Record<string, unknown>;
   }): Promise<DraftWithCandidates>;
   hasDrafts(): Promise<boolean>;
+  countPendingDrafts(): Promise<number>;
   createSourcePacket(input: {
     accountId: string;
     sourceType: SourcePacket["sourceType"];
@@ -61,7 +62,9 @@ export interface ZyquorRepository {
   }): Promise<SourcePacket>;
   getSourcePacket(id: string): Promise<SourcePacket | null>;
   getSourcePacketByUrl(url: string, accountId?: string): Promise<SourcePacket | null>;
-  listSourcePackets(accountId?: string): Promise<SourcePacket[]>;
+  listSourcePackets(accountId?: string, options?: { status?: SourcePacket["status"]; limit?: number }): Promise<SourcePacket[]>;
+  countSourcePackets(status?: SourcePacket["status"]): Promise<number>;
+  getLatestSourcePacket(): Promise<SourcePacket | null>;
   deleteSourcePacket(id: string): Promise<SourcePacket>;
   markSourcePacketDrafted(id: string): Promise<SourcePacket>;
   resetSourcePacket(id: string): Promise<SourcePacket>;
@@ -92,7 +95,11 @@ export interface ZyquorRepository {
     replyTo?: ReplyTarget;
     replyToUrl?: string | null;
   }): Promise<{ draft: Draft; job: PostJob }>;
-  listJobs(): Promise<PostJob[]>;
+  listJobs(accountId?: string, options?: { statuses?: PostJob["status"][]; limit?: number }): Promise<PostJob[]>;
+  getPostJobStatusCounts(): Promise<Record<string, number>>;
+  hasPostJobs(): Promise<boolean>;
+  getLatestPostedJob(): Promise<PostJob | null>;
+  listJobsByDraftId(draftId: string): Promise<PostJob[]>;
   getJob(id: string): Promise<PostJob | null>;
   deleteJob(id: string): Promise<PostJob>;
   updateJobStatus(id: string, status: PostJob["status"]): Promise<PostJob>;
@@ -128,6 +135,13 @@ export interface ZyquorRepository {
     tweetType?: PostHistory["tweetType"];
   }): Promise<PostHistory>;
   listPostHistory(): Promise<PostHistory[]>;
+  getPostHistory(id: string): Promise<PostHistory | null>;
+  getLatestPostHistoryForAccount(accountId: string): Promise<PostHistory | null>;
+  countPostHistorySince(accountId: string, sinceIso: string): Promise<number>;
+  countPostHistoryByDraftId(draftId: string): Promise<number>;
+  countPostHistoryBySourcePacket(accountId: string, sourcePacketId: string): Promise<number>;
+  hasPostHistoryTextHash(accountId: string, textHash: string, normalizedText: string): Promise<boolean>;
+  hasPostHistorySourceUrl(accountId: string, sourceUrl: string): Promise<boolean>;
   updatePostHistoryMetadata(id: string, metadata: Record<string, unknown>): Promise<PostHistory | null>;
   purgePostHistoryOlderThan(cutoffIso: string): Promise<number>;
   upsertTweetMeasurement(input: {
@@ -158,6 +172,7 @@ export interface ZyquorRepository {
   }): Promise<IngestConfig>;
   getIngestConfig(id: string): Promise<IngestConfig | null>;
   listIngestConfigs(accountId?: string): Promise<IngestConfig[]>;
+  countIngestConfigs(options?: { enabled?: boolean }): Promise<number>;
   updateIngestConfig(id: string, input: Partial<Omit<IngestConfig, "id" | "accountId" | "createdAt" | "updatedAt">>): Promise<IngestConfig>;
   deleteIngestConfig(id: string): Promise<IngestConfig>;
 }

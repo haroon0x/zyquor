@@ -6,21 +6,19 @@ const API_STARTED_AT = new Date().toISOString();
 export function registerSystemRoutes(app: FastifyInstance, deps: AppDeps): void {
   app.get("/system/status", async () => {
     const repository = await deps.repository;
-    const [jobs, packets, drafts, configs] = await Promise.all([
-      repository.listJobs(),
-      repository.listSourcePackets(),
-      repository.listPendingDrafts(),
-      repository.listIngestConfigs()
+    // SQL-side counting; this endpoint is polled every few seconds, so avoid
+    // loading whole tables just to compute counts.
+    const [statusCounts, runningJobs, packetCount, pendingDrafts, enabledConfigCount] = await Promise.all([
+      repository.getPostJobStatusCounts(),
+      repository.listJobs(undefined, { statuses: ["running"] }),
+      repository.countSourcePackets(),
+      repository.countPendingDrafts(),
+      repository.countIngestConfigs({ enabled: true })
     ]);
 
-    const jobsByStatus: Record<string, number> = {};
-    for (const job of jobs) {
-      jobsByStatus[job.status] = (jobsByStatus[job.status] ?? 0) + 1;
-    }
-
-    const runningJobs = jobs
-      .filter((job) => job.status === "running")
-      .map((job) => ({ accountId: job.accountId, id: job.id, mode: job.mode, updatedAt: job.updatedAt }));
+    const jobsByStatus: Record<string, number> = { ...statusCounts };
+    const totalJobs = Object.values(statusCounts).reduce((sum, count) => sum + count, 0);
+    const runningJobMeta = runningJobs.map((job) => ({ accountId: job.accountId, id: job.id, mode: job.mode, updatedAt: job.updatedAt }));
     const heartbeat = deps.workerHeartbeat;
     const desktop = deps.desktopControl ? await deps.desktopControl.status() : null;
 
@@ -30,14 +28,14 @@ export function registerSystemRoutes(app: FastifyInstance, deps: AppDeps): void 
         browserLoaded: deps.browserLoaded
       },
       counts: {
-        drafts: drafts.length,
-        ingestConfigsEnabled: configs.filter((config) => config.enabled).length,
-        jobs: jobs.length,
+        drafts: pendingDrafts,
+        ingestConfigsEnabled: enabledConfigCount,
+        jobs: totalJobs,
         jobsByStatus,
-        sourcePackets: packets.length
+        sourcePackets: packetCount
       },
       desktop,
-      runningJobs,
+      runningJobs: runningJobMeta,
       generation: {
         model: deps.generationProvider.model,
         provider: deps.generationProvider.name
@@ -111,7 +109,7 @@ export function registerSystemRoutes(app: FastifyInstance, deps: AppDeps): void 
     deps.ingestRunState.cancelRequested = true;
 
     const repository = await deps.repository;
-    const runningJobs = (await repository.listJobs()).filter((job) => job.status === "running");
+    const runningJobs = await repository.listJobs(undefined, { statuses: ["running"] });
     const chrome = runningJobs.length > 0
       ? { closed: false, reason: "job-running" }
       : await control.closeChrome();

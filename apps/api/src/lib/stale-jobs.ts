@@ -11,7 +11,8 @@ export async function recoverStaleRunningJobs(
   repository: ZyquorRepository,
   options: { accountId?: string; currentJobId?: string } = {}
 ) {
-  const jobs = await repository.listJobs();
+  // Only running jobs can go stale; skip loading the whole job table.
+  const jobs = await repository.listJobs(undefined, { statuses: ["running"] });
   const now = Date.now();
   const staleJobs = jobs.filter(
     (job) =>

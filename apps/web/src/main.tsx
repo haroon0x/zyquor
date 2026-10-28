@@ -25,9 +25,9 @@ import "./styles.css";
 type ViewId = "compose" | "queue" | "replies" | "automation" | "history" | "system" | "settings";
 
 const views: Array<{ description: string; icon: PanelIconName; id: ViewId; title: string }> = [
+  { id: "replies", icon: "inbox", title: "Replies", description: "Reply to posts and accounts you want to engage with." },
   { id: "compose", icon: "pencil", title: "Compose", description: "Turn a rough idea into a polished, reviewable post." },
   { id: "queue", icon: "list-checks", title: "Queue", description: "Prepare, schedule, post, and inspect every job." },
-  { id: "replies", icon: "inbox", title: "Replies", description: "Reply to posts and accounts you want to engage with." },
   { id: "automation", icon: "zap", title: "Automation", description: "Control source ingestion and the automatic posting pipeline." },
   { id: "history", icon: "clock", title: "History", description: "Review recently posted content and its sources." },
   { id: "system", icon: "activity", title: "System", description: "See what is running and take control of it." },
@@ -55,7 +55,7 @@ function saveLocalOnboardingChoice(key: string) {
 
 function viewFromHash(): ViewId {
   const value = window.location.hash.slice(1);
-  return views.some((view) => view.id === value) ? value as ViewId : "compose";
+  return views.some((view) => view.id === value) ? value as ViewId : "replies";
 }
 
 function App() {

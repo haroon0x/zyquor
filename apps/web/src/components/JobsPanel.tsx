@@ -6,6 +6,9 @@ import { Busy, InlineError, StatusBadge, errorMessage } from "./Feedback.js";
 type QueueFilter = "ready" | "scheduled" | "failed" | "posted";
 
 const JOBS_POLL_MS = 5000;
+// Terminal jobs never change status again, so their draft summaries and attempt
+// lists are fetched once and reused; polled payloads stop growing with history.
+const TERMINAL_JOB_STATUSES = new Set(["posted", "failed", "cancelled"]);
 
 interface JobDraftDetails {
   text: string;
@@ -49,28 +52,49 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
   const [filter, setFilter] = useState<QueueFilter>("ready");
   const [loadError, setLoadError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
+  const draftDetailsCacheRef = useRef<Record<string, JobDraftDetails>>({});
 
   async function loadJobs() {
     setLoadError(null);
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     const { jobs: loadedJobs } = await api<{ jobs: Job[] }>(`/jobs?accountId=${encodeURIComponent(accountId)}`);
-    const details = await Promise.all(loadedJobs.map(async (job) => {
-      const [{ attempts }, draftResponse] = await Promise.all([
-        api<{ attempts: Attempt[] }>(`/jobs/${job.id}/attempts`),
-        api<DraftResponse>(`/drafts/${job.draftId}`)
-      ]);
-      const selectedCandidate = draftResponse.candidates.find((candidate) => candidate.selected);
-      const text = draftResponse.draft.editedText ?? selectedCandidate?.text ?? draftResponse.candidates[0]?.text ?? draftResponse.draft.sourceInput;
-      const metadataType = draftResponse.draft.metadata?.tweetType;
-      const type = draftResponse.draft.replyTo ? "reply" : typeof metadataType === "string" ? metadataType : "—";
-      return { jobId: job.id, attempts, draft: { text, type } };
-    }));
     if (requestId !== requestIdRef.current) return;
+
+    // Previously every poll refetched attempts + draft for every job
+    // (2N+1 requests each 5s). Draft details are cached once fetched and only
+    // refetched for jobs that can still change; attempts are fetched only for
+    // the expanded job row.
+    const detailResponses = await Promise.all(
+      loadedJobs
+        .filter((job) => !TERMINAL_JOB_STATUSES.has(job.status) || !draftDetailsCacheRef.current[job.id])
+        .map(async (job) => {
+          const draftResponse = await api<DraftResponse>(`/drafts/${job.draftId}`);
+          const selectedCandidate = draftResponse.candidates.find((candidate) => candidate.selected);
+          const text = draftResponse.draft.editedText ?? selectedCandidate?.text ?? draftResponse.candidates[0]?.text ?? draftResponse.draft.sourceInput;
+          const metadataType = draftResponse.draft.metadata?.tweetType;
+          const type = draftResponse.draft.replyTo ? "reply" : typeof metadataType === "string" ? metadataType : "—";
+          return { jobId: job.id, draft: { text, type } };
+        })
+    );
+    const expandedAttempts = expandedJobId
+      ? await api<{ attempts: Attempt[] }>(`/jobs/${expandedJobId}/attempts`).then((response) => response.attempts).catch(() => null)
+      : null;
+    if (requestId !== requestIdRef.current) return;
+
+    const mergedDetails: Record<string, JobDraftDetails> = {};
+    for (const job of loadedJobs) {
+      const cached = draftDetailsCacheRef.current[job.id];
+      if (cached) mergedDetails[job.id] = cached;
+    }
+    for (const response of detailResponses) {
+      mergedDetails[response.jobId] = response.draft;
+    }
+    draftDetailsCacheRef.current = mergedDetails;
     const availableJobIds = new Set(loadedJobs.map((job) => job.id));
     setJobs(loadedJobs);
-    setAttemptsByJob(Object.fromEntries(details.map((detail) => [detail.jobId, detail.attempts])));
-    setDraftsByJob(Object.fromEntries(details.map((detail) => [detail.jobId, detail.draft])));
+    setDraftsByJob(mergedDetails);
+    setAttemptsByJob((current) => (expandedAttempts ? { ...current, [expandedJobId!]: expandedAttempts } : current));
     // Keep any schedule the user is currently typing; background polls must not clobber it.
     setScheduleEdits((current) =>
       Object.fromEntries(loadedJobs.map((job) => [job.id, current[job.id] ?? toDateTimeLocal(job.scheduledFor)]))
@@ -81,15 +105,29 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
 
   useEffect(() => {
     void loadJobs().catch((error) => setLoadError(errorMessage(error, "Jobs unavailable")));
-  }, [accountId, refreshToken]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId, refreshToken, expandedJobId]);
 
   // The worker changes job state every few seconds; without this the queue is
-  // stale until the user clicks something. Paused while an action is in flight.
+  // stale until the user clicks something. Paused while an action is in flight
+  // and while the tab is hidden (no point polling an invisible window), and
+  // refreshed immediately when the tab becomes visible again.
   useEffect(() => {
     if (busy) return;
-    const timer = setInterval(() => void loadJobs().catch(() => undefined), JOBS_POLL_MS);
-    return () => clearInterval(timer);
-  }, [accountId, busy]);
+    const timer = setInterval(() => {
+      if (document.hidden) return;
+      void loadJobs().catch(() => undefined);
+    }, JOBS_POLL_MS);
+    const onVisibilityChange = () => {
+      if (!document.hidden && !busy) void loadJobs().catch(() => undefined);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId, busy, expandedJobId]);
 
   function prepareJob(job: Job) { run(async () => { await api(`/jobs/${job.id}/prepare`, { method: "POST" }); await refresh(); }); }
   function postJob(job: Job) { run(async () => { await api(`/jobs/${job.id}/post`, { method: "POST" }); await refresh(); }); }

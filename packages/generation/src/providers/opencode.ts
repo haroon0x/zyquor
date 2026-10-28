@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
+import { writeFileSync, mkdirSync } from "node:fs";
 import { platform, tmpdir } from "node:os";
+import { join } from "node:path";
 import { DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_VARIANT, safeOpencodeModel, safeOpencodeVariant } from "../config.js";
 import { generateDraftCandidates } from "../refine.js";
 import type { DraftGenerationProvider } from "../types.js";
@@ -16,13 +18,12 @@ function runOpencode(input: {
   timeoutMs: number;
 }): Promise<string> {
   const { promise, resolve, reject } = Promise.withResolvers<string>();
+  // opencode v2.x: the reasoning variant is part of --model (provider/model#variant).
+  // The legacy separate --variant/--pure flags are no longer recognized.
   const child = spawn(input.command, [
     "run",
-    "--model",
-    input.model,
-    "--variant",
-    input.variant,
-    "--pure"
+    "-m",
+    input.variant ? `${input.model}#${input.variant}` : input.model
   ], {
     cwd: tmpdir(),
     env: providerProcessEnv(),
@@ -66,6 +67,20 @@ function runOpencode(input: {
   });
   child.on("close", (code) => {
     const output = Buffer.concat(stdout).toString("utf8").trim();
+    // Raw request/response audit hook: ZYQUOR_LLM_DEBUG=1 drops the exact
+    // prompt and raw model stdout next to the other artifacts. Best-effort;
+    // captions never fail the generation itself.
+    if (process.env.ZYQUOR_LLM_DEBUG === "1") {
+      try {
+        const dir = join(process.cwd(), "data", "artifacts");
+        mkdirSync(dir, { recursive: true });
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+        writeFileSync(join(dir, `llm-input-${stamp}.txt`), input.prompt);
+        writeFileSync(join(dir, `llm-output-${stamp}.txt`), output);
+      } catch {
+        // Debug capture is best-effort only.
+      }
+    }
     if (code === 0) {
       finish(undefined, output);
       return;

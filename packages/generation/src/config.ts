@@ -23,12 +23,15 @@ export interface GenerationEnvironment {
 export const DEFAULT_COMMAND_CODE_MODEL = "gpt-5.6-luna";
 export const COMMAND_CODE_MODELS = [DEFAULT_COMMAND_CODE_MODEL] as const;
 
-export const DEFAULT_OPENCODE_MODEL = "opencode/x-preview-f-free";
+export const DEFAULT_OPENCODE_MODEL = "opencode/deepseek-v4.1-flash-free";
 export const DEFAULT_OPENCODE_VARIANT = "high";
+// Only GLM and DeepSeek free models are allowed (operator preference,
+// 2026-10-26): the complete opencode/* free catalog outside these two families
+// is intentionally excluded. Entries here are the safeOpencodeModel values
+// exposed to the web settings UI as well.
 export const OPENCODE_MODELS = [
-  "opencode/x-preview-f-free",
-  "opencode/hy3-free",
-  "opencode/big-pickle"
+  "opencode/glm-5.3-flash-free",
+  "opencode/deepseek-v4.1-flash-free"
 ] as const;
 export const OPENCODE_VARIANTS = ["low", "high", "max"] as const;
 

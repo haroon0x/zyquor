@@ -17,6 +17,7 @@ apps/*/data/*.json
 apps/*/data/*.lock
 apps/*/data/artifacts/
 profiles/
+posting-chrome.json
 scratch/
 services/*/.venv/
 __pycache__/
@@ -34,4 +35,12 @@ apps/api/data/
 # graphify
 cost.json
 graphify-out/cache/
+# graphify generated outputs; graph.json and manifest.json stay tracked
+graphify-out/.graphify_labels.json
+graphify-out/.graphify_labels.json.sig
+graphify-out/.graphify_python
+graphify-out/20*/
+graphify-out/GRAPH_REPORT.md
+graphify-out/graph.html
 data/*.jsonl
+.pi/

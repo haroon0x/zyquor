@@ -13,24 +13,18 @@ export function registerWorkerRoutes(app: FastifyInstance, deps: AppDeps): void 
 
   app.get("/worker/status", async () => {
     const repository = await deps.repository;
-    const [configs, jobs, packets] = await Promise.all([
-      repository.listIngestConfigs(),
-      repository.listJobs(),
-      repository.listSourcePackets()
+    // SQL-side picks instead of loading all jobs and packets every poll.
+    const [enabledConfigCount, latestPacket, latestPosted] = await Promise.all([
+      repository.countIngestConfigs({ enabled: true }),
+      repository.getLatestSourcePacket(),
+      repository.getLatestPostedJob()
     ]);
-    const enabledConfigs = configs.filter((config) => config.enabled);
-    const latestPacket = [...packets]
-      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
-    const latestPosted = jobs
-      .filter((job) => job.status === "posted")
-      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
-
     const whb = deps.workerHeartbeat;
 
     return {
       ok: true,
-      enabledIngestConfigCount: enabledConfigs.length,
-      hasEnabledIngestConfigs: enabledConfigs.length > 0,
+      enabledIngestConfigCount: enabledConfigCount,
+      hasEnabledIngestConfigs: enabledConfigCount > 0,
       lastHeartbeatAt: whb?.lastHeartbeatAt ?? null,
       lastIngestAt: whb?.lastIngestAt ?? latestPacket?.createdAt ?? null,
       lastPostAt: whb?.lastPostAt ?? latestPosted?.updatedAt ?? null,

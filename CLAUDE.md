@@ -68,7 +68,18 @@ Persistence: SQLite via `node:sqlite`, fallback JSON at `data/app.json`.
 - `POST /drafts` — generate candidates from idea
 - `GET /drafts/:id` — get draft with candidates
 - `POST /drafts/:id/select` — select candidate, optionally edit text
-- `POST /drafts/:id/approve` — approve with optional mode/scheduledFor → creates job
+- `POST /drafts/:id/approve` — approve with optional mode/scheduledFor → creates job. Optional `screened:true` turns on the server-side agent screen: rejects 409 with `Approval screen failed: ...` reasons when text fails `isCleanTweetText`, `passesTweetQualityFloor` (deterministic score < `qualityMinimum()`), or raw length <= 279 fails. Agents must always send it; humans omit it to override by judgment.
+
+### Replies (reply lane, drafts only: nothing here posts)
+- `GET /replies/feed?accountId=`: scan the X home feed for reply targets
+- `POST /replies/from-url`: fetch one post URL and create a reply draft (optional `useMemory` override; optional `count` 1..50 best-of-N with bounded top-up passes for large pools; also captures up to 6 existing replies under the target into `metadata.sourceReplies` and `replyContext.otherReplies` with a do-not-repeat instruction in the prompt)
+- `GET /replies/mentions?accountId=`: fresh (48h) mentions with drafted/posted flags
+- `POST /replies/mentions/draft`: draft replies for chosen mention URLs (body `{mentions:[{url}]}`)
+- `POST /replies/mentions/scan-and-draft`: scan and draft all fresh undrafted mentions (cap 10 per call)
+- `POST /replies/mentions/scan-and-auto-approve`: capped auto-approve lane. Drafts fresh mentions with wiki-only memory (`maxMemories: 0`, activity excerpts never injected), then approves only when the top candidate clears `passesTweetQualityFloor`, within `ZYQUOR_MENTIONS_AUTO_APPROVE_DAILY_CAP` (default 3, 0 disables, clamped 0..50) counted from same-local-day approvals of `autoApproved` drafts. Approval mirrors the human route: `tracePostProcessTweetText("mentions-auto-approve", ...)`, `features` metadata, `metadata.autoApproved: true`, then `approveDraft({mode: "review_required"})`, so a normal queued post job is created and posting stays gated by worker/browser flags, limits, and quiet hours. Held drafts (quality, cap, failures) stay in the review queue; response: `{scanned, created, approved, held, skipped, adsSkipped, dailyCap, remainingToday}`.
+- `GET /replies/drafts?accountId=`: reply drafts awaiting review
+
+Reply drafts carry `metadata.memory` (Goldfish terms/wiki/activity titles) and the response includes a `memory` summary (`used` plus counts, or reason `disabled|empty|unavailable`). Memory rendering is capped at 1600 chars inside the `<personal-memory>` prompt block. The goldfish context cache keys include `maxWiki`/`maxMemories`, so wiki-only lane lookups never hit a cached bundle with activity memories, and a zero limit skips the corresponding Goldfish RPC entirely.
 
 ### Batch
 - `POST /draft-batches` — multiple jobs from ideas, optional schedule spacing
@@ -77,6 +88,7 @@ Persistence: SQLite via `node:sqlite`, fallback JSON at `data/app.json`.
 - `GET /jobs?accountId=` — list jobs filtered by account
 - `POST /jobs/:id/prepare` — dry-run or real browser prepare
 - `POST /jobs/:id/post` — explicit post click (requires `ZYQUOR_ENABLE_BROWSER_POST=1`)
+- `POST /jobs/:id/retry` — verify-then-retry. Scans the target thread for the account's own reply; if the thread will not render, falls back to the account's `/with_replies` timeline. Marks the job posted when either scan finds it, otherwise re-arms `failed -> approved` and reposts through the fully gated path. Returns 409 only when both scans fail. Use only on an explicit human ask.
 - `POST /jobs/post-ready` — queue all ready jobs (shuffled, sequential)
 - `DELETE /jobs/:id` — delete non-running job
 - `GET /jobs/:id/attempts` — attempt logs
@@ -111,7 +123,7 @@ IngestConfig fields: `accountId`, `sourceType`, `maxPacketsPerDay`, `tweetTypeMi
 
 ### Style Profiles
 - `GET /style-profiles/:id`
-- `PATCH /style-profiles/:id` — update tone/rules/bannedPhrases/systemPromptExtra
+- `PATCH /style-profiles/:id`: update tone/rules/bannedPhrases/systemPromptExtra; `rules.replyMemory` (default on) grounds replies in Goldfish memory
 
 ### Generation Config
 - `GET /generation` — current provider/model
@@ -166,8 +178,8 @@ pnpm smoke:desktop
 pnpm dist:desktop
 ```
 
-- Chrome CDP: `http://127.0.0.1:9222`, profile `profiles/personal-main`
-- API: `http://127.0.0.1:3000` (falls back to 3001 if 3000 is busy)
+- Chrome CDP on this machine: `http://172.31.96.1:9223` (Windows portproxy to `127.0.0.1:9222`), profile `profiles/reply-loop-test`
+- API: `http://127.0.0.1:3001` on this machine (3000 is occupied by an unrelated app; the server falls back to 3001 only when `ZYQUOR_API_PORT` is unset)
 - Web: `http://127.0.0.1:5173/`
 - Worker polls due jobs every 5s
 - Electron desktop app: `apps/desktop/` — Electron 37, tray-resident, runs API/worker in-process. Data root via `ZYQUOR_DATA_ROOT` (defaults to Electron `userData`). Settings kept as `settings.json` in data root instead of `.env`. Logs to `<dataRoot>/logs/main.log` (rotates at 5 MB). Entry points: `src/main.ts` (main process), `src/preload.ts` (context bridge), `src/chrome.ts` (CDP launch), `src/settings.ts` (JSON config), `src/log.ts` (file logging).
@@ -186,9 +198,42 @@ ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
 - Provider is resolved in order: saved `data/generation.json` > `.env` > `process.env`.
 - Set `ZYQUOR_LLM_PROVIDER` explicitly to `command-code` or `opencode`; the desktop setup does not use `auto` or OpenRouter.
 - Shell env vars take precedence over `.env`; the dotenv loader skips already-set vars.
-- Preferred provider is `opencode` with model `opencode/x-preview-f-free` (high reasoning). The `opencode` provider drives the opencode CLI (`opencode run --variant high`) and is the primary generation path; other providers remain available but are not used by default. Command Code remains available with model `gpt-5.6-luna`. CLI paths use `ZYQUOR_COMMAND_CODE_PATH` and `ZYQUOR_OPENCODE_PATH`; the opencode model and reasoning variant come from `ZYQUOR_OPENCODE_MODEL` and `ZYQUOR_OPENCODE_VARIANT`. All CLI providers use the single generation flow. OpenRouter is not used by the desktop setup.
+- Preferred provider is `opencode` with model `opencode/deepseek-v4.1-flash-free` (high reasoning). The `opencode` provider drives the opencode CLI (`opencode run --variant high`) and is the primary generation path; other providers remain available but are not used by default. Command Code remains available with model `gpt-5.6-luna`. CLI paths use `ZYQUOR_COMMAND_CODE_PATH` and `ZYQUOR_OPENCODE_PATH`; the opencode model and reasoning variant come from `ZYQUOR_OPENCODE_MODEL` and `ZYQUOR_OPENCODE_VARIANT`. All CLI providers use the single generation flow. OpenRouter is not used by the desktop setup.
+
+### X Render Failures Are Not Logouts
+
+- Symptom: X loads its shell but stays on the `Loading…` placeholder forever. `document.body.innerText` is empty, no console or page errors, while `/i/api/1.1/graphql/viewer_context.json`, `/1.1/account/settings.json`, and `HomeTimeline` all return 200. The session is valid; the client just stopped painting.
+- `assertNotLoginPage` used to treat "authenticated UI not visible" as "logged out". It now calls `readLoggedInHandle` first: if the credentials endpoint returns a handle, it throws a distinct render error (`X did not render the authenticated shell ... not a logout ... do not clear cookies`). Only a login URL, visible login inputs, or a failed credentials check produce the "not logged in" message.
+- Never clear x.com site data, cookies, or force a re-login on that error. Check the credentials endpoint and the rendered DOM first. Clearing site data deletes the real session and turns a render bug into a forced login.
+- Recovery order: relaunch the dedicated Chrome profile, then retry. If the same profile still will not render, move to a fresh profile and log in once. The old `personal-main` profile was corrupt at profile level (survived cookie, storage, IndexedDB, service worker, cache, GPU cache, and extension clears); the account now uses `profiles/reply-loop-test`.
+- Port topology on this machine: the API talks to `http://172.31.96.1:9223`, a Windows `netsh` portproxy to `127.0.0.1:9222`. Chrome binds 9222 to loopback only, so direct `172.31.96.1:9222` fails while 9223 works. Use the portproxy URL.
+
+### Posting Chrome CDP Ports
+
+- `perProfileCdpUrl` derives each profile's CDP port from the base URL. Profiles named in `ZYQUOR_BROWSER_CDP_BASE_PROFILES` (comma separated, default `personal-main`) stay on the base port; `willainotice` gets base+1; anything else gets a stable hash offset.
+- The Windows portproxy here only forwards 9223 to 9222, so a profile that hashes to another offset resolves to a dead port. Posting then fails with `Chrome CDP is unavailable at http://172.31.96.1:9224`. Add the active profile to `ZYQUOR_BROWSER_CDP_BASE_PROFILES`; do not add more portproxy rules for every profile.
+- Settings change `cdpPort` rewrites the base URL, not the offsets. The env list is the supported way to pin a profile to the base port.
+
+### Browser Job Failure Modes
+
+- Chrome raises a `beforeunload` dialog when a page navigates or closes with unsent composer text. Playwright's internal auto-dismiss races Chrome and throws `No dialog is showing` from an unhandled promise, which used to kill the API mid-post. `openPersistentContext` now installs dialog dismissers on every page, and `apps/api/src/server.ts` logs unhandled rejections instead of exiting.
+- `resolvePostedPermalink` matches the posted reply by the account handle and the submitted text. Without that, a reply stores the parent tweet URL as its permalink, because the page stays on the parent thread after a reply posts.
+- A failed post can leave the composer holding the text. Clear it before the next attempt (`Control+A`, `Backspace`) or the next navigation triggers that dialog.
+
+### Posts-Only Reply Loop
+
+`scripts/reply-loop.mjs` is the unattended posts-only lane. It does not touch mentions. It discovers targets from X search (through the logged-in Chrome) plus `GET /replies/feed`, drafts best-of-N through `POST /replies/from-url`, applies a deterministic slop screen (advice, formula contrasts, invented numbers, first-person review, questions the target did not ask, quality floor), then approves with `screened:true` and posts through the normal gated job path. Every rejection is appended to `apps/api/data/reply-loop.jsonl` with a reason, which is the input for tightening prompts or filters.
+
+```bash
+node scripts/reply-loop.mjs --once --dry   # discover, draft, report; no approval
+node scripts/reply-loop.mjs --once         # one cycle, may post
+node scripts/reply-loop.mjs                # every 12 min, max 1 post per cycle
+```
+
+Env: `ZYQUOR_REPLY_LOOP_QUERIES`, `ZYQUOR_REPLY_LOOP_INTERVAL_MS` (default 12 min), `ZYQUOR_REPLY_LOOP_MAX_POSTS` (default 1), `ZYQUOR_REPLY_LOOP_MIN_QUALITY` (default 6), `ZYQUOR_REPLY_LOOP_CANDIDATES` (default 5). Starts a posting lane, so run it only on an explicit ask.
 
 ### Browser Automation Caveats
+
 - Playwright bundled Chromium (`playwright install chromium`) fails on Ubuntu 26.04+ — it's unsupported on newer distros.
 - On such systems, install system Chrome and set `ZYQUOR_BROWSER_CHANNEL=chrome`:
   ```bash
@@ -196,6 +241,30 @@ ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
   sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list'
   sudo apt update && sudo apt install google-chrome-stable
   ```
+
+## Latest Work (2026-10-28)
+
+- Posting resolved to the wrong CDP port: `perProfileCdpUrl` hashed `profiles/reply-loop-test` to base+1 (9224), which the Windows portproxy does not forward. Added `ZYQUOR_BROWSER_CDP_BASE_PROFILES` (default `personal-main`, set to `personal-main,reply-loop-test` here), routed `routes/browser.ts` through the shared helper, and added unit tests for the offset rules.
+- Fixed the API crash mid-post: a leftover unsent composer triggered a `beforeunload` dialog and Playwright's auto-dismiss threw `No dialog is showing` from an unhandled promise. Dialog dismissers now attach to every page in `openPersistentContext`, and `server.ts` logs unhandled rejections instead of exiting.
+- Fixed `resolvePostedPermalink`: replies now record their own status URL instead of the parent tweet. Verified on the first runner post of the day.
+- `scripts/reply-loop.mjs` saves state after every decision, so a kill or restart no longer loses the seen list. Discovery is sequential (feed then search) because the feed scan owns and closes its browser context.
+- Loop posted through the fresh profile: https://x.com/haroon0x/status/2115336263507349620 (reply to `jatinkrmalik`).
+
+## Latest Work (2026-10-27)
+
+- `scripts/reply-loop.mjs`: posts-only reply runner. Search + feed discovery, best-of-N draft, deterministic slop screen, gated approve (`screened:true`) and post. Rejections go to `apps/api/data/reply-loop.jsonl` so prompt rules are added only when a reason repeats.
+- `assertNotLoginPage` no longer reports a hung X shell as a logout. It reads the credentials endpoint first and raises a distinct "did not render" error when the session is valid. This was the root cause of the destructive site-data clear that forced a re-login. Never clear cookies on that message.
+- Reply prompt slimmed: reply instruction block 15 paragraphs to 5, full reply prompt payload 10,291 to 7,887 chars. Comments under a target are framed as read-only context; closed topics are excluded.
+- Default generation model moved to `opencode/deepseek-v4.1-flash-free` (variant high).
+- Account `account_personal` now uses `profiles/reply-loop-test`; the old `personal-main` profile was corrupt at profile level (hung on X's `Loading…` through cookie, storage, IndexedDB, service worker, cache, GPU cache, and extension clears).
+
+## Latest Work (2026-10-26)
+
+- Replies-first flow shipped end to end from the frozen spec `tasks/replies-first-goldfish.md`: `GET /replies/mentions`, `POST /replies/mentions/draft`, `POST /replies/mentions/scan-and-draft`, plus per-reply Goldfish memory grounding (style rule `rules.replyMemory`, request `useMemory` override, 10 min TTL cache in `@zyquor/adapters` via `fetchGoldfishReplyContext`). Every mention draft lands in the review queue; nothing auto-posts.
+- Mentions auto-draft is optional and off by default: worker env flags `ZYQUOR_MENTIONS_AUTO_DRAFT=1` + `ZYQUOR_MENTIONS_ACCOUNTS` (cadence `ZYQUOR_MENTIONS_INTERVAL_MS`, default 15 min) call the same scan-and-draft API per account on a timer. `scripts/poll-x-mentions.mjs` is now a thin API shim (`DRY_RUN=1` lists the scan; real run scan-and-drafts and enqueues external mention links for the demo-checker).
+- Web: Replies is now the default view with a mentions panel (select fresh items, draft selected or one by one, Drafted/Posted pills, 48h window) and a "Ground replies with Goldfish memory" toggle in the Style panel (stored as `rules.replyMemory`).
+- New portable agent skill `skills/zyquor/SKILL.md` (curl-only, works for any agent CLI, no opencode-specific tooling; installed locally at `~/.agents/skills/zyquor` and `~/.config/opencode/skill/zyquor`). It documents the HTTP API recipes and hard safety rules: review queue is the gate, posting needs an explicit ask, failed jobs are never auto-retried, memory stays private.
+- Fixed a storage init regression from the perf pass: the partial index on `post_history.text_hash` is now created after the column migration, so fresh SQLite databases initialize cleanly again (this had broken every in-memory repository, including all API tests).
 
 ## Latest Work (2026-08-03)
 

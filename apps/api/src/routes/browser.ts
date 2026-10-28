@@ -4,26 +4,7 @@ import { assertDedicatedProfileDir } from "@zyquor/accounts";
 import { HttpError } from "../lib/errors.js";
 import { browserOptions } from "../lib/browser.js";
 import { resolveProfileDir } from "../lib/paths.js";
-
-function cdpUrlForProfile(profileDir: string, baseUrl: string | undefined): string {
-  const base = baseUrl ?? "http://127.0.0.1:9222";
-  try {
-    const url = new URL(base);
-    const basePort = Number(url.port || 9222);
-    const normalized = profileDir.replaceAll("\\", "/").toLowerCase();
-    let offset = 0;
-    if (normalized.includes("willainotice")) offset = 1;
-    else if (!normalized.includes("personal-main")) {
-      let h = 0;
-      for (let i = 0; i < normalized.length; i++) h = (h * 31 + normalized.charCodeAt(i)) % 10;
-      offset = h;
-    }
-    url.port = String(basePort + offset);
-    return url.toString().replace(/\/$/, "");
-  } catch {
-    return base;
-  }
-}
+import { perProfileCdpUrl } from "../lib/per-profile-cdp.js";
 
 export function registerBrowserRoutes(app: FastifyInstance, deps: AppDeps): void {
   app.post("/browser/activate", async (request, reply) => {
@@ -37,7 +18,7 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: AppDeps): void
 
     assertDedicatedProfileDir(account.profileDir);
     const profileDir = resolveProfileDir(account.profileDir);
-    const cdpUrl = cdpUrlForProfile(account.profileDir, deps.browser.cdpUrl);
+    const cdpUrl = perProfileCdpUrl(deps.browser.cdpUrl, account.profileDir);
 
     const browser = await import("@zyquor/browser");
     deps.browserLoaded = true;
@@ -112,7 +93,7 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: AppDeps): void
           accountId: active?.id ?? null,
           handle: active?.handle ?? null,
           profileDir: state.profileDir,
-          cdpUrl: (state as { cdpUrl?: string }).cdpUrl ?? cdpUrlForProfile(state.profileDir, deps.browser.cdpUrl),
+          cdpUrl: (state as { cdpUrl?: string }).cdpUrl ?? perProfileCdpUrl(deps.browser.cdpUrl, state.profileDir),
           cdpPort: (state as { cdpPort?: number }).cdpPort ?? null,
         };
       })
@@ -141,7 +122,7 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: AppDeps): void
     const profileDir = resolveProfileDir(account.profileDir);
 
     try {
-      const cdpUrl = cdpUrlForProfile(account.profileDir, deps.browser.cdpUrl);
+      const cdpUrl = perProfileCdpUrl(deps.browser.cdpUrl, account.profileDir);
       const checkXLogin =
         deps.browser.checkXLogin ??
         (async (input: { browserChannel?: string | null; cdpUrl?: string; profileDir: string }) => {
@@ -158,7 +139,7 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: AppDeps): void
 
       return {
         accountId: account.id,
-        cdpUrl: cdpUrlForProfile(account.profileDir, deps.browser.cdpUrl),
+        cdpUrl: perProfileCdpUrl(deps.browser.cdpUrl, account.profileDir),
         enabled: deps.browser.enablePrepare === true,
         error: null,
         loggedIn: result.loggedIn,
@@ -170,7 +151,7 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: AppDeps): void
       const message = error instanceof Error ? error.message : "Unknown browser session error";
       return {
         accountId: account.id,
-        cdpUrl: cdpUrlForProfile(account.profileDir, deps.browser.cdpUrl),
+        cdpUrl: perProfileCdpUrl(deps.browser.cdpUrl, account.profileDir),
         enabled: deps.browser.enablePrepare === true,
         error: message,
         loggedIn: false,

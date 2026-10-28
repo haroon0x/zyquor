@@ -7,10 +7,11 @@ export interface GenerateDraftCandidatesInput {
   feedback?: string;
   idea: string;
   count?: number;
+  memoryContext?: string;
   objective?: string;
   preserveCase?: boolean;
   recentPostHistory?: string[];
-  replyContext?: { authorHandle: string; url: string; authorName?: string; text?: string };
+  replyContext?: { authorHandle: string; url: string; authorName?: string; text?: string; otherReplies?: string[] };
   systemPromptExtra?: string;
   systemFeedback?: string[];
   tone?: string | null;

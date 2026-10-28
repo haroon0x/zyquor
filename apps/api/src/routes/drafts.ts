@@ -19,7 +19,13 @@ import {
   withRequiredSourceUrl,
   analyzePostFeatures
 } from "@zyquor/automation";
-import { passesTweetQualityFloor, qualityMinimum, scoreTweetQuality } from "@zyquor/generation";
+import {
+  isCleanTweetText,
+  passesTweetQualityFloor,
+  qualityMinimum,
+  replyQualityMinimum,
+  scoreTweetQuality
+} from "@zyquor/generation";
 import { HttpError } from "../lib/errors.js";
 import { tracePostProcessTweetText } from "../lib/post-process.js";
 import { isPostingMode } from "../lib/posting.js";
@@ -204,11 +210,10 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
       })
       .sort((a, b) => Date.parse(String(b.metadata?.published ?? b.metadata?.pubDate)) - Date.parse(String(a.metadata?.published ?? a.metadata?.pubDate)));
     const repository = await deps.repository;
-    const history = await repository.listPostHistory();
 
     for (const item of items) {
-      if (history.some((post) => post.accountId === input.accountId && post.sourceUrl === item.url)) continue;
-      if (await repository.getSourcePacketByUrl(item.url, input.accountId)) continue;
+      if (item.url && (await repository.hasPostHistorySourceUrl(input.accountId, item.url))) continue;
+      if (item.url && (await repository.getSourcePacketByUrl(item.url, input.accountId))) continue;
       const fields = packetFieldsFromItem(item);
       if (!hasEnoughSourceContext(fields)) continue;
 
@@ -321,6 +326,34 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
     const selectedCandidate = existing.candidates.find((candidate) => candidate.selected);
     const preserveCase = selectedCandidate?.score.provider === deps.generationProvider.name;
     let approvedText = tracePostProcessTweetText("update-draft", input.editedText, preserveCase);
+    // Server-side approval screen for agent-initiated approvals. When the
+    // caller passes screened=true the route enforces the deterministic quality
+    // floor, text cleanliness, and the tweet length limit here, so no agent
+    // can approve text that fails them. Agents must always send screened
+    // true; humans may omit it entirely.
+    if (input.screened === true) {
+      const screenReasons: string[] = [];
+      // Replies use their own floor: the post floor assumes long-form density
+      // that one-line replies legitimately do not carry. Same scorer, same
+      // cleanliness checks, different minimum.
+      const isReply = existing.draft.metadata.tweetType === "reply";
+      const screenFloor = isReply ? replyQualityMinimum() : qualityMinimum();
+      if (approvedText.length > 279) {
+        screenReasons.push(`too_long (${approvedText.length} chars > 279)`);
+      }
+      if (!isCleanTweetText(approvedText)) {
+        screenReasons.push("unclean text (links, spam markers, or slop phrases)");
+      }
+      if (!passesTweetQualityFloor(approvedText, screenFloor)) {
+        screenReasons.push(`quality ${scoreTweetQuality(approvedText)} below floor ${screenFloor}`);
+      }
+      if (screenReasons.length > 0) {
+        return reply.code(409).send({
+          error: `Approval screen failed: ${screenReasons.join("; ")}`,
+          screenFailed: screenReasons
+        });
+      }
+    }
     if (input.mode === "autopost") {
       const sourcePacketId = typeof existing.draft.metadata.sourcePacketId === "string"
         ? existing.draft.metadata.sourcePacketId

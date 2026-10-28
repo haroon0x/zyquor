@@ -5,6 +5,7 @@ import { browserOptions } from "./browser.js";
 import { isDailyLimitReached } from "./daily-limit.js";
 import { HttpError } from "./errors.js";
 import { mediaPathsForDraft } from "./media.js";
+import { perProfileCdpUrl as resolvePerProfileCdpUrl } from "./per-profile-cdp.js";
 import { postHistorySnapshot } from "./post-history-snapshot.js";
 import { resolveProfileDir } from "./paths.js";
 import { tracePostProcessTweetText } from "./post-process.js";
@@ -56,23 +57,7 @@ async function postSourceLinkReply(
   if (process.env.ZYQUOR_SOURCE_REPLY_DISABLED === "1") return null;
   const target = parseReplyTargetUrl(mainPostUrl);
   if (!target) return null;
-  const perProfileUrl = (() => {
-    const base = deps.browser.cdpUrl ?? "http://127.0.0.1:9222";
-    try {
-      const url = new URL(base);
-      const basePort = Number(url.port || 9222);
-      const normalized = account.profileDir.replaceAll("\\", "/").toLowerCase();
-      let offset = 0;
-      if (normalized.includes("willainotice")) offset = 1;
-      else if (!normalized.includes("personal-main")) {
-        let h = 0;
-        for (let i = 0; i < normalized.length; i++) h = (h * 31 + normalized.charCodeAt(i)) % 10;
-        offset = h;
-      }
-      url.port = String(basePort + offset);
-      return url.toString().replace(/\/$/, "");
-    } catch { return base; }
-  })();
+  const perProfileUrl = resolvePerProfileCdpUrl(deps.browser.cdpUrl ?? "http://127.0.0.1:9222", account.profileDir);
   const browserModule = await import("@zyquor/browser");
   const result = await (deps.browser.preparePost ?? browserModule.preparePost)({
     profileDir: resolveProfileDir(account.profileDir),
@@ -133,23 +118,7 @@ export async function postBrowserJob(deps: AppDeps, jobId: string, options: Post
     throw new HttpError(409, "Account is not enabled for browser jobs");
   }
 
-  const perProfileCdpUrl = (() => {
-    const base = deps.browser.cdpUrl ?? "http://127.0.0.1:9222";
-    try {
-      const url = new URL(base);
-      const basePort = Number(url.port || 9222);
-      const normalized = account.profileDir.replaceAll("\\", "/").toLowerCase();
-      let offset = 0;
-      if (normalized.includes("willainotice")) offset = 1;
-      else if (!normalized.includes("personal-main")) {
-        let h = 0;
-        for (let i = 0; i < normalized.length; i++) h = (h * 31 + normalized.charCodeAt(i)) % 10;
-        offset = h;
-      }
-      url.port = String(basePort + offset);
-      return url.toString().replace(/\/$/, "");
-    } catch { return base; }
-  })();
+  const perProfileCdpUrl = resolvePerProfileCdpUrl(deps.browser.cdpUrl ?? "http://127.0.0.1:9222", account.profileDir);
 
   const browserModuleForGuard = await import("@zyquor/browser");
   const expectedHandle = account.handle.replace(/^@/, "").toLowerCase();
@@ -180,12 +149,11 @@ export async function postBrowserJob(deps: AppDeps, jobId: string, options: Post
     throw new HttpError(409, "Daily post limit reached for this account");
   }
 
-  const accountHistory = (await repository.listPostHistory())
-    .filter((item) => item.accountId === account.id)
-    .sort((left, right) => Date.parse(left.postedAt) - Date.parse(right.postedAt));
+  // Indexed lookup for the newest history row (spacing gate), not a full scan.
+  const latestAccountPost = await repository.getLatestPostHistoryForAccount(account.id);
   const gate = evaluatePostGate({
     gapMinMinutes: Number(process.env.ZYQUOR_POST_GAP_MIN_MINUTES ?? 30),
-    lastPostedAt: accountHistory.length > 0 ? accountHistory[accountHistory.length - 1]!.postedAt : null,
+    lastPostedAt: latestAccountPost?.postedAt ?? null,
     now: new Date().toISOString(),
     traceId: `gate-${job.id.slice(0, 8)}`
   });

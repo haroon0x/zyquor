@@ -100,10 +100,22 @@ export function SourcePacketsPanel({ panel, state }: { panel: PanelProps; state:
   }, [accountId, refreshToken]);
 
   // Ingest creates and drafts packets in the background; poll so the list keeps up.
+  // Skipped while an action is in flight or the tab is hidden, and refreshed as
+  // soon as the tab becomes visible again.
   useEffect(() => {
     if (busy) return;
-    const timer = setInterval(() => void loadSourcePackets().catch(() => undefined), PACKETS_POLL_MS);
-    return () => clearInterval(timer);
+    const timer = setInterval(() => {
+      if (document.hidden) return;
+      void loadSourcePackets().catch(() => undefined);
+    }, PACKETS_POLL_MS);
+    const onVisibilityChange = () => {
+      if (!document.hidden && !busy) void loadSourcePackets().catch(() => undefined);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [accountId, busy]);
 
   function draftFromSourcePacket(packet: SourcePacket) {

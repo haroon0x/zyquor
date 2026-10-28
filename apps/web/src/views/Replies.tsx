@@ -2,7 +2,14 @@ import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { CandidatesPanel, type CandidatesState } from "../components/CandidatesPanel.js";
 import { Busy, PanelIcon, StatusBadge } from "../components/Feedback.js";
-import type { Draft, DraftResponse, PanelProps, ReplyTarget } from "../types.js";
+import type {
+  Draft,
+  DraftResponse,
+  MentionItem,
+  PanelProps,
+  ReplyMemoryInfo,
+  ReplyTarget
+} from "../types.js";
 
 type ReplyDraft = Draft;
 
@@ -19,11 +26,37 @@ function timeLabel(value: string | null | undefined) {
   return Number.isNaN(timestamp.getTime()) ? value : timestamp.toLocaleString();
 }
 
+function countLabel(count: number, singular: string, plural: string) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+// One line under the draft composer so the user can see whether (and with
+// what) the reply was grounded in Goldfish memory.
+function memoryNote(info: ReplyMemoryInfo | undefined | null) {
+  if (!info) return null;
+  if (info.used) {
+    const parts: string[] = [];
+    if (info.wikiCount) parts.push(countLabel(info.wikiCount, "wiki fact", "wiki facts"));
+    if (info.memoryCount) parts.push(countLabel(info.memoryCount, "memory", "memories"));
+    const detail = parts.length ? parts.join(" + ") : "no entries";
+    return `Grounded in Goldfish memory (${detail}).`;
+  }
+  if (info.reason === "empty") return "No relevant Goldfish memory for this author; drafted without memory.";
+  if (info.reason === "disabled") return "Goldfish memory is turned off for this reply.";
+  return "Goldfish memory is unavailable right now; drafted without memory.";
+}
+
 export function RepliesView({ panel }: { panel: PanelProps }) {
   const { accountId, busy, refresh, refreshToken, reportError, run } = panel;
   const [targetUrl, setTargetUrl] = useState("");
+  const [useMemory, setUseMemory] = useState(true);
+  const [memoryInfo, setMemoryInfo] = useState<ReplyMemoryInfo | null>(null);
   const [feed, setFeed] = useState<{ tweets: FeedTweet[]; accounts: Array<{ authorHandle: string; authorName: string }>; adsSkipped?: number } | null>(null);
   const [feedError, setFeedError] = useState<string | null>(null);
+  const [mentions, setMentions] = useState<MentionItem[] | null>(null);
+  const [selectedMentions, setSelectedMentions] = useState<Set<string>>(new Set());
+  const [mentionsError, setMentionsError] = useState<string | null>(null);
+  const [mentionBusy, setMentionBusy] = useState(false);
   const [drafts, setDrafts] = useState<ReplyDraft[]>([]);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -62,14 +95,19 @@ export function RepliesView({ panel }: { panel: PanelProps }) {
     };
   }, [accountId, refreshToken, reportError]);
 
+  function applyDraftResponse(response: DraftResponse) {
+    setDraft({ draft: response.draft, candidates: response.candidates });
+    setEditedText(response.candidates[0]?.text ?? "");
+    setMemoryInfo(response.memory ?? null);
+  }
+
   function draftFromLink(url: string) {
     run(async () => {
       const response = await api<DraftResponse & { replyTo?: ReplyTarget }>("/replies/from-url", {
         method: "POST",
-        body: JSON.stringify({ accountId, url })
+        body: JSON.stringify({ accountId, url, useMemory })
       });
-      setDraft({ draft: response.draft, candidates: response.candidates });
-      setEditedText(response.candidates[0]?.text ?? "");
+      applyDraftResponse(response);
       setTargetUrl("");
       await refresh();
     });
@@ -85,11 +123,92 @@ export function RepliesView({ panel }: { panel: PanelProps }) {
     });
   }
 
+  function scanMentions() {
+    setMentionBusy(true);
+    void api<{ mentions: MentionItem[]; scanned: number; adsSkipped: number }>(
+      `/replies/mentions?accountId=${encodeURIComponent(accountId)}`
+    )
+      .then((response) => {
+        setMentions(response.mentions);
+        setMentionsError(null);
+        // Default the selection to the actionable rows: fresh mentions that
+        // are neither drafted nor posted already.
+        setSelectedMentions(
+          new Set(
+            response.mentions
+              .filter((item) => !item.drafted && !item.posted)
+              .map((item) => item.url)
+          )
+        );
+      })
+      .catch((error: unknown) => {
+        setMentionsError(error instanceof Error ? error.message : "Mentions scan failed");
+      })
+      .finally(() => setMentionBusy(false));
+  }
+
+  function draftMentionReplies(urls: string[]) {
+    if (urls.length === 0) return;
+    setMentionBusy(true);
+    void api<{
+      created: Array<{ draft: ReplyDraft; candidates: DraftResponse["candidates"] }>;
+      skipped: Array<{ url: string; reason: string }>;
+    }>("/replies/mentions/draft", {
+      method: "POST",
+      body: JSON.stringify({ accountId, mentions: urls.map((url) => ({ url })), useMemory })
+    })
+      .then(async (response) => {
+        setMentions((current) =>
+          current
+            ? current.map((item) =>
+                response.created.some((entry) => entry.draft.replyTo?.url === item.url)
+                  ? { ...item, drafted: true }
+                  : item
+              )
+            : current
+        );
+        setSelectedMentions((current) => {
+          const next = new Set(current);
+          for (const entry of response.created) {
+            const url = entry.draft.replyTo?.url;
+            if (url) next.delete(url);
+          }
+          return next;
+        });
+        const first = response.created[0];
+        if (first) {
+          applyDraftResponse({ draft: first.draft, candidates: first.candidates, memory: undefined });
+          setMemoryInfo(null);
+        }
+        const skipped = response.skipped ?? [];
+        if (skipped.length) {
+          reportError(
+            new Error(
+              skipped
+                .map((item) => `${item.reason}: ${item.url}`)
+                .join("; ")
+            ),
+            "Some mentions were skipped"
+          );
+        }
+        const reloaded = await api<{ drafts: ReplyDraft[] }>(
+          `/replies/drafts?accountId=${encodeURIComponent(accountId)}`
+        );
+        setDrafts(reloaded.drafts);
+        await refresh();
+      })
+      .catch((error: unknown) => {
+        reportError(error, "Could not draft mention replies");
+      })
+      .finally(() => setMentionBusy(false));
+  }
+
   function reviewDraft(loaded: ReplyDraft) {
     run(async () => {
       const response = await api<DraftResponse>(`/drafts/${loaded.id}`);
       setDraft({ draft: response.draft, candidates: response.candidates });
       setEditedText(response.draft.editedText ?? response.candidates[0]?.text ?? "");
+      setMemoryInfo(null);
     });
   }
 
@@ -108,6 +227,10 @@ export function RepliesView({ panel }: { panel: PanelProps }) {
       }
     });
   }
+
+  const memoryLabel = memoryNote(memoryInfo);
+  const selectedMentionCount = selectedMentions.size;
+  const creatableMentions = (mentions ?? []).filter((item) => !item.drafted && !item.posted).length;
 
   return (
     <div className="replies-view">
@@ -133,6 +256,15 @@ export function RepliesView({ panel }: { panel: PanelProps }) {
               onChange={(event) => setTargetUrl(event.target.value)}
             />
           </label>
+          <label className="switch-row reply-memory-switch">
+            <input
+              checked={useMemory}
+              type="checkbox"
+              onChange={(event) => setUseMemory(event.target.checked)}
+            />
+            <span aria-hidden="true" className="switch" />
+            Ground replies in my Goldfish memory
+          </label>
           <div className="form-actions">
             <button disabled={!targetUrl.trim() || busy} type="submit">
               <Busy active={busy} />Draft reply
@@ -142,6 +274,7 @@ export function RepliesView({ panel }: { panel: PanelProps }) {
       </section>
 
       <CandidatesPanel panel={panel} state={candidatesState} />
+      {draft && memoryLabel ? <p className="notice">{memoryLabel}</p> : null}
 
       <section className="panel">
         <div className="panel-head">
@@ -182,6 +315,96 @@ export function RepliesView({ panel }: { panel: PanelProps }) {
             </ul>
           </div>
         ) : null}
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <div>
+            <h2 className="panel-title"><PanelIcon name="list-checks" />Mentions</h2>
+            <p className="empty">Fresh mentions from the last 48 hours. Select some and Zyquor drafts replies for review; nothing is posted automatically.</p>
+          </div>
+          <div className="panel-head-actions">
+            <button className="secondary compact-button" disabled={mentionBusy} onClick={scanMentions}>
+              <Busy active={mentionBusy} />Scan mentions
+            </button>
+          </div>
+        </div>
+        {mentionsError ? <p className="notice error">{mentionsError}</p> : null}
+        {mentions ? (
+          <div className="feed-targets data-content">
+            {mentions.length === 0 ? (
+              <p className="empty">No fresh mentions in the last 48 hours. Scan again later.</p>
+            ) : (
+              <>
+                {selectedMentionCount > 0 ? (
+                  <div className="form-actions">
+                    <button
+                      className="secondary compact-button"
+                      disabled={mentionBusy}
+                      onClick={() => draftMentionReplies(Array.from(selectedMentions))}
+                    >
+                      <Busy active={mentionBusy} />Draft selected replies ({selectedMentionCount})
+                    </button>
+                  </div>
+                ) : null}
+                <ul className="feed-tweet-list">
+                  {mentions.map((mention) => {
+                    const creatable = !mention.drafted && !mention.posted;
+                    const checked = selectedMentions.has(mention.url);
+                    return (
+                      <li className="feed-tweet-row" key={mention.url}>
+                        {creatable ? (
+                          <input
+                            aria-label={`Select reply draft for @${mention.authorHandle}: ${mention.text.slice(0, 60)}`}
+                            checked={checked}
+                            className="mentions-check"
+                            type="checkbox"
+                            onChange={(event) =>
+                              setSelectedMentions((current) => {
+                                const next = new Set(current);
+                                if (event.target.checked) {
+                                  next.add(mention.url);
+                                } else {
+                                  next.delete(mention.url);
+                                }
+                                return next;
+                              })
+                            }
+                          />
+                        ) : null}
+                        <div className="feed-tweet-details">
+                          <strong>
+                            {mention.authorName ?? mention.authorHandle} · @{mention.authorHandle}
+                          </strong>
+                          <p>{mention.text}</p>
+                          <time dateTime={mention.publishedAt ?? undefined}>{timeLabel(mention.publishedAt)}</time>
+                          {mention.drafted ? <span className="pill pill--drafted">Drafted</span> : null}
+                          {mention.posted ? <span className="pill pill--posted">Posted</span> : null}
+                        </div>
+                        <div className="feed-tweet-actions">
+                          {creatable ? (
+                            <button
+                              className="secondary compact-button"
+                              disabled={mentionBusy}
+                              onClick={() => draftMentionReplies([mention.url])}
+                            >
+                              Draft reply
+                            </button>
+                          ) : null}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
+            )}
+          </div>
+        ) : (
+          <p className="empty">
+            Not scanned yet. This scans the logged-in {`account's`} mentions tab and lists who talked about you; posters
+            already handled show as Drafted or Posted ({countLabel(creatableMentions, "item", "items")} actionable after a scan).
+          </p>
+        )}
       </section>
 
       <section className="panel">

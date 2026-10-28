@@ -55,14 +55,27 @@ export function SystemView({ panel }: { panel: PanelProps }) {
   }
 
   useEffect(() => {
-    const tick = () => void loadStatus().then(() => setLoadError(null)).catch((error) => setLoadError(errorMessage(error, "System status unavailable")));
+    const tick = () => {
+      if (document.hidden) return;
+      void loadStatus().then(() => setLoadError(null)).catch((error) => setLoadError(errorMessage(error, "System status unavailable")));
+    };
     tick();
     const timer = setInterval(tick, STATUS_POLL_MS);
-    return () => clearInterval(timer);
+    const onVisibilityChange = () => {
+      if (!document.hidden) void loadStatus().then(() => setLoadError(null)).catch(() => undefined);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [refreshToken]);
 
   useEffect(() => {
-    const tick = () => void loadLogs().catch(() => undefined);
+    const tick = () => {
+      if (document.hidden) return;
+      void loadLogs().catch(() => undefined);
+    };
     tick();
     const timer = setInterval(tick, LOG_POLL_MS);
     return () => clearInterval(timer);

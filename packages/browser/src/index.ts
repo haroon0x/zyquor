@@ -354,6 +354,24 @@ export interface FetchXHomeFeedResult {
   url: string;
 }
 
+export interface FetchXMentionsInput {
+  profileDir: string;
+  maxTweets?: number;
+  scrolls?: number;
+  browserChannel?: string | null;
+  cdpUrl?: string;
+  headless?: boolean;
+  actionDelayMs?: number;
+  artifactsDir?: string;
+  /** Test hook: override the mentions tab URL. Defaults to https://x.com/notifications/mentions. */
+  mentionsUrl?: string;
+}
+
+export interface FetchXMentionsResult {
+  tweets: XFeedTweet[];
+  url: string;
+}
+
 export interface FetchAccountTimelineInput {
   profileDir: string;
   handle: string;
@@ -379,11 +397,16 @@ export interface FetchTweetInput {
   headless?: boolean;
   actionDelayMs?: number;
   artifactsDir?: string;
+  // When > 0, also collect up to that many replies already posted under the
+  // target (same page load, no extra scrolls unless the page is short).
+  maxReplies?: number;
 }
 
 export interface FetchTweetResult {
   tweet: XFeedTweet;
   url: string;
+  // Top replies under the target tweet (bounded by maxReplies, default none).
+  replies?: XFeedTweet[];
 }
 
 export interface TweetPerformanceMetrics {
@@ -495,6 +518,13 @@ async function assertNotLoginPage(page: Page) {
       await page.waitForTimeout(2_000);
     }
   }
+  const sessionHandle = await readLoggedInHandle(page).catch(() => null);
+  if (sessionHandle) {
+    throw new Error(
+      `X did not render the authenticated shell at ${page.url()} even though the session is valid (@${sessionHandle}). ` +
+        "This is a rendered-page failure, not a logout: relaunch the browser profile and retry, do not clear cookies."
+    );
+  }
   throw new Error("X profile is not logged in. Run `pnpm profile:x:manual`, log into X, close that browser, then retry.");
 }
 
@@ -514,7 +544,17 @@ export async function openPostComposer(page: Page, xUrl: string, replyTo?: Reply
 
   if (replyTo || replyToUrl) {
     const replyButton = page.locator('article[data-testid="tweet"] [data-testid="reply"], [data-testid="reply"]').first();
-    await replyButton.click({ timeout: 15_000 });
+    // X occasionally serves a half-rendered status page where the reply button
+    // never mounts. Reload once and wait again before giving up: the click has
+    // not happened yet, so re-waiting cannot duplicate a post; it only avoids
+    // recording slow renders as failed jobs.
+    try {
+      await replyButton.click({ timeout: 15_000 });
+    } catch (error) {
+      await page.reload({ waitUntil: "commit", timeout: 45_000 }).catch(() => undefined);
+      await page.waitForTimeout(2_000);
+      await replyButton.click({ timeout: 20_000 });
+    }
   }
 }
 
@@ -548,6 +588,24 @@ async function closeDuplicateXPages(context: BrowserContext) {
   await Promise.all(pages.filter((page) => page !== keep).map((page) => page.close().catch(() => undefined)));
 }
 
+// Chrome raises beforeunload dialogs when a page navigates or closes with
+// unsent composer text. Playwright's own auto-dismiss races with Chrome and
+// throws `No dialog is showing` from an internal promise, which used to kill
+// the API process. Registering a listener on every page first keeps that path
+// from running and makes the dismissal best-effort.
+function dismissDialogsOn(page: Page) {
+  page.on("dialog", (dialog) => {
+    void dialog.dismiss().catch(() => undefined);
+  });
+}
+
+function installDialogDismissers(context: BrowserContext) {
+  for (const page of context.pages()) {
+    dismissDialogsOn(page);
+  }
+  context.on("page", dismissDialogsOn);
+}
+
 async function pageForSessionCheck(context: BrowserContext, input: CheckXLoginInput) {
   await closeDuplicateXPages(context);
   const xPage = existingXPage(context);
@@ -567,6 +625,28 @@ async function pageForHomeFeed(context: BrowserContext, input: FetchXHomeFeedInp
   await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 15_000 }).catch((error) => {
     const message = error instanceof Error ? error.message : "Unknown X home feed navigation error";
     if (!message.includes("Timeout") || (input.xHomeUrl ? page.url() !== targetUrl : !isHomeFeedPage(page))) {
+      throw error;
+    }
+  });
+  return page;
+}
+
+async function pageForMentions(context: BrowserContext, input: FetchXMentionsInput) {
+  const page = await pageForSessionCheck(context, input);
+  const targetUrl = input.mentionsUrl ?? "https://x.com/notifications/mentions";
+  const isMentionsPage = (candidate: string) => {
+    try {
+      return input.mentionsUrl ? candidate === targetUrl : new URL(candidate).pathname === "/notifications/mentions";
+    } catch {
+      return false;
+    }
+  };
+  if (isMentionsPage(page.url())) {
+    return page;
+  }
+  await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 15_000 }).catch((error) => {
+    const message = error instanceof Error ? error.message : "Unknown X mentions navigation error";
+    if (!message.includes("Timeout") || !isMentionsPage(page.url())) {
       throw error;
     }
   });
@@ -656,37 +736,63 @@ function extractStatusPermalink(url: string) {
   return null;
 }
 
-async function resolvePostedPermalink(page: Page) {
-  const fromLocation = extractStatusPermalink(page.url());
-  if (fromLocation) {
-    return fromLocation;
+async function resolvePostedPermalink(
+  page: Page,
+  options: { handle?: string | null; text?: string | null } = {}
+) {
+  const wantedHandle = options.handle?.replace(/^@/, "").replace(/^\/+/, "").toLowerCase() ?? null;
+  const wantedText = options.text?.replace(/\s+/g, " ").trim().slice(0, 60) || null;
+
+  const permalinkForOwner = (href: string | null | undefined) => {
+    const permalink = extractStatusPermalink(href ?? "");
+    if (!permalink) return null;
+    if (!wantedHandle) return permalink;
+    return permalink.toLowerCase().includes(`/${wantedHandle}/status/`) ? permalink : null;
+  };
+
+  const fromArticles = async () => {
+    const rows = await page.locator("article[data-testid='tweet']").evaluateAll((articles) =>
+      articles.map((article) => ({
+        link: article.querySelector("a[href*='/status/']")?.getAttribute("href") ?? "",
+        author: article.querySelector("[data-testid='User-Name'] a[href^='/']")?.getAttribute("href") ?? "",
+        text: (article.querySelector("[data-testid='tweetText']")?.textContent ?? "").replace(/\s+/g, " ").trim()
+      }))
+    );
+    for (const row of rows) {
+      const author = row.author.replace(/^\/+/, "").replace(/^@/, "").toLowerCase();
+      if (wantedHandle && author !== wantedHandle) continue;
+      if (wantedText && !row.text.includes(wantedText.slice(0, 40))) continue;
+      const permalink = extractStatusPermalink(row.link);
+      if (permalink) return permalink;
+    }
+    return null;
+  };
+
+  // A reply usually posts back onto the parent thread, so the page URL is the
+  // parent, not the new status. Prefer a status link owned by this account (and
+  // matching the submitted text when known) over whatever link is first in the
+  // DOM, which used to record the parent tweet as the posted permalink.
+  const fromLocation = permalinkForOwner(page.url());
+  if (fromLocation) return fromLocation;
+
+  const fromDom = await fromArticles();
+  if (fromDom) return fromDom;
+
+  const startMs = Date.now();
+  while (Date.now() - startMs < 5_000) {
+    await page.waitForTimeout(500);
+    const extracted = permalinkForOwner(page.url());
+    if (extracted) return extracted;
+    const fromRetry = await fromArticles();
+    if (fromRetry) return fromRetry;
   }
+  if (wantedHandle) return null;
   const links = await page.locator('a[href*="/status/"]').evaluateAll((elements) =>
     elements.map((element) => element.getAttribute("href") ?? "").filter(Boolean)
   );
   for (const link of links) {
     const permalink = extractStatusPermalink(link);
-    if (permalink) {
-      return permalink;
-    }
-  }
-  const startMs = Date.now();
-  while (Date.now() - startMs < 5_000) {
-    await page.waitForTimeout(500);
-    const url = page.url();
-    const extracted = extractStatusPermalink(url);
-    if (extracted) {
-      return extracted;
-    }
-    const newLinks = await page.locator('a[href*="/status/"]').evaluateAll((elements) =>
-      elements.map((element) => element.getAttribute("href") ?? "").filter(Boolean)
-    );
-    for (const link of newLinks) {
-      const permalink = extractStatusPermalink(link);
-      if (permalink) {
-        return permalink;
-      }
-    }
+    if (permalink) return permalink;
   }
   return null;
 }
@@ -730,6 +836,8 @@ async function openPersistentContext(input: {
       env: { ...process.env, XDG_CONFIG_HOME: chromeConfigDir },
       viewport: { width: 1280, height: 900 }
     }));
+
+  installDialogDismissers(context);
 
   return {
     browser,
@@ -948,6 +1056,78 @@ function cleanAuthorName(nameLine: string, handle: string): string {
   return name || handle;
 }
 
+// Collects replies already posted under a status page's target tweet. The
+// target article is first in the DOM; every later run-of-text article with a
+// distinct status id below it is a reply. Bounded and best-effort: misses are
+// fine, junk is filtered.
+async function extractStatusReplies(
+  page: Page,
+  targetTweetId: string,
+  maxReplies: number,
+  scrolls: number,
+  actionDelayMs: number
+): Promise<XFeedTweet[]> {
+  const collectReplies = () =>
+    page
+      .locator('article[data-testid="tweet"]')
+      .evaluateAll((articles, tid) => {
+        const collected: Array<{ statusLink: string; text: string; userName: string; socialContext: string; headerText: string; publishedAt: string | null }> = [];
+        for (const article of articles) {
+          const statusLinks = Array.from(article.querySelectorAll('a[href*="/status/"]'))
+            .map((anchor) => anchor.getAttribute("href") ?? "")
+            .filter(Boolean);
+          const ownLink = statusLinks.find((href) => {
+            const m = /\/[A-Za-z0-9_]+\/status\/(\d+)\/?$/.exec(href);
+            return m?.[1] !== undefined && m[1] !== tid;
+          }) ?? null;
+          const text = article.querySelector('[data-testid="tweetText"]')?.textContent?.trim() ?? "";
+          const userName = article.querySelector('[data-testid="User-Name"]')?.textContent ?? "";
+          const socialContext = article.querySelector('[data-testid="socialContext"]')?.textContent ?? "";
+          const headerText = article.querySelector("header")?.textContent ?? "";
+          const publishedAt = article.querySelector("time[datetime]")?.getAttribute("datetime") ?? null;
+          if (ownLink && text) {
+            collected.push({ statusLink: ownLink, text, userName, socialContext, headerText, publishedAt });
+          }
+        }
+        return collected;
+      }, targetTweetId)
+      .catch(() => [] as Array<{ statusLink: string; text: string; userName: string; socialContext: string; headerText: string; publishedAt: string | null }>);
+
+  for (let index = 0; index <= scrolls; index += 1) {
+    const replies = await collectReplies();
+    if (replies.length >= maxReplies) break;
+    if (index === scrolls) break;
+    await page.mouse.wheel(0, 2_400).catch(() => undefined);
+    await page.evaluate(() => window.scrollBy(0, 2_400)).catch(() => undefined);
+    await page.waitForTimeout(actionDelayMs);
+  }
+
+  const seen = new Set<string>();
+  const replies: XFeedTweet[] = [];
+  for (const item of await collectReplies()) {
+    const permalink = extractStatusPermalink(item.statusLink);
+    const handleMatch = permalink ? /^\/([A-Za-z0-9_]{1,15})\/status\//.exec(new URL(permalink).pathname) : null;
+    const replyId = /\/(\d+)\/?$/.exec(item.statusLink)?.[1];
+    if (!permalink || !handleMatch || !replyId || replyId === targetTweetId) continue;
+    if (seen.has(replyId)) continue;
+    seen.add(replyId);
+    const handle = handleMatch[1]!;
+    replies.push({
+      id: replyId,
+      authorHandle: handle,
+      authorName: cleanAuthorName(item.userName, handle),
+      text: item.text,
+      url: permalink,
+      publishedAt: item.publishedAt,
+      isPromoted: /\b(promoted|sponsored|advertisement|advertiser)\b/i.test(`${item.socialContext} ${item.headerText}`),
+      isRetweet: /reposted/i.test(`${item.socialContext} ${item.headerText}`),
+      hasLink: false
+    });
+    if (replies.length >= maxReplies) break;
+  }
+  return replies;
+}
+
 async function collectFeedTweets(page: Page, maxTweets: number, minTweets: number, scrolls: number, actionDelayMs: number) {
   const collected = new Map<string, XFeedTweet>();
   const collectVisibleTweets = async () => {
@@ -1014,6 +1194,67 @@ export async function fetchXHomeFeed(input: FetchXHomeFeedInput): Promise<FetchX
       await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined);
     }
     const message = error instanceof Error ? error.message : "Unknown X home feed fetch error";
+    if (context && ownsContext) {
+      await context.close();
+    }
+    throw new BrowserFeedError(message, context ? screenshotPath : null);
+  }
+}
+
+export async function fetchXMentions(input: FetchXMentionsInput): Promise<FetchXMentionsResult> {
+  const maxTweets = input.maxTweets ?? 30;
+  const scrolls = input.scrolls ?? 4;
+  const actionDelayMs = input.actionDelayMs ?? 1_500;
+  const artifactsDir = input.artifactsDir ?? dataPath("data", "artifacts");
+  mkdirSync(artifactsDir, { recursive: true });
+  const artifactId = new Date().toISOString().replace(/[:.]/g, "-");
+  const screenshotPath = join(artifactsDir, `mentions-${artifactId}.png`);
+
+  let context: BrowserContext | null = null;
+  let ownsContext = false;
+
+  try {
+    const opened = await openPersistentContext({
+      ...input,
+      autoLaunchCdp: false
+    });
+    context = opened.context;
+    ownsContext = opened.ownsContext;
+    context.setDefaultTimeout(30_000);
+    const page = await pageForMentions(context, input);
+    await assertNotLoginPage(page);
+
+    // Mentions are legitimately allowed to be empty (nobody mentioned the
+    // account), so unlike the home feed there is no minimum count. Scroll a
+    // bounded number of times to pull in older items, dedupe by status URL.
+    const collected = new Map<string, XFeedTweet>();
+    const collectVisible = async () => {
+      for (const tweet of await extractFeedTweets(page, maxTweets)) {
+        if (!collected.has(tweet.url)) {
+          collected.set(tweet.url, tweet);
+        }
+      }
+    };
+    await page.waitForTimeout(actionDelayMs);
+    await collectVisible();
+    for (let index = 0; index < scrolls && collected.size < maxTweets; index += 1) {
+      await page.mouse.wheel(0, 2_400);
+      await page.evaluate(() => window.scrollBy(0, 2_400)).catch(() => undefined);
+      await page.waitForTimeout(actionDelayMs);
+      await collectVisible();
+    }
+    const tweets = Array.from(collected.values()).slice(0, maxTweets);
+    const url = page.url();
+    if (ownsContext) {
+      await context.close();
+    }
+    return { tweets, url };
+  } catch (error) {
+    const page = context?.pages()[0];
+    if (page) {
+      await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined);
+    }
+    const message = error instanceof Error ? error.message : "Unknown X mentions fetch error";
     if (context && ownsContext) {
       await context.close();
     }
@@ -1135,12 +1376,17 @@ if (await tweetIsReady()) {
     if (!tweet || !tweet.text.trim()) {
       throw new Error(`Could not extract the target tweet from ${input.url}`);
     }
+    const maxReplies = input.maxReplies ?? 0;
+    let replies: XFeedTweet[] | undefined;
+    if (maxReplies > 0) {
+      replies = await extractStatusReplies(page, tweet.id, maxReplies, 2, actionDelayMs);
+    }
     await page.close().catch(() => undefined);
     page = null;
     if (ownsContext) {
       await context.close();
     }
-    return { tweet, url: input.url };
+    return { tweet, url: input.url, ...(replies ? { replies } : {}) };
   } catch (error) {
     if (page) {
       await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined);
@@ -1291,6 +1537,173 @@ export async function fetchTweetPerformance(input: FetchTweetPerformanceInput): 
   }
 }
 
+export interface DeletePostInput {
+  profileDir: string;
+  postUrl: string;
+  browserChannel?: string | null;
+  cdpUrl?: string;
+  headless?: boolean;
+  actionDelayMs?: number;
+  artifactsDir?: string;
+}
+
+export interface DeletePostResult {
+  status: "deleted";
+  postUrl: string;
+  /** True when the tweet was already gone before any click (idempotent). */
+  alreadyDeleted: boolean;
+}
+
+export class BrowserDeleteError extends BrowserPrepareError {
+  constructor(message: string, screenshotPath: string | null = null) {
+    super(message, screenshotPath);
+    this.name = "BrowserDeleteError";
+  }
+}
+
+function tweetIdFromStatusUrl(statusUrl: string): string | null {
+  try {
+    const match = /\/status\/(\d+)\/?$/.exec(new URL(statusUrl).pathname);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function pageShowsNonexistentTweet(page: Page): Promise<boolean> {
+  return page
+    .evaluate(() => {
+      const body = document.body?.innerText ?? "";
+      return /this page doesn.t exist/i.test(body) && /try searching for something else/i.test(body);
+    })
+    .catch(() => false);
+}
+
+export async function deletePost(input: DeletePostInput): Promise<DeletePostResult> {
+  const permalink = extractStatusPermalink(input.postUrl);
+  if (!permalink) {
+    throw new BrowserDeleteError(`Not a valid X status URL: ${input.postUrl}`);
+  }
+  const tweetId = tweetIdFromStatusUrl(permalink);
+  if (!tweetId) {
+    throw new BrowserDeleteError(`Could not read the tweet id from ${permalink}`);
+  }
+
+  const actionDelayMs = input.actionDelayMs ?? 1_800;
+  const artifactsDir = input.artifactsDir ?? dataPath("data", "artifacts");
+  mkdirSync(artifactsDir, { recursive: true });
+  const artifactId = new Date().toISOString().replace(/[:.]/g, "-");
+  const screenshotPath = join(artifactsDir, `delete-${artifactId}.png`);
+
+  const { context, ownsContext } = await openPersistentContext({
+    ...input,
+    autoLaunchCdp: true
+  });
+
+  let page: Page | null = null;
+  try {
+    context.setDefaultTimeout(30_000);
+    page = await context.newPage();
+    await page.goto(permalink, { waitUntil: "domcontentloaded", timeout: 45_000 }).catch(() => undefined);
+
+    const articleForTweet = () =>
+      page!.locator('article[data-testid="tweet"]', {
+        has: page!.locator(`a[href*="/status/${tweetId}"]`)
+      }).first();
+
+    let resolved = await articleForTweet().isVisible({ timeout: 10_000 }).catch(() => false);
+    if (!resolved && (await pageShowsNonexistentTweet(page))) {
+      await page.close().catch(() => undefined);
+      page = null;
+      if (ownsContext) await context.close().catch(() => undefined);
+      return { status: "deleted", postUrl: permalink, alreadyDeleted: true };
+    }
+    if (!resolved) {
+      for (let attempt = 0; attempt < 2 && !resolved; attempt += 1) {
+        await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => undefined);
+        resolved = await articleForTweet().isVisible({ timeout: 10_000 }).catch(() => false);
+        if (!resolved && (await pageShowsNonexistentTweet(page))) {
+          await page.close().catch(() => undefined);
+          page = null;
+          if (ownsContext) await context.close().catch(() => undefined);
+          return { status: "deleted", postUrl: permalink, alreadyDeleted: true };
+        }
+      }
+    }
+    if (!resolved) {
+      throw new Error(`Own tweet article ${tweetId} did not render at ${permalink}`);
+    }
+
+    await assertNotLoginPage(page);
+    await page.waitForTimeout(actionDelayMs);
+
+    const caret = articleForTweet().locator('[data-testid="caret"]').first();
+    await caret.click({ timeout: 15_000 });
+    const deleteItem = page.getByRole("menuitem", { name: /^delete$/i }).first();
+    const menuVisible = await deleteItem.isVisible({ timeout: 10_000 }).catch(() => false);
+    if (!menuVisible) {
+      const fallbackItem = page
+        .locator('[data-testid="Dropdown"] [role="menuitem"]', { hasText: /^Delete$/ })
+        .first();
+      if (!(await fallbackItem.isVisible({ timeout: 5_000 }).catch(() => false))) {
+        throw new Error("Delete menu item did not appear for the tweet");
+      }
+      await fallbackItem.click({ timeout: 10_000 });
+    } else {
+      await deleteItem.click({ timeout: 10_000 });
+    }
+
+    const confirmButton = page.locator('[data-testid="confirmationSheetConfirm"]').first();
+    const confirmVisible = await confirmButton.isVisible({ timeout: 10_000 }).catch(() => false);
+    if (!confirmVisible) {
+      const fallbackConfirm = page.getByRole("button", { name: /^delete$/i }).last();
+      if (!(await fallbackConfirm.isVisible({ timeout: 5_000 }).catch(() => false))) {
+        throw new Error("Delete confirmation dialog did not appear");
+      }
+      await fallbackConfirm.click({ timeout: 10_000 });
+    } else {
+      await confirmButton.click({ timeout: 10_000 });
+    }
+
+    const startMs = Date.now();
+    let verified = false;
+    while (Date.now() - startMs < 15_000) {
+      const toastVisible = await page
+        .getByText("Your post was deleted")
+        .first()
+        .isVisible({ timeout: 1_000 })
+        .catch(() => false);
+      const articleGone = !(await articleForTweet().isVisible({ timeout: 1_000 }).catch(() => false));
+      if (toastVisible || articleGone || (await pageShowsNonexistentTweet(page))) {
+        verified = true;
+        break;
+      }
+      await page.waitForTimeout(1_000);
+    }
+    if (!verified) {
+      throw new Error("Delete click did not visibly remove the tweet");
+    }
+
+    await page.close().catch(() => undefined);
+    page = null;
+    if (ownsContext) {
+      await context.close().catch(() => undefined);
+    }
+    return { status: "deleted", postUrl: permalink, alreadyDeleted: false };
+  } catch (error) {
+    if (page) {
+      await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined);
+      await page.close().catch(() => undefined);
+    }
+    if (ownsContext) {
+      await context.close().catch(() => undefined);
+    }
+    if (error instanceof BrowserDeleteError) throw error;
+    const message = error instanceof Error ? error.message : "Unknown browser delete error";
+    throw new BrowserDeleteError(message, screenshotPath);
+  }
+}
+
 export async function preparePost(input: PreparePostInput): Promise<PreparePostResult> {
   const text = input.text.trim();
   if (!text) {
@@ -1315,9 +1728,6 @@ export async function preparePost(input: PreparePostInput): Promise<PreparePostR
     context.setDefaultNavigationTimeout(45_000);
     await context.tracing.start({ screenshots: true, snapshots: true });
     const page = await pageForPost(context, input);
-    page.on("dialog", (dialog) => {
-      void dialog.dismiss().catch(() => undefined);
-    });
     await openPostComposer(page, input.xUrl ?? "https://x.com/compose/post", input.replyTo, input.replyToUrl);
     await page.waitForTimeout(actionDelayMs);
     await assertNotLoginPage(page);
@@ -1338,6 +1748,7 @@ export async function preparePost(input: PreparePostInput): Promise<PreparePostR
     if (input.submit) {
       const postButton = await enabledPostButton(page);
       await page.waitForTimeout(actionDelayMs);
+      const postedBy = await readLoggedInHandle(page).catch(() => null);
       await postButton.click();
       await page.waitForTimeout(Math.max(actionDelayMs, 4_000));
       await page.waitForLoadState("domcontentloaded").catch(() => undefined);
@@ -1350,7 +1761,7 @@ export async function preparePost(input: PreparePostInput): Promise<PreparePostR
           cleared = true;
           break;
         }
-        postUrl = await resolvePostedPermalink(page);
+        postUrl = await resolvePostedPermalink(page, { handle: postedBy, text });
         if (postUrl) {
           cleared = true;
           break;
@@ -1361,7 +1772,7 @@ export async function preparePost(input: PreparePostInput): Promise<PreparePostR
         throw new Error("X Post click did not clear the compose text");
       }
       if (!postUrl) {
-        postUrl = await resolvePostedPermalink(page);
+        postUrl = await resolvePostedPermalink(page, { handle: postedBy, text });
       }
       if (!postUrl) {
         throw new Error("Posted tweet permalink could not be verified after X Post click");

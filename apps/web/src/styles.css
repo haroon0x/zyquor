@@ -569,7 +569,8 @@ label {
 .pill--queued,
 .pill--pending,
 .pill--new,
-.pill--empty {
+.pill--empty,
+.pill--drafted {
   border-color: color-mix(in srgb, var(--pending) 25%, transparent);
   background: color-mix(in srgb, var(--pending) 12%, transparent);
   color: color-mix(in srgb, var(--pending) 90%, var(--ink));
@@ -2213,6 +2214,18 @@ button.danger.stop-everything {
   align-items: center;
   gap: 6px;
   color: var(--muted);
+}
+
+.reply-memory-switch {
+  width: 100%;
+}
+
+.feed-tweet-row .mentions-check {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
 }
 
 .log-box {

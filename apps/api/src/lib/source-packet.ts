@@ -1,4 +1,4 @@
-import { normalizePostText, type ZyquorRepository } from "@zyquor/storage";
+import { normalizePostText, hashPostText, type ZyquorRepository } from "@zyquor/storage";
 
 export async function sourcePacketIdForDraft(repository: ZyquorRepository, draftId: string) {
   const draft = await repository.getDraft(draftId);
@@ -18,14 +18,13 @@ export async function postedSourcePacketCountForAccount(repository: ZyquorReposi
   if (!sourcePacketId) {
     return 0;
   }
-  const history = await repository.listPostHistory();
-  return history.filter((item) => item.accountId === accountId && item.sourcePacketId === sourcePacketId).length;
+  // Indexed count instead of loading and scanning all history rows.
+  return repository.countPostHistoryBySourcePacket(accountId, sourcePacketId);
 }
 
 export async function hasPostedTextForAccount(repository: ZyquorRepository, accountId: string, text: string) {
-  const normalized = normalizePostText(text);
-  const history = await repository.listPostHistory();
-  return history.some((item) => item.accountId === accountId && normalizePostText(item.postedText) === normalized);
+  // Indexed by post_history.text_hash with a JS fallback for legacy rows.
+  return repository.hasPostHistoryTextHash(accountId, hashPostText(text), normalizePostText(text));
 }
 
 export async function hasRunningJobForAccount(repository: ZyquorRepository, accountId: string, currentJobId: string) {

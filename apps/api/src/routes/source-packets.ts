@@ -1,15 +1,30 @@
 import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../deps.js";
-import { createSourcePacketRequestSchema, setSourcePacketFeedbackRequestSchema } from "@zyquor/core";
+import { createSourcePacketRequestSchema, setSourcePacketFeedbackRequestSchema, type SourcePacket } from "@zyquor/core";
 import { draftFromSourcePacket, TopicDraftExistsError } from "@zyquor/automation";
 import { deleteSourcePacketCascade } from "../lib/source-packet-delete.js";
 import { appendNotebookEntry, resolveFeedbackDir } from "../lib/feedback-notebook.js";
 
+const SOURCE_PACKET_STATUSES = new Set<string>(["new", "drafted", "archived"]);
+const MAX_PACKET_LIST_LIMIT = 1000;
+
 export function registerSourcePacketsRoutes(app: FastifyInstance, deps: AppDeps): void {
   app.get("/source-packets", async (request) => {
-    const { accountId } = request.query as { accountId?: string };
+    const { accountId, status, limit } = request.query as {
+      accountId?: string;
+      status?: string;
+      limit?: string;
+    };
+    const parsedStatus = status && SOURCE_PACKET_STATUSES.has(status) ? (status as SourcePacket["status"]) : undefined;
+    const parsedLimit = (() => {
+      const parsed = limit ? Number(limit) : NaN;
+      return Number.isFinite(parsed) && parsed > 0 ? Math.min(Math.floor(parsed), MAX_PACKET_LIST_LIMIT) : undefined;
+    })();
     return {
-      packets: await (await deps.repository).listSourcePackets(accountId)
+      packets: await (await deps.repository).listSourcePackets(accountId, {
+        ...(parsedStatus ? { status: parsedStatus } : {}),
+        ...(parsedLimit !== undefined ? { limit: parsedLimit } : {})
+      })
     };
   });
 
@@ -26,14 +41,23 @@ export function registerSourcePacketsRoutes(app: FastifyInstance, deps: AppDeps)
     const packets = await repository.listSourcePackets(accountId);
     const jobs = await repository.listJobs();
     const history = await repository.listPostHistory();
+    // Precomputed maps keep the per-packet check O(1) instead of O(all jobs) +
+    // O(all history) per packet.
+    const jobsByDraftId = new Map<string, typeof jobs>();
+    for (const job of jobs) {
+      const list = jobsByDraftId.get(job.draftId) ?? [];
+      list.push(job);
+      jobsByDraftId.set(job.draftId, list);
+    }
+    const historicalDraftIds = new Set(history.map((item) => item.draftId));
     const results = [];
 
     for (const packet of packets) {
       const draft = await repository.getDraftBySourcePacketId(packet.id);
       if (draft) {
-        const draftJobs = jobs.filter((job) => job.draftId === draft.draft.id);
+        const draftJobs = jobsByDraftId.get(draft.draft.id) ?? [];
         const hasPostedJob = draftJobs.some((job) => job.status === "posted");
-        const hasPostHistory = history.some((item) => item.draftId === draft.draft.id);
+        const hasPostHistory = historicalDraftIds.has(draft.draft.id);
         const hasRunningJob = draftJobs.some((job) => job.status === "running");
         if (hasRunningJob) {
           results.push({ deleted: false, draftId: draft.draft.id, packetId: packet.id, reason: "job_running" });
@@ -153,11 +177,13 @@ export function registerSourcePacketsRoutes(app: FastifyInstance, deps: AppDeps)
     const existingDraft = await repository.getDraftBySourcePacketId(id);
     let replacedJobIds: string[] = [];
     if (existingDraft) {
-      const jobs = await repository.listJobs();
-      const history = await repository.listPostHistory();
-      const draftJobs = jobs.filter((job) => job.draftId === existingDraft.draft.id);
+      // Indexed per-draft lookups instead of loading the full job/history tables.
+      const [draftJobs, historyCount] = await Promise.all([
+        repository.listJobsByDraftId(existingDraft.draft.id),
+        repository.countPostHistoryByDraftId(existingDraft.draft.id)
+      ]);
       const hasPostedJob = draftJobs.some((job) => job.status === "posted");
-      const hasPostHistory = history.some((item) => item.draftId === existingDraft.draft.id);
+      const hasPostHistory = historyCount > 0;
       const hasRunningJob = draftJobs.some((job) => job.status === "running");
       if (hasRunningJob) {
         return reply.code(409).send({ error: "A post job is still running for this draft" });

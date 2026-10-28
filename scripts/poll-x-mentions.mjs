@@ -1,208 +1,158 @@
-// Poll X mentions for the product account via CDP and create pending reply
-// drafts. Semi-automatic: drafts land as status='pending' for human approval;
-// nothing is auto-posted.
+#!/usr/bin/env node
+// Thin cron shim for the mention flow. All scraping, dedupe, drafting, and
+// memory grounding happen inside the Zyquor API (POST /replies/mentions/
+// scan-and-draft); this script only calls the local API. It never writes to
+// the database itself, and nothing it does auto-posts: drafts land in the
+// review queue.
 //
 // Requirements:
-//   - The posting Chrome serving the PRODUCT profile (willainotice) must be
-//     running with CDP (it owns the logged-in session mentions are read from).
-//   - ZYQUOR_BROWSER_CDP_URL or default http://172.31.96.1:9223 (WSL -> Windows
-//     portproxy) must reach it.
+//   - The Zyquor API running locally (default 127.0.0.1:3000, then 3001).
+//     Set ZYQUOR_API_URL to override.
 //
 // Usage:
-//   node scripts/poll-x-mentions.mjs            # real run
-//   DRY_RUN=1 node scripts/poll-x-mentions.mjs  # show what would be created
+//   node scripts/poll-x-mentions.mjs            # real run (scan + draft)
+//   DRY_RUN=1 node scripts/poll-x-mentions.mjs  # read-only scan summary
+//
+// Optional env:
+//   ZYQUOR_MENTIONS_ACCOUNT_ID   account id to draft for (default: first
+//                                enabled account returned by /accounts)
+//   ZYQUOR_DEMO_QUEUE            path for the demo-check queue file
+//                                (default data/demo-checks.jsonl)
 
-import { createRequire } from "node:module";
-import { existsSync, mkdirSync, appendFileSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdirSync, appendFileSync, existsSync } from "node:fs";
+import { resolve, dirname } from "node:path";
 
-const require = createRequire(new URL("../packages/browser/package.json", import.meta.url));
-const { chromium } = require("playwright-core");
-const { DatabaseSync } = await import("node:sqlite");
-const crypto = await import("node:crypto");
-
-const cdpUrl = process.env.ZYQUOR_BROWSER_CDP_URL ?? "http://172.31.96.1:9223";
 const dryRun = process.env.DRY_RUN === "1";
-const dbPath = process.env.ZYQUOR_MENTIONS_DB ?? "/mnt/c/Users/asus/AppData/Roaming/Zyquor/data/app.sqlite";
-const statePath = process.env.ZYQUOR_MENTIONS_STATE ?? new URL("../data/mentions-state.json", import.meta.url).pathname;
-const demoQueuePath = process.env.ZYQUOR_DEMO_QUEUE ?? new URL("../data/demo-checks.jsonl", import.meta.url).pathname;
+const explicitApiUrl = process.env.ZYQUOR_API_URL;
+const demoQueuePath = process.env.ZYQUOR_DEMO_QUEUE
+  ?? new URL("../data/demo-checks.jsonl", import.meta.url).pathname;
 
-if (!existsSync(dbPath)) {
-  console.error(`DB not found: ${dbPath}`);
-  process.exit(1);
+const DEFAULT_PORTS = ["3000", "3001"];
+
+function log(message) {
+  console.log(message);
 }
 
-function loadState() {
-  try {
-    return JSON.parse(readFileSync(statePath, "utf8"));
-  } catch {
-    return { processedTweetIds: [] };
+function logError(message) {
+  console.error(message);
+}
+
+async function fetchJson(url, init, timeoutMs = 120_000) {
+  const response = await fetch(url, {
+    ...init,
+    ...(init?.body ? { headers: { "content-type": "application/json", ...init.headers } } : {}),
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const detail = body?.error ?? `HTTP ${response.status}`;
+    throw new Error(detail);
   }
+  return body;
 }
 
-function saveState(state) {
-  state.processedTweetIds = state.processedTweetIds.slice(-2000);
-  mkdirSync(resolve(statePath, ".."), { recursive: true });
-  writeFileSync(statePath, JSON.stringify(state, null, 2));
-}
-
-// Reply templates per mention kind. Indirect-conversion doctrine: acknowledge,
-// promise one concrete measurement, never pitch.
-function suggestReply(mentionText) {
-  const hasUrl = /https?:\/\/|x\.com\/\S+\/status|\bwww\./i.test(mentionText);
-  if (hasUrl) {
-    return [
-      "Got it — we'll pull that page and report what only exists after JavaScript runs.",
-      "On it. We'll measure its raw-to-rendered delta and reply with the number.",
-      "Adding it to the audit queue — you'll get the evidence-based reading here."
-    ][Math.floor(Math.random() * 3)];
+async function resolveApiUrl() {
+  if (explicitApiUrl) return explicitApiUrl.replace(/\/$/, "");
+  for (const port of DEFAULT_PORTS) {
+    const candidate = `http://127.0.0.1:${port}`;
+    try {
+      const health = await fetchJson(`${candidate}/health`, undefined, 3_000);
+      if (health?.ok) {
+        return candidate;
+      }
+    } catch {
+      // Try the next port.
+    }
   }
-  return [
-    "Happy to look at a specific page if you have one in mind.",
-    "If you share a public URL, we'll give you the measured answer rather than an opinion."
-  ][Math.floor(Math.random() * 2)];
+  throw new Error("Zyquor API not reachable on 127.0.0.1:3000 or 3001. Set ZYQUOR_API_URL.");
+}
+
+async function resolveAccountId(apiUrl) {
+  if (process.env.ZYQUOR_MENTIONS_ACCOUNT_ID) {
+    return process.env.ZYQUOR_MENTIONS_ACCOUNT_ID;
+  }
+  const { accounts } = await fetchJson(`${apiUrl}/accounts`, undefined, 10_000);
+  const enabled = (accounts ?? []).filter((account) => account.enabled);
+  const account = enabled[0] ?? (accounts ?? [])[0];
+  if (!account) {
+    throw new Error("No Zyquor account exists. Set ZYQUOR_MENTIONS_ACCOUNT_ID or create an account.");
+  }
+  log(`Drafting for account ${account.id} (@${account.handle}); set ZYQUOR_MENTIONS_ACCOUNT_ID to override.`);
+  return account.id;
+}
+
+// External page URLs (and only those, never x.com status links) found inside a
+// mention go to the demo-check queue, mirroring the behavior of the old direct
+// database poller. Scheme-less t.co/www links are treated as https links.
+function externalUrlFromText(text) {
+  const normalized = text.replace(/https?:\/\/(x|twitter)\.com\/[^\s)]+/gi, "");
+  const withScheme = normalized.match(/https?:\/\/[^\s)]+/i);
+  if (withScheme) {
+    return withScheme[0].replace(/[.,;:!?]$/, "");
+  }
+  const shortLink = normalized.match(/\bt\.co\/[A-Za-z0-9]+\b/i) ?? normalized.match(/\bwww\.[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?:\/[^\s)"]*)?\b/i);
+  return shortLink ? `https://${shortLink[0]}` : null;
 }
 
 function enqueueDemoCheck(url, replyToUrl, handle, accountId) {
-  mkdirSync(resolve(demoQueuePath, ".."), { recursive: true });
+  mkdirSync(dirname(demoQueuePath), { recursive: true });
   appendFileSync(demoQueuePath, JSON.stringify({ url, replyToUrl, handle, accountId }) + "\n");
 }
 
-async function scrapeTab(page) {
-  await page.goto("https://x.com/notifications/mentions", { waitUntil: "domcontentloaded", timeout: 45000 });
-  await page.waitForTimeout(5000);
-  return page.evaluate(() => {
-    const out = [];
-    for (const article of document.querySelectorAll('article[data-testid="tweet"]')) {
-      const textEl = article.querySelector('[data-testid="tweetText"]');
-      const linkEl = article.querySelector('a[href*="/status/"]');
-      const timeEl = article.querySelector("time");
-      if (!textEl || !linkEl) continue;
-      const href = linkEl.getAttribute("href") ?? "";
-      // collect external t.co links inside the tweet text (expanded later)
-      const tcoLinks = [...article.querySelectorAll('a[href*="t.co"]')]
-        .map(a => a.href)
-        .filter(h => h.includes("t.co"));
-      out.push({
-        url: href.startsWith("http") ? href : `https://x.com${href}`,
-        handle: (href.split("/")[1] ?? "").toLowerCase(),
-        text: textEl.textContent?.slice(0, 500) ?? "",
-        postedAt: timeEl?.getAttribute("datetime") ?? null,
-        tcoLinks
-      });
-    }
-    return out;
-  });
-}
-
 async function main() {
-  console.log(`CDP: ${cdpUrl}${dryRun ? "  [DRY RUN]" : ""}`);
-  const browser = await chromium.connectOverCDP(cdpUrl);
-  const ctx = browser.contexts()[0];
-  if (!ctx) {
-    console.error("No browser context over CDP.");
+  if (!existsSync(new URL("../package.json", import.meta.url).pathname)) {
+    logError("Run this script from within the zyquor repo.");
     process.exit(1);
   }
+  const apiUrl = await resolveApiUrl();
+  const accountId = await resolveAccountId(apiUrl);
+  log(`${apiUrl}  account=${accountId}${dryRun ? "  [DRY RUN]" : ""}`);
 
-  let page = ctx.pages().find((p) => p.url().includes("x.com")) ?? (await ctx.newPage());
-  // Replies also appear in the Mentions tab, so a single scrape is enough.
-const mentions = await scrapeTab(page);
-console.log(`Scraped ${mentions.length} mention articles.`);
-
-  // Only act on fresh mentions (last 48h) not already processed.
-  const cutoff = Date.now() - 48 * 3600 * 1000;
-  const state = loadState();
-  const processed = new Set(state.processedTweetIds);
-  const fresh = mentions.filter((m) => {
-    const t = m.postedAt ? Date.parse(m.postedAt) : Date.now();
-    return Number.isFinite(t) && t >= cutoff && !processed.has(m.url);
-  });
-
-  if (fresh.length === 0) {
-    console.log("Nothing new to process.");
-    await browser.close();
+  if (dryRun) {
+    const { mentions, scanned, adsSkipped } = await fetchJson(
+      `${apiUrl}/replies/mentions?accountId=${encodeURIComponent(accountId)}`,
+      undefined,
+      90_000
+    );
+    log(`Scanned ${scanned} mention article(s) (${adsSkipped} promoted skipped). ${mentions.length} fresh within 48h.`);
+    for (const mention of mentions) {
+      const flags = [mention.drafted ? "drafted" : null, mention.posted ? "posted" : null].filter(Boolean).join(", ");
+      log(`  @${mention.authorHandle}: ${mention.url}${flags ? `  [${flags}]` : ""}`);
+      log(`    ${mention.text.slice(0, 140)}`);
+    }
+    log("DRY_RUN only lists what would be drafted. Run without DRY_RUN to create drafts.");
     return;
   }
 
-  const db = new DatabaseSync(dbPath);
-  const accountId = db.prepare("SELECT id FROM accounts WHERE handle='willainotice'").get()?.id;
-  if (!accountId) {
-    console.error("Account 'willainotice' not found.");
-    process.exit(1);
-  }
+  const result = await fetchJson(`${apiUrl}/replies/mentions/scan-and-draft`, {
+    method: "POST",
+    body: JSON.stringify({ accountId })
+  });
 
-  let created = 0;
-  for (const m of fresh) {
-    const suggested = suggestReply(m.text);
-    // direct URL in text, else expand t.co links attached to the tweet
-    let targetUrl = null;
-    const urlMatch = m.text.match(/https?:\/\/[^\s)]+/i);
-    if (urlMatch) {
-      targetUrl = urlMatch[0];
-    } else if ((m.tcoLinks ?? []).length > 0) {
-      for (const short of m.tcoLinks.slice(0, 2)) {
-        try {
-          const res = await fetch(short, { redirect: "follow", signal: AbortSignal.timeout(8000) });
-          if (res.url && !res.url.includes("t.co") && /^https?:\/\//.test(res.url)) {
-            targetUrl = res.url;
-            break;
-          }
-        } catch {}
-      }
+  log(`Scanned ${result.scanned} mention article(s) (${result.adsSkipped ?? 0} promoted skipped).`);
+  const created = result.created ?? [];
+  const skipped = result.skipped ?? [];
+  let demoChecks = 0;
+  for (const entry of created) {
+    const replyTo = entry.draft?.replyTo ?? null;
+    const text = replyTo?.text ?? entry.draft?.sourceInput ?? "";
+    const external = externalUrlFromText(text);
+    if (external) {
+      enqueueDemoCheck(external, replyTo?.url ?? "", replyTo?.authorHandle ?? "", accountId);
+      demoChecks += 1;
     }
-    const hasUrl = Boolean(targetUrl);
-    console.log(`\n@${m.handle}: ${m.url}\n  "${m.text.slice(0, 120)}"\n  -> draft reply: "${suggested}"`);
-    if (dryRun) continue;
-
-    if (hasUrl) {
-      enqueueDemoCheck(targetUrl, m.url, m.handle, accountId);
-      console.log(`   enqueued ${targetUrl} for demo-check.`);
-    }
-
-    const dup = db
-      ? db.prepare("SELECT id FROM drafts WHERE account_id=? AND reply_to_url=?").get(accountId, m.url)
-      : null;
-    if (dup) {
-      console.log(`   skip ${m.url}: draft already exists`);
-      processed.add(m.url);
-      continue;
-    }
-    const now = new Date().toISOString();
-    db.prepare(
-      "INSERT INTO drafts (id,account_id,source_type,source_input,generated_text,edited_text,reply_to_url,metadata_json,status,created_at,updated_at,reply_to_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
-    ).run(
-      `draft_${crypto.randomUUID()}`,
-      accountId,
-      "mention",
-      JSON.stringify({ from: m.handle, text: m.text }),
-      suggested,
-      null,
-      m.url,
-      JSON.stringify({
-        yolo: false,
-        autopost: false,
-        count: 1,
-        tweetType: "reply",
-        origin: "mention-poller",
-        authorHandle: m.handle
-      }),
-      "pending",
-      now,
-      now,
-      null
-    );
-    created += 1;
-    processed.add(m.url);
+    log(`  drafted @${replyTo?.authorHandle ?? "?"}: ${replyTo?.url ?? "?"}`);
   }
-
-  if (!dryRun) {
-    saveState(state);
-    console.log(`\nCreated ${created} pending reply draft(s). Review them in the app before approving.`);
+  for (const item of skipped) {
+    log(`  skipped ${item.url}: ${item.reason}`);
   }
-  await browser.close();
+  if (demoChecks > 0) {
+    log(`Enqueued ${demoChecks} external page URL(s) for demo-check.`);
+  }
+  log(`Created ${created.length} reply draft(s). Review them in the app before approving; nothing auto-posts.`);
 }
 
 main().catch((error) => {
-  console.error(error?.message ?? error);
+  logError(error?.message ?? String(error));
   process.exit(1);
 });

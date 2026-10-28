@@ -9,11 +9,14 @@ export async function deleteSourcePacketCascade(repository: ZyquorRepository, pa
 
   const draft = await repository.getDraftBySourcePacketId(packet.id);
   if (draft) {
-    const [jobs, history] = await Promise.all([repository.listJobs(), repository.listPostHistory()]);
-    const draftJobs = jobs.filter((job) => job.draftId === draft.draft.id);
+    // Indexed per-draft lookups instead of loading the full job and history tables.
+    const [draftJobs, historyCount] = await Promise.all([
+      repository.listJobsByDraftId(draft.draft.id),
+      repository.countPostHistoryByDraftId(draft.draft.id)
+    ]);
     const hasRunningJob = draftJobs.some((job) => job.status === "running");
     const hasPostedJob = draftJobs.some((job) => job.status === "posted");
-    const hasPostHistory = history.some((item) => item.draftId === draft.draft.id);
+    const hasPostHistory = historyCount > 0;
     if (hasRunningJob) {
       throw new HttpError(409, "Cannot delete source with a running job");
     }

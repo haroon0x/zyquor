@@ -289,10 +289,10 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
   const seenHostsThisRun = new Map<string, number>();
   let providerFailed = false;
 
-  const allJobs = await options.repository.listJobs();
+  const allJobs = await options.repository.listJobs(undefined, { statuses: ["approved"] });
   const carriedOverByAccount = new Map<string, number>();
   for (const job of allJobs) {
-    if (job.status !== "approved" || job.mode !== "autopost" || !job.createdAt.startsWith(today)) continue;
+    if (job.mode !== "autopost" || !job.createdAt.startsWith(today)) continue;
     carriedOverByAccount.set(job.accountId, (carriedOverByAccount.get(job.accountId) ?? 0) + 1);
   }
 
@@ -331,7 +331,10 @@ export async function runAutomaticIngest(options: RunAutomaticIngestOptions) {
       const fetchMetadata = config.sourceType === "x-feed"
         ? { ...config.metadata, accountId: config.accountId }
         : config.metadata;
-      const fresh = (await adapter.fetch(fetchMetadata)).filter((item) => isFreshSourceItem(item, now));
+      const raw = await adapter.fetch(fetchMetadata);
+      const fresh = config.sourceType === "goldfish"
+        ? raw
+        : raw.filter((item) => isFreshSourceItem(item, now));
       const onTopic = config.sourceType === "job" || config.sourceType === "x-feed" || config.sourceType === "model-releases" || config.sourceType === "goldfish"
         ? fresh
         : fresh.filter((item) => isOnTopicSourceItem(item));

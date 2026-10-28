@@ -45,6 +45,16 @@ const otherAccount = {
   profileDir: "profiles/willainotice"
 };
 
+// Workers now send listing endpoints with query strings (?statuses=approved,
+// ?status=new). Match by pathname so stubs keep serving those requests.
+function isPath(url: string, path: string) {
+  try {
+    return new URL(url).pathname === path;
+  } catch {
+    return url === path;
+  }
+}
+
 beforeEach(() => {
   process.env.ZYQUOR_ENABLE_BROWSER_POST = "1";
 });
@@ -70,7 +80,7 @@ describe("worker job processing", () => {
         if (url.endsWith("/health")) {
           return Response.json({ ok: true });
         }
-        if (url.endsWith("/jobs")) {
+        if (isPath(url, "/jobs")) {
           return Response.json({
             jobs: [
               { ...baseJob, id: "job_due", mode: "scheduled", scheduledFor: "2026-04-25T11:00:00.000Z" },
@@ -110,7 +120,7 @@ describe("worker job processing", () => {
         if (url.endsWith("/health")) {
           return Response.json({ ok: true });
         }
-        if (url.endsWith("/jobs")) {
+        if (isPath(url, "/jobs")) {
           return Response.json({
             jobs: [{ ...baseJob, id: "job_auto", mode: "autopost", scheduledFor: "2026-04-25T11:00:00.000Z" }]
           });
@@ -153,7 +163,7 @@ describe("worker job processing", () => {
         if (url.endsWith("/health")) {
           return Response.json({ ok: true });
         }
-        if (url.endsWith("/jobs")) {
+        if (isPath(url, "/jobs")) {
           return Response.json({ jobs: [] });
         }
         if (url.endsWith("/accounts")) {
@@ -197,7 +207,7 @@ describe("worker job processing", () => {
         if (url.endsWith("/health")) {
           return Response.json({ ok: true });
         }
-        if (url.endsWith("/jobs")) {
+        if (isPath(url, "/jobs")) {
           return Response.json({
             jobs: [
               { ...baseJob, id: "job_auto", mode: "autopost", scheduledFor: "2026-04-25T11:00:00.000Z" },
@@ -252,7 +262,7 @@ describe("worker job processing", () => {
         if (url.endsWith("/health")) {
           return Response.json({ ok: true });
         }
-        if (url.endsWith("/jobs") && init?.method !== "PATCH") {
+        if (isPath(url, "/jobs") && init?.method !== "PATCH") {
           return Response.json({
             jobs: [{ ...baseJob, id: "job_legacy", mode: "autopost" }]
           });
@@ -310,7 +320,7 @@ describe("worker job processing", () => {
         if (url.endsWith("/health")) {
           return Response.json({ ok: true });
         }
-        if (url.endsWith("/jobs")) {
+        if (isPath(url, "/jobs")) {
           return Response.json({ jobs: [] });
         }
         if (url.endsWith("/accounts")) {
@@ -341,7 +351,7 @@ describe("worker job processing", () => {
         if (url.endsWith("/health")) {
           return Response.json({ ok: true });
         }
-        if (url.endsWith("/jobs")) {
+        if (isPath(url, "/jobs")) {
           return Response.json({
             jobs: [
               { ...baseJob, id: "job_fail", mode: "prepare_only" },
@@ -380,7 +390,7 @@ describe("worker job processing", () => {
         if (url.endsWith("/health")) {
           return Response.json({ ok: true });
         }
-        if (url.endsWith("/jobs")) {
+        if (isPath(url, "/jobs")) {
           return Response.json({
             jobs: [{ ...baseJob, id: "job_capped", mode: "autopost", scheduledFor: "2026-04-25T11:00:00.000Z" }]
           });
@@ -419,7 +429,7 @@ describe("worker job processing", () => {
         if (url.endsWith("/health")) {
           return Response.json({ ok: true });
         }
-        if (url.endsWith("/jobs")) {
+        if (isPath(url, "/jobs")) {
           return Response.json({
             jobs: [
               { ...baseJob, id: "job_busy", mode: "autopost", scheduledFor: "2026-04-25T11:00:00.000Z" },
@@ -458,7 +468,7 @@ describe("worker job processing", () => {
         if (url.endsWith("/health")) {
           return Response.json({ ok: true });
         }
-        if (url.endsWith("/jobs")) {
+        if (isPath(url, "/jobs")) {
           return Response.json({
             jobs: [{ ...baseJob, id: "job_quiet", mode: "prepare_only", scheduledFor: null }]
           });
@@ -490,7 +500,7 @@ describe("worker job processing", () => {
         if (url.endsWith("/health")) {
           return Response.json({ ok: true });
         }
-        if (url.endsWith("/jobs")) {
+        if (isPath(url, "/jobs")) {
           return Response.json({
             jobs: [
               { ...baseJob, id: "job_mine", mode: "autopost", scheduledFor: "2026-04-25T11:00:00.000Z" },
@@ -527,7 +537,7 @@ describe("worker job processing", () => {
         if (url.endsWith("/health")) {
           return Response.json({ ok: true });
         }
-        if (url.endsWith("/jobs")) {
+        if (isPath(url, "/jobs")) {
           return Response.json({
             jobs: [{ ...baseJob, id: "job_auto", mode: "autopost", scheduledFor: "2026-04-25T11:00:00.000Z" }]
           });
@@ -570,7 +580,7 @@ describe("worker ingest processing", () => {
         if (url.endsWith("/drafts/pending")) {
           return Response.json({ drafts: [] });
         }
-        if (url.endsWith("/jobs")) {
+        if (isPath(url, "/jobs")) {
           return Response.json({ jobs: [] });
         }
         if (url.endsWith("/ingest-run/async")) {
@@ -616,7 +626,7 @@ describe("worker ingest processing", () => {
       "fetch",
       vi.fn(async (url: string, init?: RequestInit) => {
         calls.push(`${init?.method ?? "GET"} ${url}`);
-        if (url.endsWith("/source-packets")) {
+        if (isPath(url, "/source-packets")) {
           return Response.json({
             packets: [
               {
@@ -813,9 +823,9 @@ describe("startWorker", () => {
         if (url.endsWith("/ingest-configs")) return Response.json({ configs: [{ id: "cfg1", enabled: true }] });
         if (url.includes("/browser/x-session")) return Response.json({ loggedIn: true, error: null });
         if (url.endsWith("/jobs/recover-stale")) { cycleCalls.push(1); return Response.json({ recoveredCount: 0 }); }
-        if (url.endsWith("/jobs")) return Response.json({ jobs: [] });
+        if (isPath(url, "/jobs")) return Response.json({ jobs: [] });
         if (url.endsWith("/drafts/pending")) return Response.json({ drafts: [] });
-        if (url.endsWith("/source-packets")) return Response.json({ packets: [] });
+        if (isPath(url, "/source-packets")) return Response.json({ packets: [] });
         if (url.endsWith("/ingest-run/async")) return Response.json({ accepted: false, ingestRun: { processed: 0, running: true } });
         return Response.json({ ok: true });
       })
@@ -842,9 +852,9 @@ describe("startWorker", () => {
         if (url.endsWith("/ingest-configs")) return Response.json({ configs: [{ id: "cfg1", enabled: true }] });
         if (url.includes("/browser/x-session")) return Response.json({ loggedIn: true, error: null });
         if (url.endsWith("/jobs/recover-stale")) { cycleCalls.push(1); return Response.json({ recoveredCount: 0 }); }
-        if (url.endsWith("/jobs")) return Response.json({ jobs: [] });
+        if (isPath(url, "/jobs")) return Response.json({ jobs: [] });
         if (url.endsWith("/drafts/pending")) return Response.json({ drafts: [] });
-        if (url.endsWith("/source-packets")) return Response.json({ packets: [] });
+        if (isPath(url, "/source-packets")) return Response.json({ packets: [] });
         if (url.endsWith("/ingest-run/async")) return Response.json({ accepted: false, ingestRun: { processed: 0, running: true } });
         return Response.json({ ok: true });
       })
@@ -886,9 +896,9 @@ describe("startWorker", () => {
           cycleFinished = true;
           return Response.json({ recoveredCount: 0 });
         }
-        if (url.endsWith("/jobs")) return Response.json({ jobs: [] });
+        if (isPath(url, "/jobs")) return Response.json({ jobs: [] });
         if (url.endsWith("/drafts/pending")) return Response.json({ drafts: [] });
-        if (url.endsWith("/source-packets")) return Response.json({ packets: [] });
+        if (isPath(url, "/source-packets")) return Response.json({ packets: [] });
         if (url.endsWith("/ingest-run/async")) return Response.json({ accepted: false, ingestRun: { processed: 0, running: true } });
         return Response.json({ ok: true });
       })

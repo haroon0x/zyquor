@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createAccountRequestSchema, type ReplyTarget } from "@zyquor/core";
-import { createSqliteRepository, detectSqliteSupport } from "./index.js";
+import { createSqliteRepository, detectSqliteSupport, hashPostText, normalizePostText } from "./index.js";
 
 // The JSON-file memory repository was removed; repository behavior tests run
 // against a throwaway in-process SQLite database instead.
@@ -520,6 +520,75 @@ describe("knowledge entries", () => {
     } finally {
       rmSync(directory, { force: true, recursive: true });
     }
+  });
+});
+
+describe("indexed post history helpers", () => {
+  it("counts and matches posts via indexed lookups instead of full scans", async () => {
+    const repository = await createTestRepository();
+
+    expect(await repository.getPostJobStatusCounts()).toEqual({});
+    expect(await repository.hasPostJobs()).toBe(false);
+    expect(await repository.getLatestPostedJob()).toBeNull();
+    expect(await repository.getLatestSourcePacket()).toBeNull();
+    expect(await repository.countSourcePackets()).toBe(0);
+    expect(await repository.countIngestConfigs({ enabled: true })).toBe(0);
+    expect(await repository.countPendingDrafts()).toBe(0);
+
+    const first = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "First",
+      candidates: [{ text: "First post text", score: {} }]
+    });
+    const second = await repository.createDraft({
+      accountId: "account_personal",
+      sourceInput: "Second",
+      candidates: [{ text: "Second post text", score: {} }]
+    });
+    const firstApproval = await repository.approveDraft({ draftId: first.draft.id, editedText: "First post text" });
+    await repository.approveDraft({ draftId: second.draft.id, editedText: "Second post text" });
+
+    const history = await repository.createPostHistory({
+      accountId: "account_personal",
+      draftId: first.draft.id,
+      postedText: "First post text",
+      postUrl: "https://x.com/personal/status/1",
+      sourceUrl: "https://example.com/story",
+      tweetType: "useful_info"
+    });
+
+    expect(await repository.getPostJobStatusCounts()).toEqual({ approved: 2 });
+    expect(await repository.hasPostJobs()).toBe(true);
+    expect(await repository.countPendingDrafts()).toBe(0);
+
+    expect((await repository.listJobsByDraftId(first.draft.id))[0]?.id).toBe(firstApproval.job.id);
+    expect(await repository.listJobsByDraftId(second.draft.id)).toHaveLength(1);
+    expect((await repository.listJobsByDraftId("draft_missing"))).toHaveLength(0);
+
+    expect(await repository.getPostHistory(history.id)).toMatchObject({
+      id: history.id,
+      accountId: "account_personal",
+      tweetType: "useful_info"
+    });
+    expect(await repository.getPostHistory("history_missing")).toBeNull();
+
+    expect(await repository.getLatestPostHistoryForAccount("account_personal")).toMatchObject({ id: history.id });
+    expect(await repository.getLatestPostHistoryForAccount("account_nobody")).toBeNull();
+
+    expect(await repository.countPostHistorySince("account_personal", new Date(Date.now() - 60_000).toISOString())).toBe(1);
+    expect(await repository.countPostHistorySince("account_personal", "2999-01-01T00:00:00.000Z")).toBe(0);
+
+    expect(await repository.countPostHistoryByDraftId(first.draft.id)).toBe(1);
+    expect(await repository.countPostHistoryByDraftId(second.draft.id)).toBe(0);
+    expect(await repository.countPostHistoryBySourcePacket("account_personal", "packet_missing")).toBe(0);
+
+    const textHash = hashPostText("First post text");
+    expect(await repository.hasPostHistoryTextHash("account_personal", textHash, normalizePostText("First post text"))).toBe(true);
+    expect(await repository.hasPostHistoryTextHash("account_personal", "deliberately_wrong_hash", normalizePostText("unrelated text"))).toBe(false);
+
+    expect(await repository.hasPostHistorySourceUrl("account_personal", "https://example.com/story")).toBe(true);
+    expect(await repository.hasPostHistorySourceUrl("account_personal", "https://other.com/elsewhere")).toBe(false);
+    expect(await repository.hasPostHistorySourceUrl("account_nobody", "https://example.com/story")).toBe(false);
   });
 });
 

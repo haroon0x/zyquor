@@ -1,4 +1,14 @@
-import type { SourceAdapter } from "@zyquor/adapters";
+import type { GoldfishContextBundle, GoldfishContextInput, SourceAdapter } from "@zyquor/adapters";
+import type {
+  FetchAccountTimelineInput,
+  FetchAccountTimelineResult,
+  FetchTweetInput,
+  FetchTweetResult,
+  FetchXHomeFeedInput,
+  FetchXHomeFeedResult,
+  FetchXMentionsInput,
+  FetchXMentionsResult
+} from "@zyquor/browser";
 import type { DraftGenerationProvider, GenerationEnvironment } from "@zyquor/generation";
 import type { ZyquorRepository } from "@zyquor/storage";
 import type { ReplyTarget } from "@zyquor/core";
@@ -76,6 +86,18 @@ export interface BuildAppOptions {
     text: string;
     typingDelayMs?: number;
   }) => Promise<{ postUrl: string | null }>;
+  deletePost?: (input: {
+    actionDelayMs?: number;
+    browserChannel?: string | null;
+    cdpUrl?: string;
+    profileDir: string;
+    postUrl: string;
+  }) => Promise<{ status: "deleted"; postUrl: string; alreadyDeleted: boolean }>;
+  fetchTweet?: (input: FetchTweetInput) => Promise<FetchTweetResult>;
+  fetchAccountTimeline?: (input: FetchAccountTimelineInput) => Promise<FetchAccountTimelineResult>;
+  fetchXHomeFeed?: (input: FetchXHomeFeedInput) => Promise<FetchXHomeFeedResult>;
+  fetchXMentions?: (input: FetchXMentionsInput) => Promise<FetchXMentionsResult>;
+  goldfishReplyContext?: (input: GoldfishContextInput) => Promise<GoldfishContextBundle | null>;
   closeAfterPrepare?: boolean;
   closeAfterPost?: boolean;
   launchPostingChrome?: (input: { accountId: string }) => Promise<{ launched: boolean; reason?: string }>;
@@ -90,6 +112,7 @@ export interface AppDeps {
   generationEnv: GenerationEnvironment;
   generationProvider: DraftGenerationProvider;
   generationConfigPath: string | null;
+  goldfishReplyContext: (input: GoldfishContextInput) => Promise<GoldfishContextBundle | null>;
   launchPostingChrome: ((input: { accountId: string }) => Promise<{ launched: boolean; reason?: string }>) | undefined;
   desktopSettings: DesktopSettingsConfig | undefined;
   desktopControl: DesktopControl | undefined;
@@ -131,7 +154,12 @@ export interface AppDeps {
     typingDelayMs?: number | undefined;
     checkXLogin?: BuildAppOptions["checkXLogin"] | undefined;
     preparePost?: BuildAppOptions["preparePost"] | undefined;
+    deletePost?: BuildAppOptions["deletePost"] | undefined;
     closeAfterPrepare?: boolean | undefined;
     closeAfterPost?: boolean | undefined;
+    fetchTweet: (input: FetchTweetInput) => Promise<FetchTweetResult>;
+    fetchAccountTimeline: (input: FetchAccountTimelineInput) => Promise<FetchAccountTimelineResult>;
+    fetchXHomeFeed: (input: FetchXHomeFeedInput) => Promise<FetchXHomeFeedResult>;
+    fetchXMentions: (input: FetchXMentionsInput) => Promise<FetchXMentionsResult>;
   };
 }

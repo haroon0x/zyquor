@@ -80,6 +80,7 @@ export const ATTEMPT_STATUSES = [
   "text_inserted",
   "post_clicked",
   "verified",
+  "retry_scheduled",
   "failed"
 ] as const;
 
@@ -417,7 +418,11 @@ export const selectDraftCandidateRequestSchema = z.object({
 export const approveDraftRequestSchema = z.object({
   editedText: postTextSchema(1),
   mode: z.enum(POSTING_MODES).optional(),
-  scheduledFor: isoTimestampSchema.nullable().optional()
+  scheduledFor: isoTimestampSchema.nullable().optional(),
+  // Agent screenings: when true, the route enforces the deterministic quality
+  // floor, text cleanliness, and tweet-length before approving. Humans may
+  // override; machines may not.
+  screened: z.boolean().optional()
 });
 
 export const prepareJobRequestSchema = z.object({

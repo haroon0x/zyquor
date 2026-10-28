@@ -11,6 +11,7 @@ export interface WorkerOptions {
   autoSeedDefaultIngest?: boolean;
   ingestIntervalMs?: number;
   performanceIntervalMs?: number;
+  mentionsIntervalMs?: number;
   pollMs: number;
 }
 
@@ -25,6 +26,7 @@ export interface WorkerState {
   lastError: string | null;
   lastIngestMs: number;
   lastPerformanceMs: number;
+  lastMentionsMs: number;
   lastPostMs: number;
   autopostJobIds: Set<string>;
   blockedAutopostJobIds: Set<string>;
@@ -97,10 +99,36 @@ export function createWorkerState(): WorkerState {
     lastError: null,
     lastIngestMs: 0,
     lastPerformanceMs: 0,
+    lastMentionsMs: 0,
     lastPostMs: 0,
     autopostJobIds: new Set(),
     blockedAutopostJobIds: new Set()
   };
+}
+
+// Mentions auto-draft: off by default. When ZYQUOR_MENTIONS_AUTO_DRAFT === "1"
+// the worker calls POST /replies/mentions/scan-and-draft for the accounts
+// listed in ZYQUOR_MENTIONS_ACCOUNTS. That route only ever drafts; the review
+// queue stays the gate and nothing auto-posts.
+export function mentionsAutoDraftEnabled() {
+  return process.env.ZYQUOR_MENTIONS_AUTO_DRAFT === "1";
+}
+
+// Mentions auto-approve: the stage 2 lane. When ZYQUOR_MENTIONS_AUTO_APPROVE ===
+// "1" the worker calls POST /replies/mentions/scan-and-auto-approve instead.
+// That route still only drafts; it may additionally approve a limited number
+// of best-candidate replies into review_required jobs, capped per day by the
+// API-side ZYQUOR_MENTIONS_AUTO_APPROVE_DAILY_CAP. When both this and
+// auto-draft are enabled, auto-approve wins (it drafts as well).
+export function mentionsAutoApproveEnabled() {
+  return process.env.ZYQUOR_MENTIONS_AUTO_APPROVE === "1";
+}
+
+export function mentionsAccountsFromEnv() {
+  return (process.env.ZYQUOR_MENTIONS_ACCOUNTS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
 }
 
 function minutesSinceMidnight(time: string) {
@@ -217,6 +245,16 @@ export async function checkWorkerStartup(options: WorkerOptions) {
     warnings.push("Browser post is disabled, so drafts queue up as approved autopost jobs but never submit to X.");
   }
 
+  if (mentionsAutoApproveEnabled() && mentionsAccountsFromEnv().length === 0) {
+    warnings.push("Mentions auto-approve is enabled but ZYQUOR_MENTIONS_ACCOUNTS is empty, so no account gets scanned.");
+  }
+  if (mentionsAutoDraftEnabled() && mentionsAccountsFromEnv().length === 0) {
+    warnings.push("Mentions auto-draft is enabled but ZYQUOR_MENTIONS_ACCOUNTS is empty, so no account gets scanned.");
+  }
+  if (mentionsAutoApproveEnabled() && mentionsAutoDraftEnabled()) {
+    warnings.push("Mentions auto-draft and auto-approve are both enabled; the auto-approve lane takes precedence.");
+  }
+
   const recovery = await api<{ recoveredCount: number }>(
     options.apiUrl,
     "/ingest-runs/recover-stale",
@@ -294,19 +332,20 @@ export async function processApprovedJobs(
   }
 
   const [{ jobs }, { accounts }] = await Promise.all([
-    api<{ jobs: PostJob[] }>(options.apiUrl, "/jobs"),
+    api<{ jobs: PostJob[] }>(options.apiUrl, "/jobs?statuses=approved"),
     api<{ accounts: Account[] }>(options.apiUrl, "/accounts")
   ]);
   const now = new Date();
   const nowMs = now.getTime();
   const accountById = new Map(accounts.map((account) => [account.id, account]));
-  let approvedJobs = jobs.filter((job) => {
+  const approvedJobs = jobs.filter((job) => {
     const account = accountById.get(job.accountId);
     if (!account || isWithinQuietHours(now, account)) {
       return false;
     }
+    // The API already returned only approved jobs; keep only runnable modes
+    // and schedules due for execution.
     return (
-      job.status === "approved" &&
       (!job.scheduledFor || Date.parse(job.scheduledFor) <= nowMs) &&
       (job.mode === "prepare_only" || job.mode === "scheduled" || job.mode === "autopost")
     );
@@ -457,7 +496,9 @@ export async function processPendingDrafts(options: WorkerOptions) {
 }
 
 export async function processNewSourcePackets(options: WorkerOptions) {
-  const { packets } = await api<{ packets?: SourcePacket[] }>(options.apiUrl, "/source-packets");
+  // Ask the API for only packets that still need a draft, instead of pulling
+  // every packet ever fetched and filtering locally.
+  const { packets } = await api<{ packets?: SourcePacket[] }>(options.apiUrl, "/source-packets?status=new");
   const sourcePackets = packets ?? [];
   const newPackets = sourcePackets.filter((packet) => packet.status === "new");
   if (newPackets.length === 0) return 0;
@@ -495,6 +536,53 @@ export async function processIngest(options: WorkerOptions) {
     console.error(`Failed to run ingest:`, error instanceof Error ? error.message : error);
     return 0;
   }
+}
+
+export async function processMentionsAutoDraft(options: WorkerOptions): Promise<number> {
+  const accounts = mentionsAccountsFromEnv();
+  if (accounts.length === 0) return 0;
+  let drafted = 0;
+  for (const accountId of accounts) {
+    try {
+      const result = await api<{ created?: Array<unknown> }>(
+        options.apiUrl,
+        "/replies/mentions/scan-and-draft",
+        { method: "POST", body: JSON.stringify({ accountId }) },
+        120_000
+      );
+      const createdCount = Array.isArray(result.created) ? result.created.length : 0;
+      console.log(`[mentions] drafted ${createdCount} reply draft(s) for ${accountId}`);
+      drafted += createdCount;
+    } catch (error) {
+      // A failure for one account must not kill the loop for the others.
+      console.error(`[mentions] scan-and-draft failed for ${accountId}:`, error instanceof Error ? error.message : error);
+    }
+  }
+  return drafted;
+}
+
+export async function processMentionsAutoApprove(options: WorkerOptions): Promise<number> {
+  const accounts = mentionsAccountsFromEnv();
+  if (accounts.length === 0) return 0;
+  let approved = 0;
+  for (const accountId of accounts) {
+    try {
+      const result = await api<{ approved?: Array<unknown>; held?: Array<unknown> }>(
+        options.apiUrl,
+        "/replies/mentions/scan-and-auto-approve",
+        { method: "POST", body: JSON.stringify({ accountId }) },
+        120_000
+      );
+      const approvedCount = Array.isArray(result.approved) ? result.approved.length : 0;
+      const heldCount = Array.isArray(result.held) ? result.held.length : 0;
+      console.log(`[mentions] auto-approved ${approvedCount} reply draft(s) for ${accountId} (${heldCount} held for review)`);
+      approved += approvedCount;
+    } catch (error) {
+      // A failure for one account must not kill the loop for the others.
+      console.error(`[mentions] scan-and-auto-approve failed for ${accountId}:`, error instanceof Error ? error.message : error);
+    }
+  }
+  return approved;
 }
 
 export async function refreshPerformance(options: WorkerOptions) {
@@ -545,6 +633,31 @@ export async function runWorkerCycle(options: WorkerOptions, state: WorkerState)
   const sourcePacketProcessed = keepGoing() ? await processNewSourcePackets(options) : 0;
   if (sourcePacketProcessed > 0) {
     console.log(`Drafted ${sourcePacketProcessed} source packet(s)`);
+  }
+
+  if (keepGoing() && (mentionsAutoApproveEnabled() || mentionsAutoDraftEnabled())) {
+    const scansStartedAt = Date.now();
+    const configuredMs = options.mentionsIntervalMs ?? Number(process.env.ZYQUOR_MENTIONS_INTERVAL_MS ?? "");
+    const mentionsIntervalMs =
+      Number.isFinite(configuredMs) && configuredMs > 0
+        ? configuredMs
+        : 15 * 60 * 1000;
+    if (scansStartedAt - state.lastMentionsMs >= mentionsIntervalMs) {
+      state.lastMentionsMs = scansStartedAt;
+      if (mentionsAccountsFromEnv().length === 0) {
+        console.warn("[mentions] mentions automation is on but ZYQUOR_MENTIONS_ACCOUNTS lists no account ids; skipping.");
+      } else if (mentionsAutoApproveEnabled()) {
+        const approvedCount = await processMentionsAutoApprove(options);
+        if (approvedCount > 0) {
+          console.log(`Mention auto-approve approved ${approvedCount} reply draft(s)`);
+        }
+      } else {
+        const mentionDraftsCreated = await processMentionsAutoDraft(options);
+        if (mentionDraftsCreated > 0) {
+          console.log(`Mention auto-draft created ${mentionDraftsCreated} reply draft(s)`);
+        }
+      }
+    }
   }
 
   const now = Date.now();

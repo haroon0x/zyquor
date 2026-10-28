@@ -27,6 +27,16 @@ const app = buildApp({
   closeAfterPost
 });
 
+// Browser automation surfaces transient protocol races (for example a
+// beforeunload dialog that Chrome closes before Playwright can dismiss it).
+// Those must not take the whole API down with them: log and keep serving.
+process.on("unhandledRejection", (reason) => {
+  app.log.error(
+    { err: reason instanceof Error ? reason : new Error(String(reason)) },
+    "unhandled rejection (API kept running)"
+  );
+});
+
 try {
   await app.listen({ host: "127.0.0.1", port });
 } catch (error) {

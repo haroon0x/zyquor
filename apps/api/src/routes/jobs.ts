@@ -2,10 +2,11 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppDeps } from "../deps.js";
 import { validateSourcePostQuality, withRequiredSourceUrl } from "@zyquor/automation";
-import { prepareJobRequestSchema, type PostJob } from "@zyquor/core";
+import { POST_JOB_STATUSES, prepareJobRequestSchema, type PostJob } from "@zyquor/core";
 import { assertDedicatedProfileDir, isAccountRunnable } from "@zyquor/accounts";
 import { asHttpError, HttpError } from "../lib/errors.js";
 import { tracePostProcessTweetText } from "../lib/post-process.js";
+import { retryBrowserJob } from "../lib/retry-job.js";
 import { browserOptions } from "../lib/browser.js";
 import { resolveProfileDir } from "../lib/paths.js";
 import { mediaPathsForDraft } from "../lib/media.js";
@@ -21,6 +22,26 @@ import { postBrowserJob } from "../lib/post-browser-job.js";
 
 function isScheduledForFuture(job: { scheduledFor: string | null }) {
   return job.scheduledFor ? Date.parse(job.scheduledFor) > Date.now() : false;
+}
+
+const ALLOWED_JOB_STATUSES = new Set<string>(POST_JOB_STATUSES);
+
+function parseJobStatuses(raw: string | undefined): PostJob["status"][] | undefined {
+  if (!raw) return undefined;
+  const statuses = raw
+    .split(",")
+    .map((status) => status.trim())
+    .filter((status) => ALLOWED_JOB_STATUSES.has(status)) as PostJob["status"][];
+  return statuses.length > 0 ? statuses : undefined;
+}
+
+const MAX_JOB_LIST_LIMIT = 1000;
+
+function parseListLimit(raw: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return Math.min(Math.floor(parsed), MAX_JOB_LIST_LIMIT);
 }
 
 function nextAutopostJob(jobs: PostJob[], accountId: string) {
@@ -60,11 +81,12 @@ function browserArtifacts(error: unknown) {
 
 export function registerJobsRoutes(app: FastifyInstance, deps: AppDeps): void {
   app.get("/jobs", async (request) => {
-    const { accountId } = request.query as { accountId?: string };
-    const jobs = await (await deps.repository).listJobs();
-    return {
-      jobs: accountId ? jobs.filter((job) => job.accountId === accountId) : jobs
-    };
+    const { accountId, statuses, limit } = request.query as { accountId?: string; statuses?: string; limit?: string };
+    const jobs = await (await deps.repository).listJobs(accountId, {
+      statuses: parseJobStatuses(statuses),
+      limit: parseListLimit(limit)
+    });
+    return { jobs };
   });
 
   app.get("/jobs/:id/attempts", async (request) => {
@@ -91,7 +113,7 @@ export function registerJobsRoutes(app: FastifyInstance, deps: AppDeps): void {
       throw new HttpError(400, "accountId is required");
     }
     const repository = await deps.repository;
-    const job = nextAutopostJob(await repository.listJobs(), accountId);
+    const job = nextAutopostJob(await repository.listJobs(undefined, { statuses: ["approved", "prepared"] }), accountId);
     if (!job) {
       return reply.code(404).send({ error: "No approved autopost jobs in queue" });
     }
@@ -114,10 +136,7 @@ export function registerJobsRoutes(app: FastifyInstance, deps: AppDeps): void {
     const repository = await deps.repository;
     const now = Date.now();
     const readyJobs = shuffle(
-      (await repository.listJobs()).filter((job) => {
-        if (job.accountId !== accountId) {
-          return false;
-        }
+      (await repository.listJobs(accountId, { statuses: ["approved", "prepared"] })).filter((job) => {
         if (job.status !== "approved" && job.status !== "prepared") {
           return false;
         }
@@ -161,7 +180,7 @@ export function registerJobsRoutes(app: FastifyInstance, deps: AppDeps): void {
   app.delete("/jobs", async (request) => {
     const { accountId } = request.query as { accountId?: string };
     const repository = await deps.repository;
-    const jobs = (await repository.listJobs()).filter((job) => !accountId || job.accountId === accountId);
+    const jobs = await repository.listJobs(accountId);
     const deleted = [];
 
     for (const job of jobs) {
@@ -176,11 +195,10 @@ export function registerJobsRoutes(app: FastifyInstance, deps: AppDeps): void {
 
   app.delete("/jobs/cleanup", async () => {
     const repository = await deps.repository;
-    const jobs = await repository.listJobs();
-    const toDelete = jobs.filter((job) => job.status === "posted" || job.status === "failed");
+    const jobs = await repository.listJobs(undefined, { statuses: ["posted", "failed"] });
     const deleted = [];
 
-    for (const job of toDelete) {
+    for (const job of jobs) {
       await repository.deleteJob(job.id);
       deleted.push(job.id);
     }
@@ -302,6 +320,22 @@ export function registerJobsRoutes(app: FastifyInstance, deps: AppDeps): void {
 
     try {
       return await postBrowserJob(deps, id);
+    } catch (error) {
+      const httpError = asHttpError(error);
+      return reply.code(httpError?.statusCode ?? 500).send({
+        error: error instanceof Error ? error.message : "Unknown browser error"
+      });
+    }
+  });
+
+  // Verify-then-retry for a failed reply job: scans the target thread for the
+  // account's own reply first (marks posted when found), and only reposts
+  // through the fully gated path when the thread confirms the reply never
+  // landed. Agents never call this on their own; the user asks.
+  app.post("/jobs/:id/retry", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    try {
+      return await retryBrowserJob(deps, id);
     } catch (error) {
       const httpError = asHttpError(error);
       return reply.code(httpError?.statusCode ?? 500).send({

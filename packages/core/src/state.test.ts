@@ -14,5 +14,7 @@ describe("state transitions", () => {
 
   it("allows failed jobs to be explicitly requeued", () => {
     expect(canTransitionPostJob("failed", "queued")).toBe(true);
+    expect(canTransitionPostJob("failed", "approved")).toBe(true);
+    expect(canTransitionPostJob("failed", "posted")).toBe(true);
   });
 });

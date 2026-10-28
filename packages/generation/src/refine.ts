@@ -1,5 +1,5 @@
 import { linePrompt, revisionPrompt, systemPrompt, userPrompt } from "./prompts.js";
-import { candidatesFromText, isNoCandidatesError } from "./quality.js";
+import { candidatesFromText, isNoCandidatesError, normalizeCount } from "./quality.js";
 import type { GenerateDraftCandidatesInput, GeneratedDraftCandidate, GenerationProviderName } from "./types.js";
 
 /**
@@ -40,6 +40,37 @@ export async function generateDraftCandidates(input: {
       // simpler line prompt, then fail loudly.
       const lineRetry = await input.runPrompt(linePrompt(generationInput));
       candidates = candidatesFromText(lineRetry, generationInput, input.providerName, input.model);
+    }
+  }
+
+  // Best-of-N top-up: when the model returns fewer candidates than requested,
+  // repeat full-prompt attempts nudged with the texts already drafted, merging
+  // unique results, so a large pool fills with distinct new angles instead of
+  // regenerating the same few. Bounded: at most 4 extra passes (1 when the
+  // target is 3 or fewer), each pass is opportunistic on error.
+  const targetCount = normalizeCount(generationInput.count);
+  const alreadyDrafted = (pool: string[]) =>
+    pool.map((text) => `- ${text.slice(0, 140)}`).join("\n");
+  const maxTopUps = targetCount <= 3 ? 1 : 4;
+  for (let attempt = 0; attempt < maxTopUps && candidates.length < targetCount; attempt += 1) {
+    const basePrompt = `${systemPrompt(generationInput)}\n\n${userPrompt(generationInput)}`;
+    const prompt = candidates.length === 0 || targetCount <= 3
+      ? basePrompt
+      : `${basePrompt}\n\nAlready drafted (do not reuse or closely rephrase any of these; each new candidate must be a genuinely different angle. Aim for ${targetCount - candidates.length} more distinct candidates):\n${alreadyDrafted(candidates.map((candidate) => candidate.text))}`;
+    try {
+      const extraRaw = await input.runPrompt(prompt);
+      const extra = candidatesFromText(extraRaw, generationInput, input.providerName, input.model);
+      const seen = new Set(candidates.map((candidate) => candidate.text));
+      for (const candidate of extra) {
+        if (candidates.length >= targetCount) break;
+        if (candidate.text && !seen.has(candidate.text)) {
+          seen.add(candidate.text);
+          candidates.push(candidate);
+        }
+      }
+    } catch {
+      // Top-up is opportunistic; keep whatever earlier passes produced.
+      break;
     }
   }
 

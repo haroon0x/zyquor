@@ -5,16 +5,17 @@ export interface GoldfishAdapterOptions {
   maxItems?: number;
   mode?: "chronicle" | "working_memory" | "recent";
   query?: string;
+  allowedKeywords?: string[];
 }
 
-function goldfishMcpCommand(): string[] {
+export function goldfishMcpCommand(): string[] {
   if (process.platform === "win32") {
     return ["C:\\Users\\asus\\AppData\\Local\\Goldfish\\goldfish-mcp.exe"];
   }
   return ["powershell.exe", "-NoProfile", "-Command", "C:\\Users\\asus\\AppData\\Local\\Goldfish\\goldfish-mcp.exe"];
 }
 
-async function callGoldfishTool<T>(tool: string, params: Record<string, unknown>): Promise<T> {
+export async function callGoldfishTool<T>(tool: string, params: Record<string, unknown>): Promise<T> {
   const cmd = goldfishMcpCommand();
   const child = spawn(cmd[0]!, cmd.slice(1), { stdio: ["pipe", "pipe", "pipe"] });
   let stdout = "";
@@ -65,6 +66,10 @@ async function callGoldfishTool<T>(tool: string, params: Record<string, unknown>
   return result;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function chronicleToItems(chronicle: { summary_text?: string; period_key?: string; snapshot_count?: number }, maxItems: number): SourceItem[] {
   const text = (chronicle.summary_text ?? "").trim();
   if (!text) return [];
@@ -104,43 +109,80 @@ export function createGoldfishAdapter(options: GoldfishAdapterOptions = {}): Sou
   return {
     name: "goldfish",
     sourceType: "goldfish",
-    async fetch(): Promise<SourceItem[]> {
+    async fetch(configMetadata?: Record<string, unknown>): Promise<SourceItem[]> {
+      // Normalize keywords: trim, lowercase, dedupe. Config overrides options.
+      const rawKeywords = Array.isArray(configMetadata?.allowedKeywords) ? configMetadata.allowedKeywords : options.allowedKeywords;
+      const allowedKeywords = Array.isArray(rawKeywords)
+        ? [...new Set((rawKeywords as unknown[]).filter((k): k is string => typeof k === "string" && k.trim().length > 0).map((k) => k.trim().toLowerCase()))]
+        : [];
+      const shouldFilter = allowedKeywords.length > 0;
+      const keywordPatterns = shouldFilter ? allowedKeywords.map((k) => new RegExp(`(^|[^a-z0-9])${escapeRegExp(k)}([^a-z0-9]|$)`, "i")) : [];
+
+      const passesFilter = (item: SourceItem) => {
+        if (!shouldFilter) return true;
+        const text = `${item.title} ${item.content}`;
+        return keywordPatterns.some((p) => p.test(text));
+      };
+      const filterAndSlice = (items: SourceItem[]) => {
+        if (!shouldFilter) return items.slice(0, maxItems);
+        return items.filter(passesFilter).slice(0, maxItems);
+      };
+
+      // Over-fetch when filtering so slice-after-filter still yields maxItems (capped 50).
+      const poolSize = shouldFilter ? Math.min(50, maxItems * 3) : maxItems;
+      const recentLimit = shouldFilter ? Math.max(12, poolSize) : 12;
+
       try {
         if (mode === "recent") {
-          const recent = await callGoldfishTool<unknown>("get_recent_activity", { minutes: 60, limit: 12 });
+          const recent = await callGoldfishTool<unknown>("get_recent_activity", { minutes: 60, limit: recentLimit });
+          let raw: Array<{ content: string; app: string; window_title: string; url?: string }> = [];
           if (Array.isArray(recent)) {
-            return workingMemoryToItems(recent as Array<{ content: string; app: string; window_title: string; url?: string }>, maxItems);
+            raw = recent as Array<{ content: string; app: string; window_title: string; url?: string }>;
+          } else {
+            const recentObj = recent as { events?: Array<{ content_excerpt: string; app: string; window_title: string; url?: string }> };
+            if (recentObj.events && Array.isArray(recentObj.events)) {
+              raw = recentObj.events.map((e) => ({ content: e.content_excerpt, app: e.app, window_title: e.window_title, url: e.url }));
+            }
           }
-          const recentObj = recent as { events?: Array<{ content_excerpt: string; app: string; window_title: string; url?: string }> };
-          if (recentObj.events && Array.isArray(recentObj.events)) {
-            const mapped = recentObj.events.map((e) => ({ content: e.content_excerpt, app: e.app, window_title: e.window_title, url: e.url }));
-            return workingMemoryToItems(mapped as Array<{ content: string; app: string; window_title: string; url?: string }>, maxItems);
-          }
-          return [];
+          return filterAndSlice(workingMemoryToItems(raw, poolSize));
         }
         if (query) {
-          const result = await callGoldfishTool<{ results?: Array<{ content_excerpt: string; window_title: string; url?: string; app: string }> } | Array<{ content_excerpt: string }>>("search_memory", { query, limit: maxItems });
+          const result = await callGoldfishTool<{ results?: Array<{ content_excerpt: string; window_title: string; url?: string; app: string }> } | Array<{ content_excerpt: string }>>(
+            "search_memory",
+            { query, limit: poolSize },
+          );
           const arr = Array.isArray(result) ? result : (result as { results?: unknown[] })?.results ?? [];
-          return (arr as Array<{ content_excerpt: string; window_title: string; url?: string; app: string }>).slice(0, maxItems).map((r, i) => ({
-            title: r.window_title?.slice(0, 120) || `Goldfish memory ${i}`,
-            url: r.url ?? `goldfish://search/${encodeURIComponent(query)}/${i}`,
-            content: (r.content_excerpt ?? "").slice(0, 3000),
-            metadata: { app: r.app, source: "goldfish-search" },
-          })).filter((it) => it.content.length > 40);
+          const candidates = (arr as Array<{ content_excerpt: string; window_title: string; url?: string; app: string }>)
+            .map((r, i) => ({
+              title: r.window_title?.slice(0, 120) || `Goldfish memory ${i}`,
+              url: r.url ?? `goldfish://search/${encodeURIComponent(query)}/${i}`,
+              content: (r.content_excerpt ?? "").slice(0, 3000),
+              metadata: { app: r.app, source: "goldfish-search" },
+            }))
+            .filter((it) => it.content.length > 40);
+          return filterAndSlice(candidates);
         }
         if (mode === "working_memory") {
-          const mem = await callGoldfishTool<Array<{ content: string; app: string; window_title: string; url?: string }>>("get_working_memory", { limit: maxItems * 2 });
-          const arr = Array.isArray(mem) ? mem : [];
-          return workingMemoryToItems(arr, maxItems);
+          const mem = await callGoldfishTool<Array<{ content: string; app: string; window_title: string; url?: string }>>("get_working_memory", {
+            limit: shouldFilter ? poolSize : maxItems * 2,
+          });
+          return filterAndSlice(workingMemoryToItems(Array.isArray(mem) ? mem : [], poolSize));
         }
         const today = new Date().toISOString().slice(0, 10);
-        const chronicle = await callGoldfishTool<{ summary_text: string; period_key: string; snapshot_count: number }>("get_chronicle", { level: "day", period: today });
+        const chronicle = await callGoldfishTool<{ summary_text: string; period_key: string; snapshot_count: number }>("get_chronicle", {
+          level: "day",
+          period: today,
+        });
         if (chronicle && (chronicle as { summary_text?: string }).summary_text) {
-          const items = chronicleToItems(chronicle as { summary_text?: string; period_key?: string; snapshot_count?: number }, maxItems);
-          if (items.length > 0) return items;
+          const candidates = chronicleToItems(chronicle as { summary_text?: string; period_key?: string; snapshot_count?: number }, poolSize);
+          const filtered = filterAndSlice(candidates);
+          if (filtered.length > 0) return filtered;
+          // fall through when chronicle filtered to empty
         }
-        const mem = await callGoldfishTool<Array<{ content: string; app: string; window_title: string }>>("get_working_memory", { limit: maxItems * 2 });
-        return workingMemoryToItems(Array.isArray(mem) ? mem : [], maxItems);
+        const mem = await callGoldfishTool<Array<{ content: string; app: string; window_title: string }>>("get_working_memory", {
+          limit: shouldFilter ? poolSize : maxItems * 2,
+        });
+        return filterAndSlice(workingMemoryToItems(Array.isArray(mem) ? mem : [], poolSize));
       } catch {
         return [];
       }
