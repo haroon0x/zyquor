@@ -246,7 +246,9 @@ async function runCycle(state) {
   // the search page mid-navigation.
   const feed = await feedTargets();
   const search = await searchTargets(queries);
-  const all = [...search, ...feed].filter((row) => row.url && row.text);
+  // Home feed first: replies should go to people the owner actually follows.
+  // Search is the fallback for when the feed is thin, already seen, or rejected.
+  const all = [...feed, ...search].filter((row) => row.url && row.text);
   const seenAuthors = new Set(state.authors.slice(-3));
   let posted = 0;
 

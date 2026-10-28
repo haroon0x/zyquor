@@ -119,13 +119,15 @@ Port topology on the owner's machine: the API talks to `http://172.31.96.1:9223`
 
 Posting also depends on the per-profile CDP port. `perProfileCdpUrl` gives each profile its own port; profiles in `ZYQUOR_BROWSER_CDP_BASE_PROFILES` (comma separated, default `personal-main`) stay on the base port, everything else gets a hash offset. If posting fails with `Chrome CDP is unavailable at http://172.31.96.1:9224`, the active profile is not on a forwarded port. Add it to that env list; do not open more portproxy rules.
 
+Posting Chrome runs headless here (`ZYQUOR_BROWSER_HEADLESS=1`, `--headless=new`) on the same profile and CDP port, so no window appears. `ensureBrowserCdp` honours the flag, so auto-launch after a CDP drop stays headless too. Restart with `C:\Users\asus\zyquor-profiles\relaunch-fresh.ps1`; use `relaunch-headed.ps1` only to debug a page that will not render. Debug headless through screenshots in `apps/api/data/artifacts`, not a visible window.
+
 If a post fails partway, the composer can keep the text. Clear it (`Control+A`, `Backspace`) before the next attempt. Otherwise the next navigation raises Chrome's `beforeunload` dialog, and Playwright's auto-dismiss used to crash the API with `No dialog is showing`. That crash is now contained by dialog handlers and an unhandled-rejection logger, but the dirty composer should still be cleared.
 
 Posted replies record their own permalink now. If history points at the target tweet instead, the reply was stored by an older build; open the account's reply and correct the URL rather than assuming the reply posted to the wrong place.
 
 ## Posts-only reply loop
 
-`scripts/reply-loop.mjs` is the unattended posts-only lane. It never touches mentions. Each cycle it discovers targets from X search (through the logged-in Chrome) plus `GET /replies/feed`, drafts best-of-N via `POST /replies/from-url`, screens the candidates with a deterministic slop filter, and only then approves (`screened:true`) and posts through the normal gated job path.
+`scripts/reply-loop.mjs` is the unattended posts-only lane. It never touches mentions. Each cycle it reads the home feed first (`GET /replies/feed`, people the owner follows), falls back to X search through the logged-in Chrome when the feed is thin, already seen, or rejected, drafts best-of-N via `POST /replies/from-url`, screens the candidates with a deterministic slop filter, and only then approves (`screened:true`) and posts through the normal gated job path.
 
 ```bash
 node scripts/reply-loop.mjs --once --dry   # discover, draft, report; no approval

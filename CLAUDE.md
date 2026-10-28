@@ -214,6 +214,13 @@ ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
 - The Windows portproxy here only forwards 9223 to 9222, so a profile that hashes to another offset resolves to a dead port. Posting then fails with `Chrome CDP is unavailable at http://172.31.96.1:9224`. Add the active profile to `ZYQUOR_BROWSER_CDP_BASE_PROFILES`; do not add more portproxy rules for every profile.
 - Settings change `cdpPort` rewrites the base URL, not the offsets. The env list is the supported way to pin a profile to the base port.
 
+### Headless Posting Chrome
+
+- `ZYQUOR_BROWSER_HEADLESS=1` makes the posting Chrome run `--headless=new` on the same profile and CDP port, with no visible window. `ensureBrowserCdp` honours it, so auto-launch after a CDP loss does not reopen one.
+- Restart scripts on Windows: `C:\Users\asus\zyquor-profiles\relaunch-fresh.ps1` (headless, canonical) and `relaunch-headed.ps1` (visible, only for debugging a page that will not render). `launch-headless.ps1` is a wrapper for the canonical script.
+- Verified on 2026-10-28: headless logs in as `@haroon0x`, renders the feed, fills the composer, and the feed scan returns rows. The UA string contains `HeadlessChrome`, and X still serves the full client.
+- Debugging headless means screenshots (`apps/api/data/artifacts`), not looking at a window. If X stops painting only in headless, switch to `relaunch-headed.ps1` and compare before changing any code.
+
 ### Browser Job Failure Modes
 
 - Chrome raises a `beforeunload` dialog when a page navigates or closes with unsent composer text. Playwright's internal auto-dismiss races Chrome and throws `No dialog is showing` from an unhandled promise, which used to kill the API mid-post. `openPersistentContext` now installs dialog dismissers on every page, and `apps/api/src/server.ts` logs unhandled rejections instead of exiting.
@@ -222,7 +229,7 @@ ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
 
 ### Posts-Only Reply Loop
 
-`scripts/reply-loop.mjs` is the unattended posts-only lane. It does not touch mentions. It discovers targets from X search (through the logged-in Chrome) plus `GET /replies/feed`, drafts best-of-N through `POST /replies/from-url`, applies a deterministic slop screen (advice, formula contrasts, invented numbers, first-person review, questions the target did not ask, quality floor), then approves with `screened:true` and posts through the normal gated job path. Every rejection is appended to `apps/api/data/reply-loop.jsonl` with a reason, which is the input for tightening prompts or filters.
+`scripts/reply-loop.mjs` is the unattended posts-only lane. It does not touch mentions. It discovers targets from `GET /replies/feed` first (people the owner follows), then falls back to X search through the logged-in Chrome when the feed is thin, already seen, or rejected. It drafts best-of-N through `POST /replies/from-url`, applies a deterministic slop screen (advice, formula contrasts, invented numbers, first-person review, questions the target did not ask, quality floor), then approves with `screened:true` and posts through the normal gated job path. Every rejection is appended to `apps/api/data/reply-loop.jsonl` with a reason, which is the input for tightening prompts or filters.
 
 ```bash
 node scripts/reply-loop.mjs --once --dry   # discover, draft, report; no approval
@@ -247,8 +254,10 @@ Env: `ZYQUOR_REPLY_LOOP_QUERIES`, `ZYQUOR_REPLY_LOOP_INTERVAL_MS` (default 12 mi
 - Posting resolved to the wrong CDP port: `perProfileCdpUrl` hashed `profiles/reply-loop-test` to base+1 (9224), which the Windows portproxy does not forward. Added `ZYQUOR_BROWSER_CDP_BASE_PROFILES` (default `personal-main`, set to `personal-main,reply-loop-test` here), routed `routes/browser.ts` through the shared helper, and added unit tests for the offset rules.
 - Fixed the API crash mid-post: a leftover unsent composer triggered a `beforeunload` dialog and Playwright's auto-dismiss threw `No dialog is showing` from an unhandled promise. Dialog dismissers now attach to every page in `openPersistentContext`, and `server.ts` logs unhandled rejections instead of exiting.
 - Fixed `resolvePostedPermalink`: replies now record their own status URL instead of the parent tweet. Verified on the first runner post of the day.
-- `scripts/reply-loop.mjs` saves state after every decision, so a kill or restart no longer loses the seen list. Discovery is sequential (feed then search) because the feed scan owns and closes its browser context.
+- `scripts/reply-loop.mjs` saves state after every decision, so a kill or restart no longer loses the seen list. Discovery is sequential, home feed first, then search, because the feed scan owns and closes its browser context.
 - Loop posted through the fresh profile: https://x.com/haroon0x/status/2115336263507349620 (reply to `jatinkrmalik`).
+- Discovery order flipped to home feed first, search as fallback, so replies go to people the owner follows when the feed has eligible posts.
+- Posting Chrome now runs headless (`--headless=new`) behind `ZYQUOR_BROWSER_HEADLESS=1`. Verified login, feed render, composer fill, and the feed API scan with the window closed.
 
 ## Latest Work (2026-10-27)
 

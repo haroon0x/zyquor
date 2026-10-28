@@ -153,6 +153,9 @@ function findChromeExecutable(): string {
 
 
 export async function ensureBrowserCdp(cdpUrl: string, profileDir: string): Promise<boolean> {
+  // Headless keeps the posting Chrome off the owner's screen. The profile and
+  // CDP port are unchanged; only the window is gone.
+  const headless = process.env.ZYQUOR_BROWSER_HEADLESS === "1";
   const wantedProfileDir = resolveProfileDir(profileDir);
   const port = Number(new URL(cdpUrl).port);
   const browser = await chromium.connectOverCDP(cdpUrl).catch(() => null);
@@ -178,6 +181,7 @@ export async function ensureBrowserCdp(cdpUrl: string, profileDir: string): Prom
       "  '--profile-directory=Default',",
       `  '--remote-debugging-port=${port}',`,
       "  '--remote-debugging-address=0.0.0.0',",
+      ...(headless ? ["  '--headless=new',"] : []),
       "  '--no-first-run',",
       "  '--no-default-browser-check',",
       "  '--no-sandbox',",
@@ -208,6 +212,7 @@ export async function ensureBrowserCdp(cdpUrl: string, profileDir: string): Prom
       "--profile-directory=Default",
       `--remote-debugging-port=${port}`,
       "--remote-debugging-address=127.0.0.1",
+      ...(headless ? ["--headless=new"] : []),
       "--no-first-run",
       "--no-default-browser-check",
       "--no-sandbox",

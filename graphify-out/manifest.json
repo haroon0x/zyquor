@@ -870,9 +870,9 @@
     "semantic_hash": ""
   },
   "packages/browser/src/index.ts": {
-    "mtime": 1793132047.9400768,
-    "seen": 1793170798.3852642,
-    "ast_hash": "6168103de0f935021d48ac202363dcd1",
+    "mtime": 1793174349.6184125,
+    "seen": 1793174828.212018,
+    "ast_hash": "2db0c60c9afabe2784a0b8b401811fe3",
     "semantic_hash": ""
   },
   "packages/browser/tsconfig.json": {
@@ -1272,9 +1272,9 @@
     "semantic_hash": ""
   },
   "CLAUDE.md": {
-    "mtime": 1793170646.321779,
-    "seen": 1793170798.385383,
-    "ast_hash": "c9d2b1fdaf4febb9e484a684467299a4",
+    "mtime": 1793174420.266393,
+    "seen": 1793174828.212161,
+    "ast_hash": "a995cb4fd8928a40c24302c44974b565",
     "semantic_hash": ""
   },
   "README.md": {
@@ -1470,9 +1470,9 @@
     "semantic_hash": ""
   },
   "skills/zyquor/SKILL.md": {
-    "mtime": 1793170634.6097822,
-    "seen": 1793170798.3853965,
-    "ast_hash": "0ba188b07ec4de01d081505ae9987947",
+    "mtime": 1793174446.9863849,
+    "seen": 1793174828.212178,
+    "ast_hash": "efbdac567d64957f7d0f17090145be93",
     "semantic_hash": ""
   },
   "apps/api/src/replies-autoapprove.test.ts": {
@@ -1506,9 +1506,9 @@
     "semantic_hash": ""
   },
   "scripts/reply-loop.mjs": {
-    "mtime": 1793132114.065943,
-    "seen": 1793170798.3853476,
-    "ast_hash": "86bf1a35b6b0d204b6e60de252304f95",
+    "mtime": 1793173925.3385358,
+    "seen": 1793174828.2121174,
+    "ast_hash": "da7bf73ab32cafe4fb8ab30589e40589",
     "semantic_hash": ""
   },
   "apps/api/src/lib/per-profile-cdp.test.ts": {
