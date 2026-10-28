@@ -826,7 +826,7 @@ async function openPersistentContext(input: {
     }
   } else if (input.cdpUrl && !browser) {
     throw new Error(
-      `Chrome CDP is unavailable at ${input.cdpUrl}. Start ./zyquor or pnpm profile:x:cdp and keep that Chrome window open. Refusing to launch a fallback browser against the persistent X profile.`
+      `Chrome CDP is unavailable at ${input.cdpUrl}. Start ./zyquor or pnpm profile:x:cdp and keep that Chrome running. Refusing to launch a fallback browser against the persistent X profile.`
     );
   }
   const browserChannel = input.browserChannel === "chromium" ? null : input.browserChannel;

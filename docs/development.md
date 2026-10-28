@@ -159,7 +159,7 @@ Real X browser prepare prerequisites:
 - Use a dedicated account profile under `profiles/`; do not reuse an everyday browser profile.
 - Open the profile with `pnpm profile:x`, then log into X there.
 - If X blocks Playwright-controlled login, use `pnpm profile:x:manual`, log in, then close Chrome.
-- If `.env` sets `ZYQUOR_BROWSER_CDP_URL`, start `pnpm profile:x:cdp` and keep that Chrome window open while preparing or posting.
+- If `.env` sets `ZYQUOR_BROWSER_CDP_URL`, start `pnpm profile:x:cdp` and keep that Chrome running while preparing or posting. Set `ZYQUOR_BROWSER_HEADLESS=1` to run it with `--headless=new` (no window); auto-launch honours the same flag.
 - Verify the persisted login with `pnpm profile:x:check`.
 - In the web UI, use `Check X` in the account strip before preparing a real job.
 - Start with `ZYQUOR_ENABLE_BROWSER_PREPARE=1 ZYQUOR_LLM_PROVIDER=openrouter ZYQUOR_OPENROUTER_API_KEY=... pnpm dev:api`.

@@ -195,7 +195,7 @@ Real X browser prepare prerequisites:
 - Use only a dedicated profile under `profiles/`; never point Zyquor at an everyday browser profile.
 - Open the dedicated profile with `pnpm profile:x`, then log into X in that browser.
 - If X blocks Playwright-controlled login, use `pnpm profile:x:manual`. It opens normal Chrome with the same dedicated profile and no Playwright control.
-- For the most Chrome-like prepare flow, use `pnpm profile:x:cdp`, keep that Chrome window open, and set `ZYQUOR_BROWSER_CDP_URL=http://127.0.0.1:9222`.
+- For the most Chrome-like prepare flow, use `pnpm profile:x:cdp`, keep that Chrome running, and set `ZYQUOR_BROWSER_CDP_URL=http://127.0.0.1:9222`. Set `ZYQUOR_BROWSER_HEADLESS=1` to run it without a visible window; auto-launch honours the same flag.
 - Check whether the dedicated profile is currently logged into X with `pnpm profile:x:check`.
 - The web UI also has a `Check X` control in the account strip.
 - Keep `ZYQUOR_ENABLE_BROWSER_POST=0` until prepare-only insertion is reliable.

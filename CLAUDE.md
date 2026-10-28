@@ -178,7 +178,7 @@ pnpm smoke:desktop
 pnpm dist:desktop
 ```
 
-- Chrome CDP on this machine: `http://172.31.96.1:9223` (Windows portproxy to `127.0.0.1:9222`), profile `profiles/reply-loop-test`
+- Chrome CDP on this machine: `http://172.31.96.1:9223` (Windows portproxy to `127.0.0.1:9222`), profile `profiles/reply-loop-test`, headless via `ZYQUOR_BROWSER_HEADLESS=1`
 - API: `http://127.0.0.1:3001` on this machine (3000 is occupied by an unrelated app; the server falls back to 3001 only when `ZYQUOR_API_PORT` is unset)
 - Web: `http://127.0.0.1:5173/`
 - Worker polls due jobs every 5s
