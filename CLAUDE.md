@@ -231,15 +231,45 @@ ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
 
 ### Posts-Only Reply Loop
 
-`scripts/reply-loop.mjs` is the unattended posts-only lane. It does not touch mentions. It discovers targets from `GET /replies/feed` first (people the owner follows), then falls back to X search through the logged-in Chrome when the feed is thin, already seen, or rejected. It drafts best-of-N through `POST /replies/from-url`, applies a deterministic slop screen (advice, formula contrasts, invented numbers, first-person review, questions the target did not ask, quality floor), then approves with `screened:true` and posts through the normal gated job path. Every rejection is appended to `apps/api/data/reply-loop.jsonl` with a reason, which is the input for tightening prompts or filters.
+`scripts/reply-loop.mjs` is the unattended posts-only lane. It does not touch mentions. It discovers targets from `GET /replies/feed` first (people the owner follows), then falls back to X search through the logged-in Chrome when the feed is thin, already seen, or rejected. It drafts best-of-N through `POST /replies/from-url`, applies a deterministic slop screen, then approves with `screened:true` and posts through the normal gated job path. Every rejection is appended to `apps/api/data/reply-loop.jsonl` with a reason, which is the input for tightening prompts or filters.
+
+Screen reasons, and why each exists:
+
+- `invented_number`: a digit in the reply that does not appear in the target.
+- `invented_experience`: claims of having used, run, shipped, or deployed the thing. First person opinion (`my pick is`, `I'd split this`) is allowed, fabricated usage is not.
+- `lowercase_opener`: the account voice is sentence case, so an all-lowercase opener reads like a different person.
+- `invented_point`: `Point 2` when the target is not a numbered list.
+- Formula contrasts, advice openers, and the usual slop words.
+- Quality floor, which must match `replyQualityMinimum` in `@zyquor/generation` (5). The post scorer was calibrated on 220 to 480 character posts and a one-line reply rarely reaches the post floor while still being clean.
 
 ```bash
 node scripts/reply-loop.mjs --once --dry   # discover, draft, report; no approval
 node scripts/reply-loop.mjs --once         # one cycle, may post
-node scripts/reply-loop.mjs                # every 12 min, max 1 post per cycle
+node scripts/reply-loop.mjs                # every 30 min, max 1 post per cycle
 ```
 
-Env: `ZYQUOR_REPLY_LOOP_QUERIES`, `ZYQUOR_REPLY_LOOP_INTERVAL_MS` (default 12 min), `ZYQUOR_REPLY_LOOP_MAX_POSTS` (default 1), `ZYQUOR_REPLY_LOOP_MIN_QUALITY` (default 6), `ZYQUOR_REPLY_LOOP_CANDIDATES` (default 5). Starts a posting lane, so run it only on an explicit ask.
+Env: `ZYQUOR_REPLY_LOOP_QUERIES`, `ZYQUOR_REPLY_LOOP_INTERVAL_MS` (default 30 min), `ZYQUOR_REPLY_LOOP_MAX_POSTS` (default 1), `ZYQUOR_REPLY_LOOP_MAX_PER_DAY` (default 20, rolling 24 hours counted from `/performance`), `ZYQUOR_REPLY_LOOP_MIN_QUALITY` (default 5), `ZYQUOR_REPLY_LOOP_CANDIDATES` (default 4). Starts a posting lane, so run it only on an explicit ask.
+
+### Original Post Loop
+
+`scripts/post-loop.mjs` is the standalone post lane, separate from replies. It walks a rotating topic bank in least-recently-used order (`TOPIC_BANK` near the top of the file, safe to edit), creates a draft through `POST /drafts`, generates candidates through `POST /drafts/:id/generate`, screens them, then selects, approves with `screened:true`, and posts through `POST /jobs/:id/post`. It posts about 5 originals a day inside a 09:00 to 22:00 account-local window, with a full interval between originals so a late start cannot burn the day's quota in one burst.
+
+The cap and spacing come from `GET /performance` history, not local counters, so a restart cannot exceed the limit. Only rows with `tweetType !== "reply"` count as originals. Decisions and rejections go to `apps/api/data/post-loop.jsonl`; rotation state and the recent-text de-dupe list live in `apps/api/data/post-loop-state.json`.
+
+Screen reasons: `too_short` (under 180 chars), `too_long` (over 620), `lowercase_opener`, `question_bait`, `hashtag_or_mention`, `has_link`, `dash` (em or en dash), `slop_word`, `formula_contrast`, `invented_experience`, `invented_stat`, and `repeat`.
+
+```bash
+node scripts/post-loop.mjs --once --dry    # draft and report; no approval
+node scripts/post-loop.mjs --once          # post now if under the daily cap
+node scripts/post-loop.mjs                 # run forever
+node scripts/post-loop.mjs --once --force  # ignore the daily cap
+```
+
+Env: `ZYQUOR_POST_ACCOUNT_ID` (default `account_personal`), `ZYQUOR_POST_LOOP_PER_DAY` (default 5), `ZYQUOR_POST_LOOP_START_HOUR` (default 9), `ZYQUOR_POST_LOOP_END_HOUR` (default 22), `ZYQUOR_POST_LOOP_UTC_OFFSET_MIN` (default 330 for IST), `ZYQUOR_POST_LOOP_MIN_QUALITY` (default 7), `ZYQUOR_POST_LOOP_CANDIDATES` (default 4), `ZYQUOR_POST_LOOP_MIN_GAP_MIN` (default 20). Also starts a posting lane.
+
+### Generation Providers
+
+Opencode is the only configured provider: `ZYQUOR_LLM_PROVIDER=opencode` with `opencode/deepseek-v4.1-flash-free#high`. The free tier has a usage cap that is shared across every `opencode/*` free model, so when it is exhausted every lane fails with `Free usage limit reached`. That is an account quota, not a code fault. `command-code` needs paid credits. A Codex provider was written and tested on 2026-10-28 and then removed because Codex is not available to this machine's owner. Freebuff was evaluated and rejected as a generation provider: the CLI is a full TUI with no `--print` or non-interactive mode, it ignores a piped prompt, and it exits without producing an answer, so it cannot be spawned per prompt the way `opencode run` and `command-code --print` can.
 
 ### Browser Automation Caveats
 
@@ -252,6 +282,13 @@ Env: `ZYQUOR_REPLY_LOOP_QUERIES`, `ZYQUOR_REPLY_LOOP_INTERVAL_MS` (default 12 mi
   ```
 
 ## Latest Work (2026-10-28)
+
+- Added the original post lane `scripts/post-loop.mjs` with `pnpm post:loop`: rotating topic bank, 5 posts a day, 09:00 to 22:00 IST window, interval spacing, and a cap counted from server history.
+- Reply screen corrected after auditing 54 cycles: the floor now matches `replyQualityMinimum` (5 instead of a separate 6), `first_person_review` became `invented_experience` so opinions pass and fabricated usage does not, plus new `lowercase_opener` and `invented_point` rejections.
+- Reply cadence reduced to 30 minutes with a rolling 24 hour cap of 20, and the sleep is now interruptible so a restart does not wait out the full interval.
+- Post prompt now demands sentence case and refuses to return the idea itself as a candidate. Reply prompt now names the concrete thing, bans `Point 2` on unnumbered targets, and keeps sentence case.
+- A Codex provider was written, tested, and then removed the same day because Codex is not available. Opencode is the only configured provider.
+- Freebuff evaluated and rejected as a provider: TUI only, no non-interactive flag, piped prompt ignored, exits without an answer.
 
 - Posting resolved to the wrong CDP port: `perProfileCdpUrl` hashed `profiles/reply-loop-test` to base+1 (9224), which the Windows portproxy does not forward. Added `ZYQUOR_BROWSER_CDP_BASE_PROFILES` (default `personal-main`, set to `personal-main,reply-loop-test` here), routed `routes/browser.ts` through the shared helper, and added unit tests for the offset rules.
 - Fixed the API crash mid-post: a leftover unsent composer triggered a `beforeunload` dialog and Playwright's auto-dismiss threw `No dialog is showing` from an unhandled promise. Dialog dismissers now attach to every page in `openPersistentContext`, and `server.ts` logs unhandled rejections instead of exiting.

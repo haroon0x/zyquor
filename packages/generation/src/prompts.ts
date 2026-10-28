@@ -25,6 +25,7 @@ const REPLY_NATIVE_RULES = [
 ];
 
 const HUMAN_NATIVE_POST_RULES = [
+  "Standard sentence case, complete sentences, normal punctuation even at casual register.",
   "Write like a sharp practitioner talking to another practitioner: contractions, mixed lengths, natural rhythm.",
   "Earn attention in the first five words with a specific result, contrast, mechanism, or pattern break; never clickbait.",
   "The first sentence must carry a concrete noun from the source: a number, name, term, or mechanism.",
@@ -317,6 +318,7 @@ export function systemPrompt(input: GenerateDraftCandidatesInput) {
     "Output format",
     diversityInstruction(input),
     "Self-check: cut any sentence a sharp reader would call obvious, unsupported, or about nothing in particular. No definitional or balanced aphorisms, no invented causes or rivals. The post's one claim must be restatable after one read.",
+    "Every candidate must be a finished post that could ship without edits. Never return the idea, a restatement of the idea, or a note about the idea as a candidate.",
     "Order candidates strongest first. Return strict JSON only, with no explanation or code fence:",
     `{"candidates":[{"text":"draft"}]}. Return 1 to ${count} non-empty candidates.`
   ].filter(Boolean).join("\n");
@@ -335,6 +337,9 @@ export function userPrompt(input: GenerateDraftCandidatesInput) {
           : "",
         "Do not repeat or paraphrase what any existing reply already says. When a topic is already settled in the thread, drop it completely and pick the one thing genuinely unsaid; return fewer candidates instead of stretching around what has been claimed.",
         "Write like a person who read the post and typed one reaction: casual, direct, natural contractions, one thought, one or two short lines. Answer a question with the pick you would actually defend. React to the author's actual words, not to the topic in general, and do not reply to the commenters.",
+        "Name the thing. Replace bare 'this', 'these', and 'most of them' with the concrete tool, mechanism, or tradeoff from the target when one exists.",
+        "Never call out a numbered point ('Point 2') unless the target is a numbered list, and name that point's subject instead of its number.",
+        "Keep sentence case throughout. Never style a reply in all lowercase, even when the target does.",
         "No advice, no corrections, no lectures, no safety or best-practice tips unless the author asked for one. No aphorism formulas (X isn't A, it's B), no two-part mini-essays, no quoting the target's words back, no polite openers, no engagement-bait questions, nothing written to impress.",
         "Every claim must come from general knowledge or the supplied material; never invent personal experience. Do not claim to have opened or read the linked post."
       ].filter(Boolean).join("\n\n")

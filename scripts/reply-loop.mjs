@@ -17,10 +17,12 @@
 //
 // Env:
 //   ZYQUOR_API_URL                  default http://127.0.0.1:3001
-//   ZYQUOR_REPLY_LOOP_INTERVAL_MS   default 12 min
+//   ZYQUOR_REPLY_LOOP_INTERVAL_MS   default 30 min
 //   ZYQUOR_REPLY_LOOP_QUERIES      comma separated search queries
 //   ZYQUOR_REPLY_LOOP_MAX_POSTS    posts per cycle, default 1
-//   ZYQUOR_REPLY_LOOP_MIN_QUALITY  auto-post floor, default 6
+//   ZYQUOR_REPLY_LOOP_MAX_PER_DAY  replies per rolling 24h, default 20
+//   ZYQUOR_REPLY_LOOP_MIN_QUALITY  auto-post floor, default 5 (matches
+//                                  replyQualityMinimum in @zyquor/generation)
 
 import { createRequire } from "node:module";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
@@ -42,10 +44,11 @@ const dry = args.has("--dry");
 const configuredApiUrl = (process.env.ZYQUOR_API_URL ?? "").replace(/\/$/, "");
 const accountId = process.env.ZYQUOR_REPLY_ACCOUNT_ID ?? "account_personal";
 const cdpUrl = process.env.ZYQUOR_BROWSER_CDP_URL ?? "http://172.31.96.1:9223";
-const intervalMs = Number(process.env.ZYQUOR_REPLY_LOOP_INTERVAL_MS ?? 12 * 60 * 1000);
+const intervalMs = Number(process.env.ZYQUOR_REPLY_LOOP_INTERVAL_MS ?? 30 * 60 * 1000);
 const maxPosts = Number(process.env.ZYQUOR_REPLY_LOOP_MAX_POSTS ?? 1);
-const minQuality = Number(process.env.ZYQUOR_REPLY_LOOP_MIN_QUALITY ?? 6);
-const count = Number(process.env.ZYQUOR_REPLY_LOOP_CANDIDATES ?? 5);
+const minQuality = Number(process.env.ZYQUOR_REPLY_LOOP_MIN_QUALITY ?? 5);
+const count = Number(process.env.ZYQUOR_REPLY_LOOP_CANDIDATES ?? 4);
+const maxPerDay = Number(process.env.ZYQUOR_REPLY_LOOP_MAX_PER_DAY ?? 20);
 
 let apiUrl = configuredApiUrl || "http://127.0.0.1:3001";
 const dataDir = join(repoRoot, "apps/api/data");
@@ -69,7 +72,10 @@ const FORMULA_B = /\bnot\b[^.!?]{0,50}\bbut\b/i;
 const REAL_X = /\bthe real \w+ is\b/i;
 const PARALLEL = /\b(?:knows|does|is|has|can|will)\b[^.!?]{0,60},\s*(?:the\s+|and\s+the\s+)?\w+\s+(?:doesn'?t|isn'?t|hasn'?t|won'?t|can'?t)\b/i;
 const SLOP_WORDS = /\b(delve|leverage|seamless|robust|game.?changer|unlock|revolutionary|journey|ecosystem|quiet upside)\b/i;
-const FIRST_PERSON = /\b(I|I'm|I've|I'd|my|me)\b/;
+// First person is fine when it is an opinion ("my pick is", "I'd split this").
+// What must not pass is fabricated experience: the model has not used the tool
+// it is recommending. Keep the two separate.
+const EXPERIENCE_CLAIM = /\b(?:i(?:'ve| have)?\s+(?:used|run|shipped|built|tried|migrated|deployed|maintained|worked)|in my (?:experience|team|company)|at my (?:company|last job)|we (?:use|run|shipped|built|tried)|when i (?:ran|tried|used)|my team (?:uses|runs|shipped))\b/i;
 
 function log(message) {
   console.log(`[reply-loop ${new Date().toISOString().slice(11, 19)}] ${message}`);
@@ -144,7 +150,12 @@ function slopReasons(text, target) {
   const numbers = t.match(/\d+(?:\.\d+)?/g) ?? [];
   const known = new Set(target.match(/\d+(?:\.\d+)?/g) ?? []);
   if (numbers.some((n) => !known.has(n))) reasons.push("invented_number");
-  if (FIRST_PERSON.test(t)) reasons.push("first_person_review");
+  if (EXPERIENCE_CLAIM.test(t)) reasons.push("invented_experience");
+  // The account voice is sentence case. All-lowercase styling reads like a
+  // different person than the rest of the timeline.
+  if (/^[a-z]/.test(t)) reasons.push("lowercase_opener");
+  // "Point 2" only means something when the target actually numbers its points.
+  if (/\bpoint\s+\d+\b/i.test(t) && !/\bpoint\s+\d+\b/i.test(target)) reasons.push("invented_point");
   return reasons;
 }
 
@@ -234,7 +245,21 @@ function pickCandidate(candidates, target) {
   return { scored, chosen: clean[0] ?? null };
 }
 
+async function repliesInLastDay() {
+  const body = await api("/performance", {}, 15_000);
+  const since = Date.now() - 24 * 60 * 60 * 1000;
+  return (body?.history ?? []).filter(
+    (row) => row.tweetType === "reply" && Date.parse(row.postedAt ?? "") >= since
+  ).length;
+}
+
 async function runCycle(state) {
+  const recentReplies = await repliesInLastDay().catch(() => 0);
+  if (recentReplies >= maxPerDay) {
+    log(`reply cap reached (${recentReplies}/${maxPerDay} in the last 24h)`);
+    return 0;
+  }
+
   const configured = process.env.ZYQUOR_REPLY_LOOP_QUERIES?.split(",").map((q) => q.trim()).filter(Boolean);
   const pool = configured?.length ? configured : DEFAULT_QUERIES;
   const start = state.queryIndex % pool.length;
@@ -286,6 +311,7 @@ async function runCycle(state) {
       at: new Date().toISOString(),
       url: item.url,
       author: item.author,
+      target: item.text.slice(0, 240),
       draftId,
       decision: chosen ? "candidate_chosen" : "queue_for_review",
       chosen: chosen ? { text: chosen.candidate.text, quality: chosen.candidate.score?.quality } : null,
@@ -320,7 +346,7 @@ async function runCycle(state) {
       const postUrl = postResult?.history?.postUrl ?? null;
       markSeen(state, item.url, "posted", { postUrl });
       state.authors = [...state.authors.slice(-19), item.author?.toLowerCase()];
-      record({ at: new Date().toISOString(), url: item.url, author: item.author, draftId, decision: "posted", jobId, postUrl });
+      record({ at: new Date().toISOString(), url: item.url, author: item.author, target: item.text.slice(0, 240), draftId, decision: "posted", jobId, postUrl });
       log(`  POSTED ${postUrl ?? "(no url)"}`);
       posted += 1;
     } catch (error) {
@@ -354,7 +380,12 @@ async function main() {
     }
     if (once || stopping) break;
     log(`sleeping ${Math.round(intervalMs / 60000)} min`);
-    await new Promise((r) => setTimeout(r, intervalMs));
+    // Check for a stop signal while sleeping, otherwise SIGTERM waits out the
+    // full interval before the process notices.
+    const until = Date.now() + intervalMs;
+    while (!stopping && Date.now() < until) {
+      await new Promise((r) => setTimeout(r, Math.min(1_000, Math.max(1, until - Date.now()))));
+    }
   } while (!stopping);
 }
 

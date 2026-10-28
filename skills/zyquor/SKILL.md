@@ -135,14 +135,36 @@ Posted replies record their own permalink now. If history points at the target t
 ```bash
 node scripts/reply-loop.mjs --once --dry   # discover, draft, report; no approval
 node scripts/reply-loop.mjs --once         # one cycle, may post
-node scripts/reply-loop.mjs                # run continuously, default 12 min interval
+node scripts/reply-loop.mjs                # run continuously, default 30 min interval
 ```
 
 - Every decision, including each rejected candidate and the reason, is appended to `apps/api/data/reply-loop.jsonl`. Seen targets and query rotation live in `apps/api/data/reply-loop-state.json`, saved after every decision so a restart does not re-reply to a seen target.
 - Discovery runs feed first, then search, each query on its own browser connection. Running search concurrently with the feed scan kills the search page, because the API feed request closes its own browser context.
-- The filter rejects: too short or over 279 chars, questions the target did not ask, advice imperatives, formula contrasts, slop words, numbers not present in the target, first-person review phrasing, and anything under the quality floor.
+- The filter rejects: too short or over 279 chars, questions the target did not ask, advice imperatives, formula contrasts, slop words, numbers not present in the target, fabricated experience (`I've run`, `my team uses`), an all-lowercase opener, `Point 2` when the target is not a numbered list, and anything under the quality floor.
+- The floor is 5, matching `replyQualityMinimum`. A one-line reply rarely reaches the post floor of 7 even when it is clean, because the post scorer was calibrated on 220 to 480 character posts.
+- Volume guards: 30 minutes between cycles and a rolling 24 hour cap of 20 replies counted from `GET /performance`. Env: `ZYQUOR_REPLY_LOOP_INTERVAL_MS`, `ZYQUOR_REPLY_LOOP_MAX_PER_DAY`, `ZYQUOR_REPLY_LOOP_MIN_QUALITY`, `ZYQUOR_REPLY_LOOP_CANDIDATES`.
 - This starts a real posting lane. Run it only on an explicit ask, never as a diagnostic. `--dry` is safe.
 - Prompt rules are added only when a rejection reason repeats in the log. Do not bolt speculative instructions onto the prompt.
+
+## Original post loop
+
+`scripts/post-loop.mjs` is the standalone original-post lane, separate from replies. It walks a rotating topic bank in least-recently-used order (`TOPIC_BANK` near the top of the file, safe to edit), creates a draft via `POST /drafts`, generates through `POST /drafts/:id/generate`, screens the candidates, then selects, approves with `screened:true`, and posts through `POST /jobs/:id/post`.
+
+```bash
+node scripts/post-loop.mjs --once --dry    # draft and report; no approval
+node scripts/post-loop.mjs --once          # post now if under the daily cap
+node scripts/post-loop.mjs                 # run forever
+node scripts/post-loop.mjs --once --force  # ignore the daily cap
+```
+
+- Target volume is 5 originals a day inside a 09:00 to 22:00 IST window. The cap and spacing are computed from `GET /performance`, not local counters, so a restart cannot exceed the limit. A late start waits a full interval after the previous original instead of bursting.
+- Quality floor 7, sentence case, no links, no hashtags or mentions, no question bait, no em or en dashes, no formula contrasts, no invented experience or statistics, and no repeats of the last 25 posts.
+- Decisions go to `apps/api/data/post-loop.jsonl`. Rotation state and the repeat list live in `apps/api/data/post-loop-state.json`.
+- Env: `ZYQUOR_POST_LOOP_PER_DAY`, `ZYQUOR_POST_LOOP_START_HOUR`, `ZYQUOR_POST_LOOP_END_HOUR`, `ZYQUOR_POST_LOOP_UTC_OFFSET_MIN` (default 330), `ZYQUOR_POST_LOOP_MIN_QUALITY`, `ZYQUOR_POST_LOOP_CANDIDATES`, `ZYQUOR_POST_LOOP_MIN_GAP_MIN`.
+
+## Generation providers
+
+Opencode is the configured provider: `ZYQUOR_LLM_PROVIDER=opencode` with `opencode/deepseek-v4.1-flash-free#high`. The free tier cap is shared across every `opencode/*` free model, so an exhausted account fails every lane with `Free usage limit reached`. That is quota, not a bug, and no code change fixes it. `command-code` needs paid credits. A Codex provider existed briefly on 2026-10-28 and was removed because Codex is not available. Freebuff cannot be used: it is a TUI with no non-interactive flag, ignores a piped prompt, and exits without answering. Test any provider with `node scripts/smoke-generation.mjs` before blaming the loops.
 
 ## Review the queue
 
