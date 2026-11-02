@@ -9,6 +9,12 @@ use fancy_regex::Regex;
 use zyquor_core::AI_SLOP_PHRASES;
 use zyquor_core::paths::EnvLookup;
 
+/// Clamp a requested candidate count. The cap is a request-size guard, not a
+/// quality decision.
+pub fn normalize_count(count: Option<usize>) -> usize {
+    count.unwrap_or(1).clamp(1, 50)
+}
+
 pub const DEFAULT_QUALITY_MIN: f64 = 7.0;
 pub const DEFAULT_REPLY_QUALITY_MIN: f64 = 5.0;
 

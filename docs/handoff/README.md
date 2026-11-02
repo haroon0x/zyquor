@@ -51,6 +51,11 @@ cargo run -q -p zyquor-core --example parity
 
 # quality scoring / formatting: Rust vs TypeScript
 cargo run -q -p zyquor-generation --example quality_parity < cases.txt
+
+# prompt assembly (8 request shapes x 4 builders): Rust vs TypeScript
+pnpm --filter @zyquor/generation build
+cargo run -q -p zyquor-generation --example prompt_parity > /tmp/rs.json
+node scripts/prompt-parity.mjs > /tmp/ts.json   # then diff as parsed JSON
 ```
 
 Each prints one line per case. Compare against the TypeScript side with a

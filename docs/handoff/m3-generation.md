@@ -9,15 +9,19 @@
   `is_clean_tweet_text`, `passes_tweet_quality_floor`,
   `is_interrogation_dodge_reply`, `format_tweet_text`, `post_process_tweet_text`,
   `quality_minimum`, `reply_quality_minimum`.
+- **`prompts.rs` + `harness.rs` + `types.rs`** — `system_prompt`, `user_prompt`,
+  `revision_prompt`, `line_prompt`, `tweet_type_instruction`, and
+  `render_source_context` / `build_source_tweet_input`. All 32 rendered prompts
+  (8 request shapes × 4 builders) are byte-identical to the TypeScript output;
+  see "Parity harnesses" below.
 - 16 tests; quality verified against TypeScript over 34 cases × 5 fields.
 
 ## Remaining
 
-1. **`prompts.ts` (399 lines)** — pure string assembly, no I/O, so it ports
-   cleanly. Port first and prove parity by rendering the same
-   `GenerateDraftCandidatesInput` in both stacks and diffing the prompt text.
-   Watch for: template literal whitespace (significant), `.toLowerCase()`
-   locale differences, and the `tweetType` guidance table.
+1. ~~**`prompts.ts`**~~ — done, see above. `prompts.rs` / `harness.rs` /
+   `types.rs`. Add new request shapes to `scripts/prompt-parity.mjs` and
+   `crates/zyquor-generation/examples/prompt_parity.rs` together so the diff
+   stays meaningful.
 2. **`quality.ts` residue** — `parse_candidate_texts`, `candidates_from_text`,
    `parse_json_candidate_texts`, `is_no_candidates_error`, `as_text`,
    `is_grounded_candidate`, `strip_generated_urls`. These depend on
