@@ -16,8 +16,11 @@ use zyquor_core::types::{DraftStatus, PostJobStatus, PostingMode};
 use zyquor_core::{can_transition_draft, parse_reply_target_url};
 
 use crate::model::{
-    ApproveDraft, Draft, DraftCandidate, DraftWithCandidates, NewAttempt, NewDraft, NewPostHistory,
-    PostAttempt, PostHistory, PostJob,
+    ApproveDraft, Draft, DraftCandidate, DraftWithCandidates, IngestConfig, IngestConfigUpdate,
+    IngestRun, IngestRunStatus, IngestRunUpdate, KnowledgeEntry, KnowledgeUpdate, NewAttempt,
+    NewDraft, NewIngestConfig, NewKnowledgeEntry, NewPostHistory, NewSourcePacket,
+    NewTweetMeasurement, PostAttempt, PostHistory, PostJob, SourcePacket, SourcePacketStatus,
+    StyleProfile, StyleProfileUpdate, SystemFeedback, TweetMeasurement,
 };
 use crate::schema::{COLUMN_MIGRATIONS, SCHEMA};
 use crate::utils::{hash_post_text, new_id, normalize_post_text};
@@ -99,10 +102,73 @@ impl SqliteRepository {
              ON post_history(account_id) WHERE text_hash IS NULL",
         )?;
 
-        Ok(Self {
+        let repo = Self {
             conn,
             now: Box::new(default_now),
-        })
+        };
+        repo.seed_defaults()?;
+        Ok(repo)
+    }
+
+    /// Matches `createSqliteRepository`: on an empty database, insert the
+    /// default style profile and the `account_personal` account.
+    fn seed_defaults(&self) -> Result<()> {
+        let style_count: i64 =
+            self.conn
+                .query_row("SELECT COUNT(*) FROM style_profiles", [], |row| row.get(0))?;
+        if style_count == 0 {
+            let timestamp = self.now();
+            self.conn.execute(
+                "INSERT INTO style_profiles (
+                   id, name, description, tone, rules_json, banned_phrases_json,
+                   example_posts_json, created_at, updated_at
+                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                params![
+                    "style_default",
+                    "Default",
+                    "Default concise posting style.",
+                    "clear, concrete, low-filler",
+                    "{}",
+                    json_strings(&[
+                        "game changer".to_string(),
+                        "unlock".to_string(),
+                        "10x".to_string(),
+                    ]),
+                    "[]",
+                    timestamp,
+                    timestamp,
+                ],
+            )?;
+        }
+
+        let account_count: i64 =
+            self.conn
+                .query_row("SELECT COUNT(*) FROM accounts", [], |row| row.get(0))?;
+        if account_count == 0 {
+            let timestamp = self.now();
+            self.conn.execute(
+                "INSERT INTO accounts (
+                   id, handle, display_name, profile_dir, style_profile_id, posting_mode,
+                   enabled, daily_post_limit, quiet_hours_start, quiet_hours_end,
+                   created_at, updated_at
+                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                params![
+                    "account_personal",
+                    "personal-main",
+                    "Personal main",
+                    "profiles/personal-main",
+                    "style_default",
+                    "prepare_only",
+                    1_i64,
+                    300_i64,
+                    Option::<String>::None,
+                    Option::<String>::None,
+                    timestamp,
+                    timestamp,
+                ],
+            )?;
+        }
+        Ok(())
     }
 
     fn now(&self) -> String {
@@ -275,7 +341,7 @@ impl SqliteRepository {
                 .query_row(
                     "SELECT id FROM post_jobs
                      WHERE account_id = ?
-                       AND status NOT IN ('posted', 'failed', 'cancelled')
+                       AND status NOT IN ('posted', 'cancelled')
                      LIMIT 1",
                     [id],
                     |row| row.get(0),
@@ -297,6 +363,9 @@ impl SqliteRepository {
             run("DELETE FROM drafts WHERE account_id = ?")?;
             run("DELETE FROM source_packets WHERE account_id = ?")?;
             run("DELETE FROM ingest_runs WHERE account_id = ?")?;
+            run("DELETE FROM ingest_configs WHERE account_id = ?")?;
+            run("DELETE FROM system_feedback WHERE account_id = ?")?;
+            run("DELETE FROM knowledge_entries WHERE account_id = ?")?;
             run("DELETE FROM accounts WHERE id = ?")?;
 
             Ok(account)
@@ -473,17 +542,17 @@ impl SqliteRepository {
             let blocked: Option<(String, String)> = self
                 .conn
                 .query_row(
-                    "SELECT id, status FROM post_jobs WHERE draft_id = ? ORDER BY created_at ASC",
+                    "SELECT id, status FROM post_jobs
+                     WHERE draft_id = ? AND status IN ('running', 'posted')
+                     LIMIT 1",
                     [draft_id],
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .optional()?;
             if let Some((job_id, status)) = blocked {
-                if status == "running" || status == "posted" {
-                    return Err(StorageError::Invalid(format!(
-                        "Cannot delete draft with {status} job: {job_id}"
-                    )));
-                }
+                return Err(StorageError::Invalid(format!(
+                    "Cannot delete draft with {status} job: {job_id}"
+                )));
             }
 
             self.conn.execute(
@@ -975,11 +1044,14 @@ impl SqliteRepository {
             posted_at: self.now(),
         };
 
+        // Stored so duplicate-text checks can use the index instead of scanning.
+        let text_hash = hash_post_text(&history.posted_text);
         self.conn.execute(
             "INSERT INTO post_history (
                id, account_id, draft_id, posted_text, post_url, source_packet_id,
-               source_type, source_title, source_url, tweet_type, metadata_json, posted_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+               source_type, source_title, source_url, tweet_type, metadata_json, posted_at,
+               text_hash
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 history.id,
                 history.account_id,
@@ -993,6 +1065,7 @@ impl SqliteRepository {
                 history.tweet_type,
                 Value::Object(history.metadata.clone()).to_string(),
                 history.posted_at,
+                text_hash,
             ],
         )?;
         Ok(history)
@@ -1038,7 +1111,15 @@ impl SqliteRepository {
             .execute("DELETE FROM post_history WHERE posted_at < ?", [cutoff_iso])?)
     }
 
-    pub fn has_post_history_text_hash(&self, account_id: &str, text_hash: &str) -> Result<bool> {
+    /// Checks approved fingerprints, then falls back to rows written before
+    /// `text_hash` existed (compared on normalised text), matching the
+    /// TypeScript implementation.
+    pub fn has_post_history_text_hash(
+        &self,
+        account_id: &str,
+        text_hash: &str,
+        normalized_text: &str,
+    ) -> Result<bool> {
         let found: Option<String> = self
             .conn
             .query_row(
@@ -1047,7 +1128,771 @@ impl SqliteRepository {
                 |row| row.get(0),
             )
             .optional()?;
-        Ok(found.is_some())
+        if found.is_some() {
+            return Ok(true);
+        }
+
+        let mut statement = self.conn.prepare(
+            "SELECT posted_text FROM post_history WHERE account_id = ? AND text_hash IS NULL",
+        )?;
+        let rows = statement.query_map([account_id], |row| row.get::<_, String>(0))?;
+        for row in rows {
+            if normalize_post_text(&row?) == normalized_text {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    // --- style profiles -------------------------------------------------
+
+    pub fn get_style_profile(&self, id: &str) -> Result<Option<StyleProfile>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT * FROM style_profiles WHERE id = ?",
+                [id],
+                style_profile_from_row,
+            )
+            .optional()?)
+    }
+
+    pub fn update_style_profile(
+        &self,
+        id: &str,
+        update: &StyleProfileUpdate,
+    ) -> Result<StyleProfile> {
+        let mut profile = self
+            .get_style_profile(id)?
+            .ok_or_else(|| StorageError::NotFound(format!("style profile {id}")))?;
+
+        if let Some(value) = &update.name {
+            profile.name = value.clone();
+        }
+        if let Some(value) = &update.description {
+            profile.description = value.clone();
+        }
+        if let Some(value) = &update.tone {
+            profile.tone = value.clone();
+        }
+        if let Some(value) = &update.rules {
+            profile.rules = value.clone();
+        }
+        if let Some(value) = &update.banned_phrases {
+            profile.banned_phrases = value.clone();
+        }
+        if let Some(value) = &update.example_posts {
+            profile.example_posts = value.clone();
+        }
+        profile.updated_at = self.now();
+
+        self.conn.execute(
+            "UPDATE style_profiles SET
+               name = ?, description = ?, tone = ?, rules_json = ?,
+               banned_phrases_json = ?, example_posts_json = ?, updated_at = ?
+             WHERE id = ?",
+            params![
+                profile.name,
+                profile.description,
+                profile.tone,
+                Value::Object(profile.rules.clone()).to_string(),
+                json_strings(&profile.banned_phrases),
+                json_strings(&profile.example_posts),
+                profile.updated_at,
+                profile.id,
+            ],
+        )?;
+        Ok(profile)
+    }
+
+    // --- system feedback ------------------------------------------------
+
+    pub fn list_system_feedback(&self, account_id: &str) -> Result<Vec<SystemFeedback>> {
+        let mut statement = self.conn.prepare(
+            "SELECT * FROM system_feedback WHERE account_id = ? ORDER BY created_at DESC",
+        )?;
+        let rows = statement.query_map([account_id], |row| {
+            Ok(SystemFeedback {
+                id: row.get("id")?,
+                account_id: row.get("account_id")?,
+                text: row.get("text")?,
+                created_at: row.get("created_at")?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub fn add_system_feedback(&self, account_id: &str, text: &str) -> Result<SystemFeedback> {
+        if self.get_account(account_id)?.is_none() {
+            return Err(StorageError::Invalid(format!(
+                "Account not found: {account_id}"
+            )));
+        }
+        let item = SystemFeedback {
+            id: new_id("feedback"),
+            account_id: account_id.to_string(),
+            text: text.to_string(),
+            created_at: self.now(),
+        };
+        self.conn.execute(
+            "INSERT INTO system_feedback (id, account_id, text, created_at) VALUES (?, ?, ?, ?)",
+            params![item.id, item.account_id, item.text, item.created_at],
+        )?;
+        Ok(item)
+    }
+
+    pub fn delete_system_feedback(&self, id: &str) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM system_feedback WHERE id = ?", [id])?;
+        Ok(())
+    }
+
+    // --- knowledge entries ----------------------------------------------
+
+    pub fn list_knowledge_entries(&self, account_id: &str) -> Result<Vec<KnowledgeEntry>> {
+        let mut statement = self.conn.prepare(
+            "SELECT * FROM knowledge_entries WHERE account_id = ? ORDER BY created_at ASC, id ASC",
+        )?;
+        let rows = statement.query_map([account_id], knowledge_from_row)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub fn create_knowledge_entry(&self, input: &NewKnowledgeEntry) -> Result<KnowledgeEntry> {
+        if self.get_account(&input.account_id)?.is_none() {
+            return Err(StorageError::Invalid(format!(
+                "Account not found: {}",
+                input.account_id
+            )));
+        }
+        let timestamp = self.now();
+        let entry = KnowledgeEntry {
+            id: new_id("knowledge"),
+            account_id: input.account_id.clone(),
+            kind: input.kind.clone(),
+            title: input.title.clone(),
+            content: input.content.clone(),
+            source_url: input.source_url.clone(),
+            enabled: true,
+            created_at: timestamp.clone(),
+            updated_at: timestamp,
+        };
+        self.conn.execute(
+            "INSERT INTO knowledge_entries (
+               id, account_id, kind, title, content, source_url, enabled, created_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![
+                entry.id,
+                entry.account_id,
+                entry.kind,
+                entry.title,
+                entry.content,
+                entry.source_url,
+                i64::from(entry.enabled),
+                entry.created_at,
+                entry.updated_at,
+            ],
+        )?;
+        Ok(entry)
+    }
+
+    pub fn update_knowledge_entry(
+        &self,
+        id: &str,
+        update: &KnowledgeUpdate,
+    ) -> Result<KnowledgeEntry> {
+        let mut entry = self
+            .conn
+            .query_row(
+                "SELECT * FROM knowledge_entries WHERE id = ?",
+                [id],
+                knowledge_from_row,
+            )
+            .optional()?
+            .ok_or_else(|| StorageError::NotFound(format!("knowledge entry {id}")))?;
+
+        if let Some(value) = &update.kind {
+            entry.kind = value.clone();
+        }
+        if let Some(value) = &update.title {
+            entry.title = value.clone();
+        }
+        if let Some(value) = &update.content {
+            entry.content = value.clone();
+        }
+        if let Some(value) = &update.source_url {
+            entry.source_url = value.clone();
+        }
+        if let Some(value) = update.enabled {
+            entry.enabled = value;
+        }
+        entry.updated_at = self.now();
+
+        self.conn.execute(
+            "UPDATE knowledge_entries SET
+               kind = ?, title = ?, content = ?, source_url = ?, enabled = ?, updated_at = ?
+             WHERE id = ?",
+            params![
+                entry.kind,
+                entry.title,
+                entry.content,
+                entry.source_url,
+                i64::from(entry.enabled),
+                entry.updated_at,
+                entry.id,
+            ],
+        )?;
+        Ok(entry)
+    }
+
+    pub fn delete_knowledge_entry(&self, id: &str) -> Result<KnowledgeEntry> {
+        let entry = self
+            .conn
+            .query_row(
+                "SELECT * FROM knowledge_entries WHERE id = ?",
+                [id],
+                knowledge_from_row,
+            )
+            .optional()?
+            .ok_or_else(|| StorageError::NotFound(format!("knowledge entry {id}")))?;
+        self.conn
+            .execute("DELETE FROM knowledge_entries WHERE id = ?", [id])?;
+        Ok(entry)
+    }
+
+    // --- source packets -------------------------------------------------
+
+    pub fn create_source_packet(&self, input: &NewSourcePacket) -> Result<SourcePacket> {
+        if self.get_account(&input.account_id)?.is_none() {
+            return Err(StorageError::Invalid(format!(
+                "Account not found: {}",
+                input.account_id
+            )));
+        }
+        let timestamp = self.now();
+        let packet = SourcePacket {
+            id: new_id("packet"),
+            account_id: input.account_id.clone(),
+            source_type: input.source_type.clone(),
+            title: input.title.clone(),
+            url: input.url.clone(),
+            summary: input.summary.clone(),
+            facts: input.facts.clone(),
+            tweet_type: input.tweet_type.clone(),
+            status: SourcePacketStatus::New,
+            feedback: None,
+            created_at: timestamp.clone(),
+            updated_at: timestamp,
+        };
+        self.conn.execute(
+            "INSERT INTO source_packets (
+               id, account_id, source_type, title, url, summary, facts_json, tweet_type,
+               status, created_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![
+                packet.id,
+                packet.account_id,
+                packet.source_type,
+                packet.title,
+                packet.url,
+                packet.summary,
+                json_strings(&packet.facts),
+                packet.tweet_type,
+                packet.status.as_str(),
+                packet.created_at,
+                packet.updated_at,
+            ],
+        )?;
+        Ok(packet)
+    }
+
+    pub fn get_source_packet(&self, id: &str) -> Result<Option<SourcePacket>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT * FROM source_packets WHERE id = ?",
+                [id],
+                source_packet_from_row,
+            )
+            .optional()?)
+    }
+
+    pub fn get_source_packet_by_url(
+        &self,
+        url: &str,
+        account_id: Option<&str>,
+    ) -> Result<Option<SourcePacket>> {
+        match account_id {
+            Some(account) => Ok(self
+                .conn
+                .query_row(
+                    "SELECT * FROM source_packets WHERE url = ? AND account_id = ?",
+                    params![url, account],
+                    source_packet_from_row,
+                )
+                .optional()?),
+            None => Ok(self
+                .conn
+                .query_row(
+                    "SELECT * FROM source_packets WHERE url = ?",
+                    [url],
+                    source_packet_from_row,
+                )
+                .optional()?),
+        }
+    }
+
+    pub fn list_source_packets(
+        &self,
+        account_id: Option<&str>,
+        status: Option<SourcePacketStatus>,
+        limit: Option<i64>,
+    ) -> Result<Vec<SourcePacket>> {
+        let mut sql = String::from("SELECT * FROM source_packets");
+        let mut conditions: Vec<String> = Vec::new();
+        let mut args: Vec<String> = Vec::new();
+
+        if let Some(account) = account_id {
+            conditions.push("account_id = ?".to_string());
+            args.push(account.to_string());
+        }
+        if let Some(status) = status {
+            conditions.push("status = ?".to_string());
+            args.push(status.as_str().to_string());
+        }
+        if !conditions.is_empty() {
+            sql.push_str(&format!(" WHERE {}", conditions.join(" AND ")));
+        }
+        sql.push_str(" ORDER BY created_at DESC");
+        if let Some(limit) = limit.filter(|limit| *limit > 0) {
+            sql.push_str(&format!(" LIMIT {limit}"));
+        }
+
+        let mut statement = self.conn.prepare(&sql)?;
+        let rows = statement.query_map(
+            rusqlite::params_from_iter(args.iter()),
+            source_packet_from_row,
+        )?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub fn count_source_packets(&self, status: Option<SourcePacketStatus>) -> Result<i64> {
+        match status {
+            Some(status) => Ok(self.conn.query_row(
+                "SELECT COUNT(*) FROM source_packets WHERE status = ?",
+                [status.as_str()],
+                |row| row.get(0),
+            )?),
+            None => Ok(self
+                .conn
+                .query_row("SELECT COUNT(*) FROM source_packets", [], |row| row.get(0))?),
+        }
+    }
+
+    pub fn get_latest_source_packet(&self) -> Result<Option<SourcePacket>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT * FROM source_packets ORDER BY created_at DESC LIMIT 1",
+                [],
+                source_packet_from_row,
+            )
+            .optional()?)
+    }
+
+    pub fn delete_source_packet(&self, id: &str) -> Result<SourcePacket> {
+        let packet = self
+            .get_source_packet(id)?
+            .ok_or_else(|| StorageError::NotFound(format!("source packet {id}")))?;
+        self.conn
+            .execute("DELETE FROM source_packets WHERE id = ?", [id])?;
+        Ok(packet)
+    }
+
+    pub fn mark_source_packet_drafted(&self, id: &str) -> Result<SourcePacket> {
+        self.set_source_packet_status(id, SourcePacketStatus::Drafted)
+    }
+
+    pub fn reset_source_packet(&self, id: &str) -> Result<SourcePacket> {
+        self.set_source_packet_status(id, SourcePacketStatus::New)
+    }
+
+    pub fn set_source_packet_status(
+        &self,
+        id: &str,
+        status: SourcePacketStatus,
+    ) -> Result<SourcePacket> {
+        let changed = self.conn.execute(
+            "UPDATE source_packets SET status = ?, updated_at = ? WHERE id = ?",
+            params![status.as_str(), self.now(), id],
+        )?;
+        if changed == 0 {
+            return Err(StorageError::NotFound(format!("source packet {id}")));
+        }
+        self.get_source_packet(id)?
+            .ok_or_else(|| StorageError::NotFound(format!("source packet {id}")))
+    }
+
+    pub fn set_source_packet_feedback(
+        &self,
+        id: &str,
+        feedback: Option<&str>,
+    ) -> Result<SourcePacket> {
+        let changed = self.conn.execute(
+            "UPDATE source_packets SET feedback = ?, updated_at = ? WHERE id = ?",
+            params![feedback, self.now(), id],
+        )?;
+        if changed == 0 {
+            return Err(StorageError::NotFound(format!("source packet {id}")));
+        }
+        self.get_source_packet(id)?
+            .ok_or_else(|| StorageError::NotFound(format!("source packet {id}")))
+    }
+
+    // --- ingest runs ----------------------------------------------------
+
+    pub fn create_ingest_run(&self, config_id: &str, account_id: &str) -> Result<IngestRun> {
+        let run = IngestRun {
+            id: new_id("ingest_run"),
+            config_id: config_id.to_string(),
+            account_id: account_id.to_string(),
+            started_at: self.now(),
+            finished_at: None,
+            status: IngestRunStatus::Running,
+            error: None,
+            packets_created: 0,
+        };
+        self.conn.execute(
+            "INSERT INTO ingest_runs (
+               id, config_id, account_id, started_at, finished_at, status, error, packets_created
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            params![
+                run.id,
+                run.config_id,
+                run.account_id,
+                run.started_at,
+                run.finished_at,
+                run.status.as_str(),
+                run.error,
+                run.packets_created,
+            ],
+        )?;
+        Ok(run)
+    }
+
+    pub fn update_ingest_run(&self, id: &str, update: &IngestRunUpdate) -> Result<IngestRun> {
+        let mut run = self
+            .conn
+            .query_row(
+                "SELECT * FROM ingest_runs WHERE id = ?",
+                [id],
+                ingest_run_from_row,
+            )
+            .optional()?
+            .ok_or_else(|| StorageError::NotFound(format!("ingest run {id}")))?;
+
+        run.status = update.status;
+        if let Some(error) = &update.error {
+            run.error = error.clone();
+        }
+        if let Some(packets) = update.packets_created {
+            run.packets_created = packets;
+        }
+        run.finished_at = match update.status {
+            IngestRunStatus::Running => None,
+            _ => Some(self.now()),
+        };
+
+        self.conn.execute(
+            "UPDATE ingest_runs SET status = ?, error = ?, packets_created = ?, finished_at = ? WHERE id = ?",
+            params![
+                run.status.as_str(),
+                run.error,
+                run.packets_created,
+                run.finished_at,
+                run.id,
+            ],
+        )?;
+        Ok(run)
+    }
+
+    pub fn list_ingest_runs(&self, account_id: Option<&str>, limit: i64) -> Result<Vec<IngestRun>> {
+        let capped = limit.clamp(0, 50);
+        let mut out = Vec::new();
+        match account_id {
+            Some(account) => {
+                let mut statement = self.conn.prepare(
+                    "SELECT * FROM ingest_runs WHERE account_id = ?
+                     ORDER BY started_at DESC, id DESC LIMIT ?",
+                )?;
+                let rows = statement.query_map(params![account, capped], ingest_run_from_row)?;
+                for row in rows {
+                    out.push(row?);
+                }
+            }
+            None => {
+                let mut statement = self.conn.prepare(
+                    "SELECT * FROM ingest_runs ORDER BY started_at DESC, id DESC LIMIT ?",
+                )?;
+                let rows = statement.query_map(params![capped], ingest_run_from_row)?;
+                for row in rows {
+                    out.push(row?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn recover_running_ingest_runs(&self) -> Result<usize> {
+        Ok(self.conn.execute(
+            "UPDATE ingest_runs SET status = 'failed', error = 'interrupted', finished_at = ?
+             WHERE status = 'running'",
+            [self.now()],
+        )?)
+    }
+
+    // --- tweet measurements ----------------------------------------------
+
+    pub fn upsert_tweet_measurement(
+        &self,
+        input: &NewTweetMeasurement,
+    ) -> Result<TweetMeasurement> {
+        let updated_at = self.now();
+        self.conn.execute(
+            "INSERT INTO tweet_measurements (
+               id, account_id, tweet_id, origin, posted_at, text, has_link, source_type,
+               tweet_type, views, likes, replies, reposts, bookmarks, measured_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(account_id, tweet_id) DO UPDATE SET
+               origin = excluded.origin,
+               posted_at = excluded.posted_at,
+               text = excluded.text,
+               has_link = excluded.has_link,
+               source_type = excluded.source_type,
+               tweet_type = excluded.tweet_type,
+               views = excluded.views,
+               likes = excluded.likes,
+               replies = excluded.replies,
+               reposts = excluded.reposts,
+               bookmarks = excluded.bookmarks,
+               measured_at = excluded.measured_at,
+               updated_at = excluded.updated_at",
+            params![
+                new_id("measurement"),
+                input.account_id,
+                input.tweet_id,
+                input.origin,
+                input.posted_at,
+                input.text,
+                input.has_link.map(i64::from),
+                input.source_type,
+                input.tweet_type,
+                input.views,
+                input.likes,
+                input.replies,
+                input.reposts,
+                input.bookmarks,
+                updated_at,
+                updated_at,
+            ],
+        )?;
+
+        self.conn
+            .query_row(
+                "SELECT * FROM tweet_measurements WHERE account_id = ? AND tweet_id = ?",
+                params![input.account_id, input.tweet_id],
+                measurement_from_row,
+            )
+            .map_err(StorageError::from)
+    }
+
+    pub fn list_tweet_measurements(
+        &self,
+        account_id: Option<&str>,
+    ) -> Result<Vec<TweetMeasurement>> {
+        let mut out = Vec::new();
+        match account_id {
+            Some(account) => {
+                let mut statement = self.conn.prepare(
+                    "SELECT * FROM tweet_measurements WHERE account_id = ? ORDER BY posted_at DESC",
+                )?;
+                let rows = statement.query_map([account], measurement_from_row)?;
+                for row in rows {
+                    out.push(row?);
+                }
+            }
+            None => {
+                let mut statement = self
+                    .conn
+                    .prepare("SELECT * FROM tweet_measurements ORDER BY posted_at DESC")?;
+                let rows = statement.query_map([], measurement_from_row)?;
+                for row in rows {
+                    out.push(row?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    // --- ingest configs --------------------------------------------------
+
+    pub fn create_ingest_config(&self, input: &NewIngestConfig) -> Result<IngestConfig> {
+        let timestamp = self.now();
+        let config = IngestConfig {
+            id: new_id("ingest"),
+            account_id: input.account_id.clone(),
+            source_type: input.source_type.clone(),
+            max_packets_per_day: input.max_packets_per_day,
+            metadata: input.metadata.clone(),
+            tweet_type_mix: input.tweet_type_mix.clone(),
+            schedule_window_start: input.schedule_window_start.clone(),
+            schedule_window_end: input.schedule_window_end.clone(),
+            enabled: input.enabled,
+            created_at: timestamp.clone(),
+            updated_at: timestamp,
+        };
+        self.conn.execute(
+            "INSERT INTO ingest_configs (
+               id, account_id, source_type, max_packets_per_day, metadata_json,
+               tweet_type_mix_json, schedule_window_start, schedule_window_end, enabled,
+               created_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![
+                config.id,
+                config.account_id,
+                config.source_type,
+                config.max_packets_per_day,
+                Value::Object(config.metadata.clone()).to_string(),
+                Value::Object(config.tweet_type_mix.clone()).to_string(),
+                config.schedule_window_start,
+                config.schedule_window_end,
+                i64::from(config.enabled),
+                config.created_at,
+                config.updated_at,
+            ],
+        )?;
+        Ok(config)
+    }
+
+    pub fn get_ingest_config(&self, id: &str) -> Result<Option<IngestConfig>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT * FROM ingest_configs WHERE id = ?",
+                [id],
+                ingest_config_from_row,
+            )
+            .optional()?)
+    }
+
+    pub fn list_ingest_configs(&self, account_id: Option<&str>) -> Result<Vec<IngestConfig>> {
+        let mut out = Vec::new();
+        match account_id {
+            Some(account) => {
+                let mut statement = self.conn.prepare(
+                    "SELECT * FROM ingest_configs WHERE account_id = ? ORDER BY created_at DESC",
+                )?;
+                let rows = statement.query_map([account], ingest_config_from_row)?;
+                for row in rows {
+                    out.push(row?);
+                }
+            }
+            None => {
+                let mut statement = self
+                    .conn
+                    .prepare("SELECT * FROM ingest_configs ORDER BY created_at DESC")?;
+                let rows = statement.query_map([], ingest_config_from_row)?;
+                for row in rows {
+                    out.push(row?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn count_ingest_configs(&self, enabled: Option<bool>) -> Result<i64> {
+        match enabled {
+            Some(enabled) => Ok(self.conn.query_row(
+                "SELECT COUNT(*) FROM ingest_configs WHERE enabled = ?",
+                [i64::from(enabled)],
+                |row| row.get(0),
+            )?),
+            None => Ok(self
+                .conn
+                .query_row("SELECT COUNT(*) FROM ingest_configs", [], |row| row.get(0))?),
+        }
+    }
+
+    pub fn update_ingest_config(
+        &self,
+        id: &str,
+        update: &IngestConfigUpdate,
+    ) -> Result<IngestConfig> {
+        let mut config = self
+            .get_ingest_config(id)?
+            .ok_or_else(|| StorageError::NotFound(format!("ingest config {id}")))?;
+
+        if let Some(value) = &update.source_type {
+            config.source_type = value.clone();
+        }
+        if let Some(value) = update.max_packets_per_day {
+            config.max_packets_per_day = value;
+        }
+        if let Some(value) = &update.metadata {
+            config.metadata = value.clone();
+        }
+        if let Some(value) = &update.tweet_type_mix {
+            config.tweet_type_mix = value.clone();
+        }
+        if let Some(value) = &update.schedule_window_start {
+            config.schedule_window_start = value.clone();
+        }
+        if let Some(value) = &update.schedule_window_end {
+            config.schedule_window_end = value.clone();
+        }
+        if let Some(value) = update.enabled {
+            config.enabled = value;
+        }
+        config.updated_at = self.now();
+
+        self.conn.execute(
+            "UPDATE ingest_configs SET source_type = ?, max_packets_per_day = ?,
+               metadata_json = ?, tweet_type_mix_json = ?, schedule_window_start = ?,
+               schedule_window_end = ?, enabled = ?, updated_at = ?
+             WHERE id = ?",
+            params![
+                config.source_type,
+                config.max_packets_per_day,
+                Value::Object(config.metadata.clone()).to_string(),
+                Value::Object(config.tweet_type_mix.clone()).to_string(),
+                config.schedule_window_start,
+                config.schedule_window_end,
+                i64::from(config.enabled),
+                config.updated_at,
+                config.id,
+            ],
+        )?;
+        Ok(config)
+    }
+
+    pub fn delete_ingest_config(&self, id: &str) -> Result<IngestConfig> {
+        let config = self
+            .get_ingest_config(id)?
+            .ok_or_else(|| StorageError::NotFound(format!("ingest config {id}")))?;
+        self.conn
+            .execute("DELETE FROM ingest_configs WHERE id = ?", [id])?;
+        Ok(config)
     }
 
     fn candidates_for_draft(&self, draft_id: &str) -> Result<Vec<DraftCandidate>> {
@@ -1218,5 +2063,121 @@ fn history_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PostHistory> {
                 .unwrap_or_default(),
         ),
         posted_at: row.get("posted_at")?,
+    })
+}
+
+fn json_strings(values: &[String]) -> String {
+    serde_json::to_string(values).unwrap_or_else(|_| "[]".to_string())
+}
+
+fn parse_json_strings(value: Option<String>) -> Vec<String> {
+    value
+        .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
+        .unwrap_or_default()
+}
+
+fn style_profile_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StyleProfile> {
+    Ok(StyleProfile {
+        id: row.get("id")?,
+        name: row.get("name")?,
+        description: row.get("description")?,
+        tone: row.get("tone")?,
+        rules: parse_json_object(
+            row.get::<_, Option<String>>("rules_json")?
+                .unwrap_or_default(),
+        ),
+        banned_phrases: parse_json_strings(row.get("banned_phrases_json")?),
+        example_posts: parse_json_strings(row.get("example_posts_json")?),
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+    })
+}
+
+fn knowledge_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<KnowledgeEntry> {
+    Ok(KnowledgeEntry {
+        id: row.get("id")?,
+        account_id: row.get("account_id")?,
+        kind: row.get("kind")?,
+        title: row.get("title")?,
+        content: row.get("content")?,
+        source_url: row.get("source_url")?,
+        enabled: row.get::<_, i64>("enabled")? != 0,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+    })
+}
+
+fn source_packet_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SourcePacket> {
+    Ok(SourcePacket {
+        id: row.get("id")?,
+        account_id: row.get("account_id")?,
+        source_type: row.get("source_type")?,
+        title: row.get("title")?,
+        url: row.get("url")?,
+        summary: row.get("summary")?,
+        facts: parse_json_strings(row.get("facts_json")?),
+        tweet_type: row.get("tweet_type")?,
+        status: parse_status(row.get("status")?)?,
+        feedback: row.get("feedback")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+    })
+}
+
+fn ingest_run_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<IngestRun> {
+    Ok(IngestRun {
+        id: row.get("id")?,
+        config_id: row.get("config_id")?,
+        account_id: row.get("account_id")?,
+        started_at: row.get("started_at")?,
+        finished_at: row.get("finished_at")?,
+        status: parse_status(row.get("status")?)?,
+        error: row.get("error")?,
+        packets_created: row.get("packets_created")?,
+    })
+}
+
+fn measurement_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TweetMeasurement> {
+    Ok(TweetMeasurement {
+        id: row.get("id")?,
+        account_id: row.get("account_id")?,
+        tweet_id: row.get("tweet_id")?,
+        origin: row.get("origin")?,
+        posted_at: row.get("posted_at")?,
+        text: row.get("text")?,
+        has_link: row
+            .get::<_, Option<i64>>("has_link")?
+            .map(|value| value != 0),
+        source_type: row.get("source_type")?,
+        tweet_type: row.get("tweet_type")?,
+        views: row.get("views")?,
+        likes: row.get("likes")?,
+        replies: row.get("replies")?,
+        reposts: row.get("reposts")?,
+        bookmarks: row.get("bookmarks")?,
+        measured_at: row.get("measured_at")?,
+        updated_at: row.get("updated_at")?,
+    })
+}
+
+fn ingest_config_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<IngestConfig> {
+    Ok(IngestConfig {
+        id: row.get("id")?,
+        account_id: row.get("account_id")?,
+        source_type: row.get("source_type")?,
+        max_packets_per_day: row.get("max_packets_per_day")?,
+        metadata: parse_json_object(
+            row.get::<_, Option<String>>("metadata_json")?
+                .unwrap_or_default(),
+        ),
+        tweet_type_mix: parse_json_object(
+            row.get::<_, Option<String>>("tweet_type_mix_json")?
+                .unwrap_or_default(),
+        ),
+        schedule_window_start: row.get("schedule_window_start")?,
+        schedule_window_end: row.get("schedule_window_end")?,
+        enabled: row.get::<_, i64>("enabled")? != 0,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
     })
 }

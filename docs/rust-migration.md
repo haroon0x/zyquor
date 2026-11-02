@@ -95,7 +95,7 @@ worker -> core, storage
 | --------- | ----- | ----- |
 | M0 — Scaffold | done | `Cargo.toml` workspace, `rust-toolchain.toml`, Rust CI job (fmt, clippy, test). |
 | M1 — `zyquor-core` | done | Domain enums, lifecycle transitions, path rules, post spacing, reply-target parsing. 41 tests; parity harness matches TypeScript on 96 gate/transition cases and 11 CDP-URL cases. |
-| M2 — `zyquor-storage` + `zyquor-accounts` | partial | `zyquor-accounts` ported (6 tests). `zyquor-storage` schema, utils, first-run, and the accounts/drafts/jobs/attempts/post-history surface ported (13 tests). Verified cross-implementation: a database written by the TypeScript repository is read back by the Rust one with matching draft, job, and history records. |
+| M2 — `zyquor-storage` + `zyquor-accounts` | partial (SQLite complete) | `zyquor-accounts` ported (6 tests). `zyquor-storage` ports the full SQLite `ZyquorRepository` surface — schema, column migrations, first-run seeding, accounts, style profiles, system feedback, knowledge entries, drafts, jobs, attempts, source packets, ingest runs/configs, post history, tweet measurements (23 tests). Verified cross-implementation: a database written by the TypeScript repository is read back by the Rust one with matching draft, job, and history records. Remaining: the JSON fallback repository. |
 | M3 — generation / adapters / automation | pending | |
 | M4 — browser | pending | |
 | M5 — api / worker | pending | |
@@ -110,17 +110,16 @@ removed yet.
 
 Not ported yet:
 
-- Repositories for source packets, knowledge entries, ingest configs, ingest
-  runs, tweet measurements, style profiles, and system feedback.
-- The JSON fallback repository (`data/app.json`).
-- First-run seeding of the default account (`account_personal`) and
-  `style_default` profile, which the TypeScript `createSqliteRepository`
-  performs on an empty database. Port these before pointing the API at a fresh
-  Rust database.
-- `hasPostHistoryTextHash` currently consults `content_fingerprints`; the
-  TypeScript version also falls back to scanning rows with a null `text_hash`.
-- `delete_account` and `delete_draft` guard checks read only the first
-  non-terminal / oldest job row rather than scanning every job.
+- The JSON fallback repository (`data/app.json`), used when `node:sqlite` is
+  unavailable in the TypeScript build. The Rust build always uses SQLite, so
+  this is only needed for reading data written by a JSON-fallback install.
+- `hasPostHistoryTextHash` covers the fingerprint lookup plus the legacy
+  null-`text_hash` scan, but there is no test for the legacy branch yet: a
+  regression test needs a row inserted with a null hash.
+- `deleteAccount` also removes knowledge entries and ingest configs; the
+  TypeScript version does not delete knowledge entries, so behaviour differs
+  slightly (the Rust version cleans up more). Align these before parity
+  testing account deletion.
 
 ## Milestones
 
