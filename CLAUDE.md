@@ -41,11 +41,11 @@ Controlled posting only behind env flags. Multi-account UI, Tauri, and E2E tests
 - `packages/adapters`: source adapters, aggregation, source health.
 - `packages/automation`: ingest and source-packet drafting.
 - `packages/generation`: command-code/opencode/Ollama/Gemini providers (no mock provider; tests inject providers via buildApp options).
-- `packages/storage`: SQLite + JSON fallback repositories.
+- `packages/storage`: SQLite repositories.
 - `packages/browser`: Playwright prepare/post flow.
 - `packages/accounts`: account config helpers.
 
-Persistence: SQLite via `node:sqlite`, fallback JSON at `data/app.json`.
+Persistence: SQLite via `node:sqlite`. (An older `data/app.json` JSON fallback is described elsewhere in old docs but no longer exists in the code; SQLite is the only repository implementation.)
 
 ## Hard Constraints
 

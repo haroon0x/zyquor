@@ -95,7 +95,6 @@ worker -> core, storage
 | Schemas/validation | zod                         | serde + `validator`/hand-written     |
 | HTTP server        | Fastify                     | axum + tower-http                    |
 | Persistence        | `node:sqlite` + drizzle     | rusqlite (bundled) + hand-written SQL |
-| JSON fallback      | `data/app.json`             | serde_json, same file shape          |
 | Browser automation | playwright-core (CDP)       | chromiumoxide (CDP)                  |
 | Desktop shell      | Electron                    | Tauri v2                             |
 | Frontend           | React + Vite                | see "Web UI"                         |
@@ -109,7 +108,7 @@ worker -> core, storage
 | --------- | ----- | ----- |
 | M0 — Scaffold | done | `Cargo.toml` workspace, `rust-toolchain.toml`, Rust CI job (fmt, clippy, test). |
 | M1 — `zyquor-core` | done | Domain enums, lifecycle transitions, path rules, post spacing, reply-target parsing. 41 tests; parity harness matches TypeScript on 96 gate/transition cases and 11 CDP-URL cases. |
-| M2 — `zyquor-storage` + `zyquor-accounts` | partial (SQLite complete) | `zyquor-accounts` ported (6 tests). `zyquor-storage` ports the full SQLite `ZyquorRepository` surface — schema, column migrations, first-run seeding, accounts, style profiles, system feedback, knowledge entries, drafts, jobs, attempts, source packets, ingest runs/configs, post history, tweet measurements (23 tests). Verified cross-implementation: a database written by the TypeScript repository is read back by the Rust one with matching draft, job, and history records. Remaining: the JSON fallback repository. |
+| M2 — `zyquor-storage` + `zyquor-accounts` | partial (SQLite complete) | `zyquor-accounts` ported (6 tests). `zyquor-storage` ports the full SQLite `ZyquorRepository` surface — schema, column migrations, first-run seeding, accounts, style profiles, system feedback, knowledge entries, drafts, jobs, attempts, source packets, ingest runs/configs, post history, tweet measurements (23 tests). Verified cross-implementation: a database written by the TypeScript repository is read back by the Rust one with matching draft, job, and history records. No remaining repository surface. |
 | M3 — generation / adapters / automation | partial | `zyquor-generation`: config resolution plus deterministic quality scoring and text post-processing (16 tests). Provider clients, prompt assembly (`prompts.ts`), and `refine.ts` are not ported. OpenRouter provider removed from both stacks. |
 | M4 — browser | pending | |
 | M5 — api / worker | pending | |
@@ -124,9 +123,9 @@ removed yet.
 
 Not ported yet:
 
-- The JSON fallback repository (`data/app.json`), used when `node:sqlite` is
-  unavailable in the TypeScript build. The Rust build always uses SQLite, so
-  this is only needed for reading data written by a JSON-fallback install.
+- ~~The JSON fallback repository~~ — **does not exist.** `CLAUDE.md` and older
+  docs claimed a `data/app.json` fallback; the code has only `sqlite.ts`. That
+  documentation was stale and has been corrected. Nothing to port.
 - `hasPostHistoryTextHash` covers the fingerprint lookup plus the legacy
   null-`text_hash` scan, but there is no test for the legacy branch yet: a
   regression test needs a row inserted with a null hash.
@@ -147,7 +146,7 @@ TypeScript implementation.
   rules, spacing. Port `index.ts`, `state.ts`, `paths.ts`, `spacing.ts` plus
   their three test files. Exit: all core tests pass in Rust.
 - **M2 — `zyquor-storage` + `zyquor-accounts`.** Repositories over rusqlite
-  and the JSON fallback; account config helpers. Exit: read an existing
+  repositories; account config helpers. Exit: read an existing
   `data/app.db` and `data/app.json` and round-trip them byte-faithfully.
 - **M3 — `zyquor-generation` + `zyquor-adapters` + `zyquor-automation`.**
   Provider clients, prompt assembly, `score_tweet_quality`, source adapters,
