@@ -188,7 +188,7 @@ Real X browser prepare prerequisites:
 - If `.env` sets `ZYQUOR_BROWSER_CDP_URL`, start `pnpm profile:x:cdp` and keep that Chrome running while preparing or posting. Set `ZYQUOR_BROWSER_HEADLESS=1` to run it with `--headless=new` (no window); auto-launch honours the same flag.
 - Verify the persisted login with `pnpm profile:x:check`.
 - In the web UI, use `Check X` in the account strip before preparing a real job.
-- Start with `ZYQUOR_ENABLE_BROWSER_PREPARE=1 ZYQUOR_LLM_PROVIDER=openrouter ZYQUOR_OPENROUTER_API_KEY=... pnpm dev:api`.
+- Start with `ZYQUOR_ENABLE_BROWSER_PREPARE=1 ZYQUOR_LLM_PROVIDER=gemini ZYQUOR_GEMINI_API_KEY=... pnpm dev:api`.
 - Set `ZYQUOR_ENABLE_BROWSER_POST=1` only when final public Post click should be enabled.
 - Default `ZYQUOR_BROWSER_CHANNEL=chromium` uses bundled Playwright Chromium. Use `chrome` only if Chrome is installed.
 - Browser pacing defaults to slow actions and typed input. Configure `ZYQUOR_BROWSER_ACTION_DELAY_MS` and `ZYQUOR_BROWSER_TYPING_DELAY_MS`.
@@ -205,11 +205,9 @@ ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
 
 - Resolution priority: saved `data/generation.json` > `.env` file > shell `process.env`.
 - Shell env vars take precedence over `.env` — the dotenv loader skips already-set vars.
-- The default provider is `codex` with `gpt-5.6-luna` and high reasoning. Command Code remains available with the same model. The current desktop setup does not use OpenRouter.
+- The default provider is `codex` with `gpt-5.6-luna` and high reasoning. Command Code remains available with the same model.
 - Command Code must be installed and authenticated on the same operating system that runs Zyquor. Set `ZYQUOR_COMMAND_CODE_PATH` when it is not available on `PATH`.
 - Codex CLI must be installed and authenticated on the same operating system that runs Zyquor. Set `ZYQUOR_CODEX_PATH` when it is not available on `PATH`.
-- Setting `ZYQUOR_LLM_PROVIDER=openrouter` without `ZYQUOR_OPENROUTER_API_KEY` crashes the API on startup. Use `auto` when the key is not ready.
-- The OpenRouter fallback is restricted to the free-model allowlist in `OPENROUTER_MODELS` in `packages/generation/src/config.ts`. Setting a model not in the list silently coerces to the default.
 
 ## LLM Providers
 
@@ -218,12 +216,12 @@ Provider selection uses environment variables:
 ```bash
 ZYQUOR_LLM_PROVIDER=command-code ZYQUOR_COMMAND_CODE_MODEL=gpt-5.6-luna
 ZYQUOR_LLM_PROVIDER=codex ZYQUOR_CODEX_MODEL=gpt-5.6-luna ZYQUOR_CODEX_PATH=codex
-ZYQUOR_LLM_PROVIDER=openrouter ZYQUOR_OPENROUTER_API_KEY=... ZYQUOR_OPENROUTER_MODEL=nvidia/nemotron-3-super-120b-a12b:free
+ZYQUOR_LLM_PROVIDER=gemini ZYQUOR_GEMINI_API_KEY=... ZYQUOR_GEMINI_MODEL=gemini-2.5-flash
 ZYQUOR_LLM_PROVIDER=ollama ZYQUOR_OLLAMA_BASE_URL=http://127.0.0.1:11434 ZYQUOR_OLLAMA_MODEL=llama3.1
 ZYQUOR_LLM_PROVIDER=gemini ZYQUOR_GEMINI_API_KEY=... ZYQUOR_GEMINI_MODEL=gemini-2.5-flash
 ```
 
-`command-code` pipes the generation prompt to the authenticated CLI in headless, read-only plan mode. `codex` uses `codex exec` with the `luna` default and high reasoning in ephemeral, read-only, non-interactive mode. `openrouter` uses chat completions. `ollama` calls `/api/generate` with `stream: false` and JSON output. `gemini` calls Gemini `models/{model}:generateContent` with JSON response config.
+`command-code` pipes the generation prompt to the authenticated CLI in headless, read-only plan mode. `codex` uses `codex exec` with the `luna` default and high reasoning in ephemeral, read-only, non-interactive mode. `ollama` calls `/api/generate` with `stream: false` and JSON output. `gemini` calls Gemini `models/{model}:generateContent` with JSON response config.
 
 ## Desktop app (Windows)
 

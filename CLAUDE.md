@@ -40,7 +40,7 @@ Controlled posting only behind env flags. Multi-account UI, Tauri, and E2E tests
 - `packages/core`: domain types, Zod schemas.
 - `packages/adapters`: source adapters, aggregation, source health.
 - `packages/automation`: ingest and source-packet drafting.
-- `packages/generation`: command-code/OpenRouter/Ollama/Gemini providers (no mock provider; tests inject providers via buildApp options).
+- `packages/generation`: command-code/opencode/Ollama/Gemini providers (no mock provider; tests inject providers via buildApp options).
 - `packages/storage`: SQLite + JSON fallback repositories.
 - `packages/browser`: Playwright prepare/post flow.
 - `packages/accounts`: account config helpers.
@@ -198,7 +198,7 @@ pnpm dist:desktop
 - Desktop settings worth knowing: `headless` maps to `ZYQUOR_BROWSER_HEADLESS` (default off, surfaced as a checkbox in the settings panel), and `cdpPort` maps to `ZYQUOR_BROWSER_CDP_URL`. The launcher resolves per-account ports through `perProfileCdpUrl` from `@zyquor/core`, the same helper the API uses, so the desktop and the posting path always agree on the port. Do not reimplement that mapping in either place.
 - Desktop window: `contextIsolation`, `sandbox`, and `setWindowOpenHandler` are on, and `will-navigate` sends external links to the system browser. Never remove those handlers; without them a link in the UI opens a bare Electron window with no address bar.
 
-Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (disabled by default for safety), `ZYQUOR_LLM_PROVIDER=command-code|opencode|openrouter|gemini|ollama|auto`. `ZYQUOR_REVISION_PASS=1` adds a cut-only second-pass revision (opencode only): it removes vagueness and unsupported claims from the first-pass drafts, never adds material, and can never lower a candidate; it doubles generation latency and is off by default.
+Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (disabled by default for safety), `ZYQUOR_LLM_PROVIDER=command-code|opencode|gemini|ollama|auto`. `ZYQUOR_REVISION_PASS=1` adds a cut-only second-pass revision (opencode only): it removes vagueness and unsupported claims from the first-pass drafts, never adds material, and can never lower a candidate; it doubles generation latency and is off by default.
 Source smoke: `pnpm smoke:adapters`. Product Hunt is optional without `ZYQUOR_PRODUCTHUNT_API_TOKEN`.
 
 ### pnpm Setup
@@ -210,9 +210,9 @@ ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
 
 ### Generation Provider Resolution
 - Provider is resolved in order: saved `data/generation.json` > `.env` > `process.env`.
-- Set `ZYQUOR_LLM_PROVIDER` explicitly to `command-code` or `opencode`; the desktop setup does not use `auto` or OpenRouter.
+- Set `ZYQUOR_LLM_PROVIDER` explicitly to `command-code` or `opencode`; the desktop setup does not use `auto`.
 - Shell env vars take precedence over `.env`; the dotenv loader skips already-set vars.
-- Preferred provider is `opencode` with model `opencode/deepseek-v4.1-flash-free` (high reasoning). The `opencode` provider drives the opencode CLI (`opencode run --variant high`) and is the primary generation path; other providers remain available but are not used by default. Command Code remains available with model `gpt-5.6-luna`. CLI paths use `ZYQUOR_COMMAND_CODE_PATH` and `ZYQUOR_OPENCODE_PATH`; the opencode model and reasoning variant come from `ZYQUOR_OPENCODE_MODEL` and `ZYQUOR_OPENCODE_VARIANT`. All CLI providers use the single generation flow. OpenRouter is not used by the desktop setup.
+- Preferred provider is `opencode` with model `opencode/deepseek-v4.1-flash-free` (high reasoning). The `opencode` provider drives the opencode CLI (`opencode run --variant high`) and is the primary generation path; other providers remain available but are not used by default. Command Code remains available with model `gpt-5.6-luna`. CLI paths use `ZYQUOR_COMMAND_CODE_PATH` and `ZYQUOR_OPENCODE_PATH`; the opencode model and reasoning variant come from `ZYQUOR_OPENCODE_MODEL` and `ZYQUOR_OPENCODE_VARIANT`. All CLI providers use the single generation flow.
 
 ### X Render Failures Are Not Logouts
 

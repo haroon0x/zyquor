@@ -244,7 +244,6 @@ export interface DesktopSettingsData {
   opencodePath?: string;
   opencodeVariant?: string;
   llmProvider?: string;
-  openrouterApiKey?: string;
   geminiApiKey?: string;
   chromePath?: string;
   cdpPort?: number;

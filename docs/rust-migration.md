@@ -41,6 +41,20 @@ Measured on the `rust-migration` branch at the start of the work:
 
 Plus `scripts/` (`.mjs` tooling) and `services/`, which are ported last.
 
+## Deliberate removals
+
+Anything dropped instead of ported is listed here so it is not silently
+resurrected by a later agent.
+
+- **OpenRouter generation provider** (both stacks). Removed from
+  `packages/generation`, the provider list in `@zyquor/core`, the API/web/desktop
+  settings surfaces, `.env.example`, and the Rust `zyquor-generation` crate.
+  `auto` provider selection now prefers Gemini, then Ollama.
+  Note: `packages/adapters/src/model-releases.ts` still calls OpenRouter's
+  public *models* endpoint as a source of model-release data. That is source
+  ingestion, not LLM generation, and it stays until a replacement source is
+  picked.
+
 ## Target layout
 
 A single Cargo workspace at the repo root:
@@ -96,7 +110,7 @@ worker -> core, storage
 | M0 — Scaffold | done | `Cargo.toml` workspace, `rust-toolchain.toml`, Rust CI job (fmt, clippy, test). |
 | M1 — `zyquor-core` | done | Domain enums, lifecycle transitions, path rules, post spacing, reply-target parsing. 41 tests; parity harness matches TypeScript on 96 gate/transition cases and 11 CDP-URL cases. |
 | M2 — `zyquor-storage` + `zyquor-accounts` | partial (SQLite complete) | `zyquor-accounts` ported (6 tests). `zyquor-storage` ports the full SQLite `ZyquorRepository` surface — schema, column migrations, first-run seeding, accounts, style profiles, system feedback, knowledge entries, drafts, jobs, attempts, source packets, ingest runs/configs, post history, tweet measurements (23 tests). Verified cross-implementation: a database written by the TypeScript repository is read back by the Rust one with matching draft, job, and history records. Remaining: the JSON fallback repository. |
-| M3 — generation / adapters / automation | pending | |
+| M3 — generation / adapters / automation | partial | `zyquor-generation`: config resolution plus deterministic quality scoring and text post-processing (16 tests). Provider clients, prompt assembly (`prompts.ts`), and `refine.ts` are not ported. OpenRouter provider removed from both stacks. |
 | M4 — browser | pending | |
 | M5 — api / worker | pending | |
 | M6 — desktop (Tauri) | pending | |

@@ -14,7 +14,7 @@ pub mod types;
 pub use reply::{ReplyTarget, ReplyTargetError, parse_reply_target_url};
 pub use state::{can_transition_draft, can_transition_post_job};
 pub use types::{
-    ALL_TWEET_TYPES, ATTEMPT_STATUSES, AttemptStatus, DraftStatus, LEGACY_TWEET_TYPES,
-    LLM_PROVIDERS, LlmProvider, POST_JOB_STATUSES, POSTING_MODES, PostJobStatus, PostingMode,
-    SOURCE_TYPES, SourceType, TWEET_TYPES, TweetType,
+    AI_SLOP_PHRASES, ALL_TWEET_TYPES, ATTEMPT_STATUSES, AttemptStatus, DraftStatus,
+    LEGACY_TWEET_TYPES, LLM_PROVIDERS, LlmProvider, POST_JOB_STATUSES, POSTING_MODES,
+    PostJobStatus, PostingMode, SOURCE_TYPES, SourceType, TWEET_TYPES, TweetType,
 };

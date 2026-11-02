@@ -3,9 +3,9 @@ import { createGenerationProviderFromEnv } from "@zyquor/generation";
 import type { AppDeps, DesktopSettingsData } from "../deps.js";
 import { writeSavedGenerationEnv } from "../lib/generation.js";
 
-const SENSITIVE_KEYS = new Set(["openrouterApiKey", "geminiApiKey"]);
+const SENSITIVE_KEYS = new Set(["geminiApiKey"]);
 
-const GENERATION_KEYS = new Set(["commandCodePath", "opencodePath", "opencodeVariant", "llmProvider", "openrouterApiKey", "geminiApiKey"]);
+const GENERATION_KEYS = new Set(["commandCodePath", "opencodePath", "opencodeVariant", "llmProvider", "geminiApiKey"]);
 
 const GENERATION_ENV_KEYS: Record<string, string> = {
   commandCodePath: "ZYQUOR_COMMAND_CODE_PATH",
@@ -13,7 +13,6 @@ const GENERATION_ENV_KEYS: Record<string, string> = {
   opencodeVariant: "ZYQUOR_OPENCODE_VARIANT",
   geminiApiKey: "ZYQUOR_GEMINI_API_KEY",
   llmProvider: "ZYQUOR_LLM_PROVIDER",
-  openrouterApiKey: "ZYQUOR_OPENROUTER_API_KEY",
 };
 
 function maskSettings(settings: DesktopSettingsData): DesktopSettingsData {

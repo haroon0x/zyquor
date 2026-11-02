@@ -8,7 +8,7 @@ type DesktopSettingsDraft = Omit<DesktopSettingsData, "cdpPort"> & { cdpPort?: n
 export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
   const { busy, run } = panel;
   const [desktopSettings, setDesktopSettings] = useState<DesktopSettingsDraft>({});
-  const [apiKeys, setApiKeys] = useState({ geminiApiKey: "", openrouterApiKey: "" });
+  const [apiKeys, setApiKeys] = useState({ geminiApiKey: "" });
   const [desktopRestartRequired, setDesktopRestartRequired] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -38,17 +38,16 @@ export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
     run(async () => {
       const payload: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(desktopSettings)) {
-        if (key === "restartRequired" || key === "openrouterApiKey" || key === "geminiApiKey") continue;
+        if (key === "restartRequired" || key === "geminiApiKey") continue;
         payload[key] = value;
       }
-      if (apiKeys.openrouterApiKey) payload.openrouterApiKey = apiKeys.openrouterApiKey;
       if (apiKeys.geminiApiKey) payload.geminiApiKey = apiKeys.geminiApiKey;
       const result = await api<DesktopSettingsData & { restartRequired?: boolean }>("/settings", {
         method: "PATCH",
         body: JSON.stringify(payload)
       });
       setDesktopSettings(result);
-      setApiKeys({ geminiApiKey: "", openrouterApiKey: "" });
+      setApiKeys({ geminiApiKey: "" });
       if (result.restartRequired) setDesktopRestartRequired(true);
     });
   }
@@ -93,7 +92,6 @@ export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
             <option value="">(default)</option>
             <option value="command-code">Command Code</option>
             <option value="opencode">Opencode</option>
-            <option value="openrouter">OpenRouter</option>
             <option value="gemini">Gemini</option>
             <option value="ollama">Ollama</option>
             <option value="auto">Auto</option>
@@ -115,10 +113,6 @@ export function DesktopSettingsPanel({ panel }: { panel: PanelProps }) {
             <option value="high">high</option>
             <option value="max">max</option>
           </select>
-        </label>
-        <label>
-          OpenRouter API key
-          <input type="password" value={apiKeys.openrouterApiKey} onChange={(event) => setApiKeys((current) => ({ ...current, openrouterApiKey: event.target.value }))} placeholder={desktopSettings.openrouterApiKey ? "••••••••" : "sk-or-..."} />
         </label>
         <label>
           Gemini API key

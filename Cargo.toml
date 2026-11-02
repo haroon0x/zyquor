@@ -4,6 +4,7 @@ members = [
   "crates/zyquor-core",
   "crates/zyquor-accounts",
   "crates/zyquor-storage",
+  "crates/zyquor-generation",
 ]
 
 [workspace.package]
@@ -21,6 +22,7 @@ thiserror = "2"
 zyquor-core = { path = "crates/zyquor-core" }
 zyquor-accounts = { path = "crates/zyquor-accounts" }
 zyquor-storage = { path = "crates/zyquor-storage" }
+zyquor-generation = { path = "crates/zyquor-generation" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

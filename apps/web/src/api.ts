@@ -31,8 +31,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   "command-code": "Command Code",
   opencode: "Opencode",
   gemini: "Gemini",
-  ollama: "Ollama",
-  openrouter: "OpenRouter"
+  ollama: "Ollama"
 };
 
 export function providerLabel(provider: string) {

@@ -18,7 +18,7 @@ topic/rough post -> fresh source search -> grounded draft -> review/edit or auto
 - `packages/core`: shared domain types, Zod schemas, lifecycle transitions.
 - `packages/accounts`: account config helpers.
 - `packages/adapters`: source ingestion and crawl service adapters.
-- `packages/generation`: Command Code, OpenRouter, Ollama, and Gemini draft generation providers.
+- `packages/generation`: Command Code, OpenCode, Ollama, and Gemini draft generation providers.
 - `packages/storage`: SQLite/Drizzle persistence surface.
 - `packages/browser`: Playwright prepare/post flow.
 
@@ -103,7 +103,7 @@ If you want bare `zyquor` instead of `./zyquor`, install/link the repo command o
 
 ## Draft Generation
 
-Default provider selection is resolved from saved generation config and environment. Codex with `gpt-5.6-luna` is the default; Command Code, Gemini, and Ollama remain available. OpenRouter is not used by the desktop setup.
+Default provider selection is resolved from saved generation config and environment. Codex with `gpt-5.6-luna` is the default; Command Code, Gemini, and Ollama remain available.
 
 Install and authenticate Command Code once before starting Zyquor:
 
@@ -135,9 +135,9 @@ Use a different provider if Command Code is unavailable:
 ```bash
 cp .env.example .env
 # edit .env:
-# ZYQUOR_LLM_PROVIDER=openrouter
-# ZYQUOR_OPENROUTER_API_KEY=...
-# Full free-model allowlist is in OPENROUTER_MODELS in packages/generation/src/config.ts.
+# ZYQUOR_LLM_PROVIDER=gemini
+# ZYQUOR_GEMINI_API_KEY=...
+# Allowed models are listed in GEMINI_MODELS in packages/generation/src/config.ts.
 pnpm dev:api
 ```
 
@@ -167,7 +167,7 @@ Smoke-test selected provider:
 
 ```bash
 pnpm smoke:generation
-ZYQUOR_LLM_PROVIDER=openrouter ZYQUOR_OPENROUTER_API_KEY=... pnpm smoke:generation
+ZYQUOR_LLM_PROVIDER=gemini ZYQUOR_GEMINI_API_KEY=... pnpm smoke:generation
 ZYQUOR_LLM_PROVIDER=ollama pnpm smoke:generation
 ZYQUOR_LLM_PROVIDER=codex pnpm smoke:generation
 ```
