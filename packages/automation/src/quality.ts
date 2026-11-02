@@ -73,11 +73,11 @@ function sourceIsExternal(packet: SourcePacket) {
   return packet.sourceType !== "x-feed";
 }
 
-// article_summary posts carry their real source link. ShareViaCopyLink is the
+// Long-form company/blog sources carry their real link. ShareViaCopyLink is the
 // highest-weight organic action in the x-algorithm scoring, and the tweet text
 // stays link-free so the model never invents one; the link is attached post-hoc.
 function sourceNeedsLink(packet: SourcePacket) {
-  return packet.tweetType === "article_summary";
+  return packet.sourceType === "company-rss";
 }
 
 function sourceEvidence(packet: SourcePacket) {

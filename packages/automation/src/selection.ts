@@ -8,17 +8,9 @@ export function isTweetType(value: string): value is TweetType {
   return (ALL_TWEET_TYPES as readonly string[]).includes(value);
 }
 
-const TWEET_TYPE_ALIASES: Record<string, TweetType> = {
-  article_summary: "useful_info",
-  news_context: "useful_info",
-  lesson: "guide",
-  tool: "useful_info",
-  hiring: "useful_info"
-};
-
 export function normalizeTweetType(value: string | undefined, fallback: TweetType = "useful_info"): TweetType {
   if (!value) return fallback;
-  return TWEET_TYPE_ALIASES[value] ?? (isTweetType(value) ? value : fallback);
+  return isTweetType(value) ? value : fallback;
 }
 
 export function pickTweetType(mix: Record<string, number>, fallback: TweetType = "useful_info"): TweetType {

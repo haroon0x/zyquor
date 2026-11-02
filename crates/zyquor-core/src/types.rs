@@ -123,7 +123,7 @@ string_enum!(AttemptStatus,
     Failed => "failed",
 );
 
-/// The six current tweet types. Legacy types stay parseable (see [`TweetType`]).
+/// The tweet types the product supports.
 pub const TWEET_TYPES: &[TweetType] = &[
     TweetType::UsefulInfo,
     TweetType::Guide,
@@ -133,27 +133,7 @@ pub const TWEET_TYPES: &[TweetType] = &[
     TweetType::FeedObservation,
 ];
 
-pub const LEGACY_TWEET_TYPES: &[TweetType] = &[
-    TweetType::NewsContext,
-    TweetType::Lesson,
-    TweetType::Tool,
-    TweetType::ArticleSummary,
-    TweetType::Hiring,
-];
-
-pub const ALL_TWEET_TYPES: &[TweetType] = &[
-    TweetType::UsefulInfo,
-    TweetType::Guide,
-    TweetType::Opinion,
-    TweetType::Reply,
-    TweetType::NarrativeHistory,
-    TweetType::FeedObservation,
-    TweetType::NewsContext,
-    TweetType::Lesson,
-    TweetType::Tool,
-    TweetType::ArticleSummary,
-    TweetType::Hiring,
-];
+pub const ALL_TWEET_TYPES: &[TweetType] = TWEET_TYPES;
 
 pub const POSTING_MODES: &[PostingMode] = PostingMode::ALL;
 pub const SOURCE_TYPES: &[SourceType] = SourceType::ALL;

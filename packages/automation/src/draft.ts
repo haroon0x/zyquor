@@ -47,10 +47,6 @@ async function assertSingleDraftPerTopic(input: {
   }
 }
 
-function generationTweetType(value: SourcePacket["tweetType"]) {
-  return value === "hiring" ? value : normalizeTweetType(value);
-}
-
 export interface PacketDraftOptions {
   autoApprove?: boolean;
   count?: number;
@@ -84,7 +80,7 @@ export async function generateCandidatesForPacket(input: {
     preserveCase: true,
     ...context,
     ...(input.packet.feedback ? { feedback: input.packet.feedback } : {}),
-    tweetType: generationTweetType(input.packet.tweetType)
+    tweetType: normalizeTweetType(input.packet.tweetType)
   });
 
   if (input.packet.sourceType === "x-feed") {

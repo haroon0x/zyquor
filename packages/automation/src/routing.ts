@@ -120,7 +120,7 @@ export function routeTweetType(
   const metadataType = typeof input.item.metadata?.type === "string" ? input.item.metadata.type : "";
 
   if (sourceType === "job" || metadataType === "hiring" || sourceName === "hiring" || sourceName === "hackernews-jobs") {
-    return "hiring";
+    return "useful_info";
   }
   if (sourceType === "x-feed") {
     return "feed_observation";

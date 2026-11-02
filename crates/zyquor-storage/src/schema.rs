@@ -128,15 +128,6 @@ CREATE TABLE IF NOT EXISTS post_history (
   posted_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS content_fingerprints (
-  id TEXT PRIMARY KEY NOT NULL,
-  account_id TEXT NOT NULL REFERENCES accounts(id),
-  draft_id TEXT NOT NULL REFERENCES drafts(id),
-  text_hash TEXT NOT NULL,
-  normalized_text TEXT NOT NULL,
-  embedding_ref TEXT,
-  created_at TEXT NOT NULL
-);
 
 CREATE TABLE IF NOT EXISTS tweet_measurements (
   id TEXT PRIMARY KEY NOT NULL,
@@ -185,8 +176,6 @@ CREATE INDEX IF NOT EXISTS idx_history_posted_at ON post_history(posted_at);
 CREATE INDEX IF NOT EXISTS idx_history_account_posted ON post_history(account_id, posted_at DESC);
 CREATE INDEX IF NOT EXISTS idx_history_account_source_packet ON post_history(account_id, source_packet_id);
 CREATE INDEX IF NOT EXISTS idx_history_account_source_url ON post_history(account_id, source_url);
-CREATE INDEX IF NOT EXISTS idx_fingerprints_hash ON content_fingerprints(text_hash);
-CREATE INDEX IF NOT EXISTS idx_fingerprints_account_hash ON content_fingerprints(account_id, text_hash);
 CREATE INDEX IF NOT EXISTS idx_source_packets_account_status ON source_packets(account_id, status);
 CREATE INDEX IF NOT EXISTS idx_source_packets_created ON source_packets(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_status_updated ON post_jobs(status, updated_at DESC);
@@ -217,6 +206,7 @@ CREATE INDEX IF NOT EXISTS idx_ingest_configs_account_id ON ingest_configs(accou
 pub const COLUMN_MIGRATIONS: &[(&str, &str, &str)] = &[
     ("drafts", "reply_to_json", "reply_to_json TEXT"),
     ("drafts", "reply_to_url", "reply_to_url TEXT"),
+    ("drafts", "text_hash", "text_hash TEXT"),
     ("post_jobs", "reply_to_json", "reply_to_json TEXT"),
     ("post_jobs", "reply_to_url", "reply_to_url TEXT"),
     (
@@ -237,3 +227,11 @@ pub const COLUMN_MIGRATIONS: &[(&str, &str, &str)] = &[
     ),
     ("post_history", "text_hash", "text_hash TEXT"),
 ];
+
+/// Statements applied after [`COLUMN_MIGRATIONS`]; the fingerprint table was
+/// folded into `drafts.text_hash`, which is the only thing it ever stored.
+pub const POST_MIGRATION_SQL: &str = "\
+CREATE INDEX IF NOT EXISTS idx_drafts_account_text_hash
+    ON drafts(account_id, text_hash) WHERE text_hash IS NOT NULL;
+DROP TABLE IF EXISTS content_fingerprints;
+";

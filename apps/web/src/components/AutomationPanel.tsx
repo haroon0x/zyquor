@@ -4,17 +4,8 @@ import type { IngestConfig, PanelProps } from "../types.js";
 import { tweetTypeOptions } from "../types.js";
 import { Busy, InlineError, PanelIcon, errorMessage } from "./Feedback.js";
 
-const legacyTweetTypeAliases: Record<string, string> = {
-  article_summary: "useful_info",
-  news_context: "useful_info",
-  lesson: "guide",
-  tool: "useful_info",
-  hiring: "useful_info"
-};
-
 function activeTweetType(value: string) {
-  const normalized = legacyTweetTypeAliases[value] ?? value;
-  return tweetTypeOptions.includes(normalized as (typeof tweetTypeOptions)[number]) ? normalized : "useful_info";
+  return tweetTypeOptions.includes(value as (typeof tweetTypeOptions)[number]) ? value : "useful_info";
 }
 
 function draftFromIngestConfig(config: IngestConfig | null) {

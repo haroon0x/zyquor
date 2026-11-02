@@ -27,26 +27,23 @@ whether `node:sqlite` loads. Rust always has SQLite (rusqlite is bundled).
 
 **Action:** do not port. Same for `packages/storage/src/node-sqlite.d.ts`.
 
-### 1.3 Legacy tweet types
+### 1.3 Legacy tweet types (DONE)
 
-`packages/core/src/index.ts` keeps `LEGACY_TWEET_TYPES` (`news_context`,
-`lesson`, `tool`, `article_summary`, `hiring`) alongside the six current types,
-"so old rows still parse". That is a data-migration task, not a feature.
+`news_context`, `lesson`, `tool`, `article_summary` and `hiring` are gone from
+`TweetType` in both stacks. Existing rows in `post_history`, `source_packets`
+and `tweet_measurements` are folded on open (all map to `useful_info` except
+`lesson` → `guide`), so old data still validates.
 
-**Action:** one-time backfill of stored rows to the six current types, then drop
-the legacy list in both stacks. This simplifies `TweetType`, the prompt
-guidance table, and the quality harness at once.
-
-### 1.4 `content_fingerprints` duplicates `post_history.text_hash`
+### 1.4 `content_fingerprints` duplicates `post_history.text_hash` (DONE)
 
 `approve_draft` writes a fingerprint row (account, draft, hash, normalised
 text), and `create_post_history` also stores `text_hash`. Duplicate detection
 reads whichever is convenient. Two sources of truth for "have I already posted
 this text" is a bug generator.
 
-**Action:** keep one. `post_history.text_hash` is enough for the "did I post
-this" question; the pre-post duplicate check can query `drafts`/`post_history`
-directly.
+**Done:** the pre-post duplicate check now queries `drafts.text_hash` (approved
+rows only) and the table is dropped on open. `post_history.text_hash` remains
+the source of truth for "have I already posted this".
 
 ### 1.5 Two generation-settings UIs
 
@@ -77,7 +74,7 @@ one of the largest remaining line counts in the migration.
 **Question for the owner:** which source types are actually enabled in ingest
 configs? Port those; delete the rest. If that is 5–6 adapters, M3 shrinks a lot.
 
-### 2.2 `services/` — demo-checker and crawl4ai
+### 2.2 `services/` — demo-checker and crawl4ai (DONE: removed)
 
 Both are referenced only from `package.json` scripts (`x:demo-check`,
 `dev:crawl4ai`). `crawl4ai` is an optional external Python REST service; the
@@ -148,7 +145,7 @@ Note: `apps/` looks like 60 MB, but almost all of that is `node_modules` and
 ## Suggested order of decisions
 
 1. Legacy tweet types → one-time data migration, delete the constants. (cheap)
-2. `content_fingerprints` → collapse into `post_history.text_hash`. (cheap)
+2. `content_fingerprints` → collapsed into `drafts.text_hash` (decided 2026-11-02).
 3. Source adapters → keep only the ones actually configured. (biggest win)
 4. `scripts/` → keep the entrypoint and CI smoke tests only. (big win)
 5. Electron vs Tauri → decide before starting M6.

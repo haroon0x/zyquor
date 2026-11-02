@@ -26,7 +26,7 @@ Automated lane: deterministic source ingestion → compact source packet → one
 
 Draft generation is a single LLM call that writes candidates with all anti-slop guidance (voice, punctuation, style contract, banned phrases, source boundary) carried in the system + user prompt, retried once with a simpler line prompt only when the output cannot be parsed. `scoreTweetQuality` in `packages/generation/src/quality.ts` is a deterministic floor (`ZYQUOR_QUALITY_MIN`, default 7) against recaps and slop, not a ranker. There is no separate LLM judge in the pipeline. Measure prompt/pipeline changes with `node scripts/tweet-eval.mjs`.
 
-Tweet types: `feed_observation`, `news_context`, `useful_info`, `guide`, `lesson`, `tool`, `opinion`, `reply`, `hiring`, `article_summary`, `narrative_history`.
+Tweet types: `feed_observation`, `useful_info`, `guide`, `opinion`, `reply`, `narrative_history`. The retired types (`news_context`, `lesson`, `tool`, `hiring`, `article_summary`) are folded into these on database open.
 
 Controlled posting only behind env flags. Multi-account UI, Tauri, and E2E tests are future work. Reply drafting shipped (plan 007-C).
 
@@ -329,7 +329,7 @@ Reply screening for agent lanes (2026-10-29): demand-style openers ("explain X",
 ## Latest Work (2026-10-26)
 
 - Replies-first flow shipped end to end from the frozen spec `tasks/replies-first-goldfish.md`: `GET /replies/mentions`, `POST /replies/mentions/draft`, `POST /replies/mentions/scan-and-draft`, plus per-reply Goldfish memory grounding (style rule `rules.replyMemory`, request `useMemory` override, 10 min TTL cache in `@zyquor/adapters` via `fetchGoldfishReplyContext`). Every mention draft lands in the review queue; nothing auto-posts.
-- Mentions auto-draft is optional and off by default: worker env flags `ZYQUOR_MENTIONS_AUTO_DRAFT=1` + `ZYQUOR_MENTIONS_ACCOUNTS` (cadence `ZYQUOR_MENTIONS_INTERVAL_MS`, default 15 min) call the same scan-and-draft API per account on a timer. `scripts/poll-x-mentions.mjs` is now a thin API shim (`DRY_RUN=1` lists the scan; real run scan-and-drafts and enqueues external mention links for the demo-checker).
+- Mentions auto-draft is optional and off by default: worker env flags `ZYQUOR_MENTIONS_AUTO_DRAFT=1` + `ZYQUOR_MENTIONS_ACCOUNTS` (cadence `ZYQUOR_MENTIONS_INTERVAL_MS`, default 15 min) call the same scan-and-draft API per account on a timer. `scripts/poll-x-mentions.mjs` is now a thin API shim (`DRY_RUN=1` lists the scan; real run scan-and-drafts).
 - Web: Replies is now the default view with a mentions panel (select fresh items, draft selected or one by one, Drafted/Posted pills, 48h window) and a "Ground replies with Goldfish memory" toggle in the Style panel (stored as `rules.replyMemory`).
 - New portable agent skill `skills/zyquor/SKILL.md` (curl-only, works for any agent CLI, no opencode-specific tooling; installed locally at `~/.agents/skills/zyquor` and `~/.config/opencode/skill/zyquor`). It documents the HTTP API recipes and hard safety rules: review queue is the gate, posting needs an explicit ask, failed jobs are never auto-retried, memory stays private.
 - Fixed a storage init regression from the perf pass: the partial index on `post_history.text_hash` is now created after the column migration, so fresh SQLite databases initialize cleanly again (this had broken every in-memory repository, including all API tests).

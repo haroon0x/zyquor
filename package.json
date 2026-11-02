@@ -27,7 +27,6 @@
     "x:mentions": "node scripts/poll-x-mentions.mjs",
     "reply:loop": "node scripts/reply-loop.mjs",
     "post:loop": "node scripts/post-loop.mjs",
-    "x:demo-check": "node services/demo-checker/run-queue.mjs",
     "start": "node scripts/zyquor.mjs",
     "dev:api": "pnpm --filter @zyquor/api dev",
     "dev:web": "pnpm --filter @zyquor/web dev",
@@ -36,7 +35,6 @@
     "dist:desktop:dir": "pnpm build && pnpm --filter @zyquor/desktop dist:win:dir",
     "dist:desktop": "pnpm build && pnpm --filter @zyquor/desktop dist:win",
     "smoke:desktop": "pnpm build && node apps/desktop/scripts/logic-smoke.mjs",
-    "dev:crawl4ai": "node scripts/crawl4ai-service.mjs",
     "test": "pnpm build && pnpm -r test",
     "lessons:propose": "node scripts/propose-lessons.mjs"
   },

@@ -745,9 +745,9 @@ fn account_deletion_is_blocked_by_non_terminal_jobs_including_failed() {
 }
 
 #[test]
-fn duplicate_text_lookup_uses_the_approved_fingerprint() {
+fn duplicate_approved_text_is_rejected() {
     let (repo, account_id) = seeded();
-    let draft = repo
+    let first = repo
         .create_draft(&NewDraft {
             account_id: account_id.clone(),
             source_input: "idea".to_string(),
@@ -758,7 +758,7 @@ fn duplicate_text_lookup_uses_the_approved_fingerprint() {
         })
         .unwrap();
     repo.approve_draft(&ApproveDraft {
-        draft_id: draft.draft.id,
+        draft_id: first.draft.id,
         edited_text: "Hello   World".to_string(),
         mode: None,
         scheduled_for: None,
@@ -767,15 +767,31 @@ fn duplicate_text_lookup_uses_the_approved_fingerprint() {
     })
     .unwrap();
 
-    let normalized = normalize_post_text("hello world");
-    let hash = hash_post_text("hello world");
-    assert!(
-        repo.has_post_history_text_hash(&account_id, &hash, &normalized)
-            .unwrap()
-    );
+    let second = repo
+        .create_draft(&NewDraft {
+            account_id: account_id.clone(),
+            source_input: "another idea".to_string(),
+            candidates: vec![],
+            reply_to: None,
+            reply_to_url: None,
+            metadata: Map::new(),
+        })
+        .unwrap();
+    let result = repo.approve_draft(&ApproveDraft {
+        draft_id: second.draft.id,
+        // Same text modulo whitespace and case, so the hash must collide.
+        edited_text: "HELLO world".to_string(),
+        mode: None,
+        scheduled_for: None,
+        reply_to: None,
+        reply_to_url: None,
+    });
+    assert!(result.is_err(), "approving duplicate text should fail");
+
+    // History lookups stay scoped to post_history, matching TypeScript.
     assert!(
         !repo
-            .has_post_history_text_hash(&account_id, &hash_post_text("other"), "other")
+            .has_post_history_text_hash(&account_id, &hash_post_text("hello world"), "hello world")
             .unwrap()
     );
 }

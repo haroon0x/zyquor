@@ -35,7 +35,6 @@ pnpm smoke:adapters
 pnpm dev:api
 pnpm dev:web
 pnpm dev:worker
-pnpm dev:crawl4ai
 pnpm check
 pnpm test
 pnpm build
@@ -59,7 +58,7 @@ pnpm dev:web
 
 The API reads `.env` from the repo root. The web UI uses `ZYQUOR_API_URL`, defaulting to `http://127.0.0.1:3000`.
 
-`pnpm dev:crawl4ai` starts the optional local Crawl4AI REST service from `services/crawl4ai`; source adapters use it through `CRAWL4AI_API_URL`, defaulting to `http://127.0.0.1:11235/crawl`.
+Source adapters can optionally call an external Crawl4AI REST service through `CRAWL4AI_API_URL` (default `http://127.0.0.1:11235/crawl`). The bundled Python service was removed; point that variable at your own instance if you want it.
 
 ## One-command start
 

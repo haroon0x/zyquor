@@ -22,7 +22,7 @@ use crate::model::{
     NewTweetMeasurement, PostAttempt, PostHistory, PostJob, SourcePacket, SourcePacketStatus,
     StyleProfile, StyleProfileUpdate, SystemFeedback, TweetMeasurement,
 };
-use crate::schema::{COLUMN_MIGRATIONS, SCHEMA};
+use crate::schema::{COLUMN_MIGRATIONS, POST_MIGRATION_SQL, SCHEMA};
 use crate::utils::{hash_post_text, new_id, normalize_post_text};
 
 #[derive(Debug, thiserror::Error)]
@@ -101,6 +101,21 @@ impl SqliteRepository {
             "CREATE INDEX IF NOT EXISTS idx_history_account_no_hash \
              ON post_history(account_id) WHERE text_hash IS NULL",
         )?;
+        conn.execute_batch(POST_MIGRATION_SQL)?;
+        // The five legacy tweet types were retired (see `TWEET_TYPES`). Fold
+        // surviving rows into the current set so validation keeps working.
+        for table in ["post_history", "source_packets", "tweet_measurements"] {
+            conn.execute_batch(&format!(
+                "UPDATE {table} SET tweet_type = CASE tweet_type \
+                   WHEN 'news_context' THEN 'useful_info' \
+                   WHEN 'lesson' THEN 'guide' \
+                   WHEN 'tool' THEN 'useful_info' \
+                   WHEN 'hiring' THEN 'useful_info' \
+                   WHEN 'article_summary' THEN 'useful_info' \
+                 END \
+                 WHERE tweet_type IN ('news_context', 'lesson', 'tool', 'hiring', 'article_summary')"
+            ))?;
+        }
 
         let repo = Self {
             conn,
@@ -356,7 +371,6 @@ impl SqliteRepository {
             let run = |sql: &str| self.conn.execute(sql, [id]).map(|_| ());
             run("DELETE FROM post_attempts WHERE job_id IN (SELECT id FROM post_jobs WHERE account_id = ?)")?;
             run("DELETE FROM post_history WHERE account_id = ?")?;
-            run("DELETE FROM content_fingerprints WHERE account_id = ?")?;
             run("DELETE FROM tweet_measurements WHERE account_id = ?")?;
             run("DELETE FROM post_jobs WHERE account_id = ?")?;
             run("DELETE FROM draft_candidates WHERE draft_id IN (SELECT id FROM drafts WHERE account_id = ?)")?;
@@ -562,10 +576,6 @@ impl SqliteRepository {
             self.conn
                 .execute("DELETE FROM post_jobs WHERE draft_id = ?", [draft_id])?;
             self.conn.execute(
-                "DELETE FROM content_fingerprints WHERE draft_id = ?",
-                [draft_id],
-            )?;
-            self.conn.execute(
                 "DELETE FROM draft_candidates WHERE draft_id = ?",
                 [draft_id],
             )?;
@@ -702,14 +712,17 @@ impl SqliteRepository {
             }
 
             let timestamp = self.now();
-            let normalized = normalize_post_text(&input.edited_text);
             let text_hash = hash_post_text(&input.edited_text);
 
+            // The draft row is the duplicate index: one approved draft per
+            // (account, text hash). `drafts.text_hash` replaced content_fingerprints.
             let duplicate: Option<String> = self
                 .conn
                 .query_row(
-                    "SELECT id FROM content_fingerprints WHERE account_id = ? AND text_hash = ?",
-                    params![draft.account_id, text_hash],
+                    "SELECT id FROM drafts
+                     WHERE account_id = ? AND text_hash = ? AND status = 'approved' AND id <> ?
+                     LIMIT 1",
+                    params![draft.account_id, text_hash, input.draft_id],
                     |row| row.get(0),
                 )
                 .optional()?;
@@ -720,9 +733,10 @@ impl SqliteRepository {
             }
 
             self.conn.execute(
-                "UPDATE drafts SET edited_text = ?, status = ?, updated_at = ? WHERE id = ?",
+                "UPDATE drafts SET edited_text = ?, text_hash = ?, status = ?, updated_at = ? WHERE id = ?",
                 params![
                     input.edited_text,
+                    text_hash,
                     DraftStatus::Approved.as_str(),
                     timestamp,
                     input.draft_id
@@ -782,21 +796,6 @@ impl SqliteRepository {
                     job.approved_at,
                     job.created_at,
                     job.updated_at,
-                ],
-            )?;
-
-            self.conn.execute(
-                "INSERT INTO content_fingerprints (
-                   id, account_id, draft_id, text_hash, normalized_text, embedding_ref, created_at
-                 ) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                params![
-                    new_id("fingerprint"),
-                    draft.account_id,
-                    draft.id,
-                    text_hash,
-                    normalized,
-                    Option::<String>::None,
-                    timestamp,
                 ],
             )?;
 
@@ -1120,17 +1119,20 @@ impl SqliteRepository {
         text_hash: &str,
         normalized_text: &str,
     ) -> Result<bool> {
-        let found: Option<String> = self
+        // Indexed path: every row inserted after this column exists carries text_hash.
+        let hashed: Option<String> = self
             .conn
             .query_row(
-                "SELECT id FROM content_fingerprints WHERE account_id = ? AND text_hash = ? LIMIT 1",
+                "SELECT id FROM post_history WHERE account_id = ? AND text_hash = ? LIMIT 1",
                 params![account_id, text_hash],
                 |row| row.get(0),
             )
             .optional()?;
-        if found.is_some() {
+        if hashed.is_some() {
             return Ok(true);
         }
+        // Migration fallback: rows written before text_hash existed (bounded by
+        // the 24h history TTL) are compared directly instead of silently skipped.
 
         let mut statement = self.conn.prepare(
             "SELECT posted_text FROM post_history WHERE account_id = ? AND text_hash IS NULL",

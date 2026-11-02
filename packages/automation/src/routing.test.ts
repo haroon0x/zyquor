@@ -17,17 +17,17 @@ function recent(
 }
 
 describe("routeTweetType", () => {
-  it("routes job adapters to hiring", () => {
-    expect(routeTweetType({ item, sourceName: "hiring-hackernews", sourceType: "job" }, { opinion: 100 })).toBe("hiring");
+  it("routes job adapters to useful_info", () => {
+    expect(routeTweetType({ item, sourceName: "hiring-hackernews", sourceType: "job" }, { opinion: 100 })).toBe("useful_info");
   });
 
-  it("routes hiring metadata from aggregated sources to hiring", () => {
+  it("routes job metadata from aggregated sources to useful_info", () => {
     expect(
       routeTweetType(
         { item: { ...item, metadata: { source: "hackernews-jobs", type: "hiring" } }, sourceType: "news" },
         { opinion: 100 }
       )
-    ).toBe("hiring");
+    ).toBe("useful_info");
   });
 
   it("routes RSS and feed adapters through the configured mix", () => {
@@ -39,13 +39,13 @@ describe("routeTweetType", () => {
     expect(
       routeTweetType(
         { item: aggregatedItem, sourceName: "aggregated-news", sourceType: "news" },
-        { news_context: 100 }
+        { feed_observation: 100 }
       )
-    ).toBe("news_context");
+    ).toBe("feed_observation");
   });
 
   it("uses the configured mix for other sources", () => {
-    expect(routeTweetType({ item, sourceName: "hackernews", sourceType: "news" }, { news_context: 100 })).toBe("news_context");
+    expect(routeTweetType({ item, sourceName: "hackernews", sourceType: "news" }, { feed_observation: 100 })).toBe("feed_observation");
   });
 
   it("routes x-feed digests to feed observations", () => {
@@ -54,27 +54,27 @@ describe("routeTweetType", () => {
 
   it("excludes types that already hit the daily cap", () => {
     const today = new Date().toISOString();
-    const posts = [1, 2, 3].map((index) => recent("article_summary", today, `https://x.com/p/today-${index}`));
+    const posts = [1, 2, 3].map((index) => recent("useful_info", today, `https://x.com/p/today-${index}`));
     const result = routeTweetType(
       { item, sourceName: "rss", sourceType: "feed" },
       { article_summary: 100 },
       { accountId: "account_a", recentPosts: posts }
     );
-    expect(result).not.toBe("article_summary");
+    expect(result).not.toBe("useful_info");
   });
 
   it("ignores link-only reply entries regardless of post URL", () => {
     const today = new Date().toISOString();
     const posts = [1, 2, 3].flatMap((index) => [
-      recent("article_summary", today, `https://x.com/p/main-${index}`),
-      recent("article_summary", today, `https://x.com/p/reply-${index}`, `https://arxiv.org/abs/2608.${index}`)
+      recent("useful_info", today, `https://x.com/p/main-${index}`),
+      recent("useful_info", today, `https://x.com/p/reply-${index}`, `https://arxiv.org/abs/2608.${index}`)
     ]);
     const result = routeTweetType(
       { item, sourceName: "rss", sourceType: "feed" },
       { article_summary: 100 },
       { accountId: "account_a", recentPosts: posts }
     );
-    expect(result).not.toBe("article_summary");
+    expect(result).not.toBe("useful_info");
   });
 
   it("blocks a type that saturates the rolling window", () => {

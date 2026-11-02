@@ -140,10 +140,10 @@ export function inferTweetTypeFromText(item: SourceItem): TweetType {
   const title = item.title.toLowerCase();
   const content = item.content.toLowerCase();
   if (type === "hiring" || source.includes("hackernews-jobs") || /hiring|is hiring|we're hiring|jobs?/.test(title)) {
-    return "hiring";
+    return "useful_info";
   }
   if (source === "company-rss" || /\b(blog|article|post|essay|guide)\b/i.test(title)) {
-    return "article_summary";
+    return "useful_info";
   }
   if (
     /\b(history|invented|inventor|founded|founder|created|origin|born|died|legacy|anniversary|pioneer)\b/i.test(
@@ -153,9 +153,9 @@ export function inferTweetTypeFromText(item: SourceItem): TweetType {
     return "narrative_history";
   }
   if (/how to|tutorial|guide/i.test(title)) return "guide";
-  if (/mistake|wrong|lesson|learned/i.test(title)) return "lesson";
+  if (/mistake|wrong|lesson|learned/i.test(title)) return "guide";
   if (/opinion|think|believe|should/i.test(title)) return "opinion";
-  if (/tool|app|product|launch/i.test(title)) return "tool";
+  if (/tool|app|product|launch/i.test(title)) return "useful_info";
   if (/study|research|paper/i.test(content)) return "useful_info";
   return "feed_observation";
 }

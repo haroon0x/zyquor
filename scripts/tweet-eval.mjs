@@ -15,27 +15,27 @@ loadDotEnv();
 const cases = [
   {
     name: "arxiv-replay",
-    tweetType: "article_summary",
+    tweetType: "useful_info",
     idea: "Title: Deterministic Replay for AI Agent Systems\nURL: https://arxiv.org/abs/2607.16200\nSummary: agent systems that couple LLMs with external tools are non-deterministic because of LLM sampling variance, external API state, CDN infrastructure headers, and execution-environment noise.\nFacts:\n- existing observability platforms capture execution logs but cannot reproduce a run in isolation\n- agrepl is a developer-first CLI framework for deterministic replay"
   },
   {
     name: "show-hn-index",
-    tweetType: "article_summary",
+    tweetType: "useful_info",
     idea: "Title: Show HN: Ex Situ, open-source spatial index of displaced cultural artifacts\nURL: https://exsitu.app/map\nSummary: a spatial index that maps museum artefacts as arcs from origin site to holding institution.\nFacts:\n- AGPL-3.0, Next.js + Deck.gl frontend, Strapi backend, Python ETL over museum open-access APIs\n- indexes over 100k artifacts across 8 collections including the Met, V&A, SMB Berlin\n- started as an MA thesis in 2022, built mostly solo"
   },
   {
     name: "release-note",
-    tweetType: "news_context",
+    tweetType: "feed_observation",
     idea: "Title: Zed 1.0 released\nSummary: the editor reached a stable release after years of work on collaboration, speed, and native performance.\nFacts:\n- 1.0 is the first stable release\n- focus areas were collaboration, speed, native performance"
   },
   {
     name: "ops-lesson",
-    tweetType: "lesson",
+    tweetType: "guide",
     idea: "We moved a low-traffic internal service off Kubernetes onto a single Docker host. Facts: the service does not need autoscaling, multi-region routing, or fast node replacement; the migration removed cluster upgrades, RBAC config, and scheduler debugging from the on-call load."
   },
   {
     name: "tool-note",
-    tweetType: "tool",
+    tweetType: "useful_info",
     idea: "ripgrep is used for repository-wide text search. Facts: it searches large repositories quickly; it matches text, not symbols, so it cannot distinguish a definition from a mention."
   }
 ];

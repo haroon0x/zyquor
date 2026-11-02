@@ -39,7 +39,7 @@ Measured on the `rust-migration` branch at the start of the work:
 | `packages/accounts`|     2 |    45 |
 | **Total**          |**~173**|**~29.7k**|
 
-Plus `scripts/` (`.mjs` tooling) and `services/`, which are ported last.
+Plus `scripts/` (`.mjs` tooling), which is ported last.
 
 ## Deliberate removals
 
@@ -54,6 +54,20 @@ resurrected by a later agent.
   public *models* endpoint as a source of model-release data. That is source
   ingestion, not LLM generation, and it stays until a replacement source is
   picked.
+- **`services/`** (demo-checker, crawl4ai Python service). The optional external
+  Crawl4AI REST API is still supported through `CRAWL4AI_API_URL`; the bundled
+  Python service and its npm scripts (`dev:crawl4ai`, `x:demo-check`) are gone.
+- **Five legacy tweet types** (`news_context`, `lesson`, `tool`,
+  `article_summary`, `hiring`). `TweetType` in both stacks is now the six
+  supported types. Existing rows in `post_history`, `source_packets` and
+  `tweet_measurements` are folded on database open: all map to `useful_info`
+  except `lesson`, which maps to `guide`. Retired values in an
+  `ingest_configs.tweet_type_mix_json` are ignored by `pickTweetType`; rewrite
+  a config via the UI/API if its mix was mostly legacy weights.
+- **`content_fingerprints`.** Collapsed into `drafts.text_hash` (set on
+  approval); the table is dropped on open. `post_history.text_hash` remains the
+  "have I posted this already" index, and the pre-approval duplicate check now
+  queries approved drafts directly.
 
 ## Target layout
 

@@ -264,4 +264,4 @@ The skill only uses curl and JSON: any CLI that can run shell commands can use i
 - App source: `apps/api`, `apps/worker`, `apps/web`, `apps/desktop`.
 - Engine packages: `packages/browser` (Chromium via CDP), `packages/generation` (LLM providers), `packages/storage` (SQLite), `packages/automation` (selection, posting pipeline), `packages/adapters` (source adapters incl. Goldfish memory), `packages/accounts`, `packages/core` (schemas).
 - Spec and phase plan: `tasks/replies-first-goldfish.md`. Architecture notes: `docs/architecture.md`.
-- Demo-check queue for external URLs found in mentions: `services/demo-checker/run-queue.mjs` (cron wrapper `scripts/mentions-cron-wrapper.sh`, poller `scripts/poll-x-mentions.mjs`).
+- Mentions poller: `scripts/poll-x-mentions.mjs` (cron wrapper `scripts/mentions-cron-wrapper.sh`).

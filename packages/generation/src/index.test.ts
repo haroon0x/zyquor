@@ -33,7 +33,7 @@ describe("revision pass", () => {
       generationInput: {
         idea: "SQLite serves 8 million rows from one $20 node.",
         count: 2,
-        tweetType: "article_summary"
+        tweetType: "useful_info"
       },
       model: "test-model",
       providerName: "opencode",
@@ -315,7 +315,7 @@ describe("ollama generation", () => {
       fetch: fetchImpl
     });
 
-    const candidates = await provider.generateDraftCandidates({ idea: "Make it local.", count: 2, tweetType: "hiring" });
+    const candidates = await provider.generateDraftCandidates({ idea: "Make it local.", count: 2, tweetType: "guide" });
     const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
 
     expect(calls[0]?.url).toBe("http://127.0.0.1:11434/api/chat");
@@ -327,7 +327,7 @@ describe("ollama generation", () => {
     });
     const messages = body.messages as Array<{ content: string; role: string }>;
     expect(messages[0]?.content).toContain("Never use em or en dashes (— or –)");
-    expect(messages[0]?.content).toContain("not affiliated");
+    expect(messages[0]?.content).toContain("Style: Guide.");
     expect(candidates).toEqual([
       { text: "first local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 1, quality: 3 } },
       { text: "second local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 2, quality: 3 } }
@@ -395,7 +395,7 @@ describe("ollama generation", () => {
       ],
       systemPromptExtra: "Prefer lessons grounded in hands-on experience.",
       tone: "practical, candid, concise",
-      tweetType: "article_summary"
+      tweetType: "useful_info"
     });
 
     const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;

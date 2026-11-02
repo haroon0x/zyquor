@@ -21,7 +21,8 @@ const PUNCTUATION_RULES = [
 const REPLY_NATIVE_RULES = [
   "Standard sentence case, complete sentences, normal punctuation even at casual register.",
   "If the target asks a question, answer it directly: name the pick you would defend, at most one line of why. Weighing options instead is the lecture a real person skips. A product named from general knowledge is fine; invented usage stories are not.",
-  "No fake-profound aphorisms, no tech-bro cliches, no contrived wordplay, nothing written to impress."
+  "Land the reply on a real consequence or decision rule, phrased with because, so, if, or instead of. A statement that neither contradicts nor extends the target is not a reply.",
+  "No fake-profound aphorisms, no tech-bro cliches, no contrived wordplay, nothing written to impress.",
 ];
 
 const HUMAN_NATIVE_POST_RULES = [
@@ -31,7 +32,7 @@ const HUMAN_NATIVE_POST_RULES = [
   "The first sentence must carry a concrete noun from the source: a number, name, term, or mechanism.",
   "Structure for high density: (1) Core thesis or contrast upfront, (2) Concrete mechanism from details, (3) Practical tradeoff or decision rule.",
   "Use a story shape only for a real sequence, direct correction for a supported mistake, and learning for real experience.",
-  "Write a substantial post: roughly 220-480 characters with a developed thought unless genuinely a one-liner.",
+  "Write a substantial post: roughly 200-275 characters, hard cap 279, so it clears the approval screen unchanged unless genuinely a one-liner.",
   "End on a named consequence, judgment, or practical tradeoff. Never engagement bait, never a definitional restatement.",
   "Make the post retellable. A reader should be able to restate its one concrete claim after one read."
 ];
@@ -58,14 +59,6 @@ interface StyleContract {
   qualityBar: string;
   insightDirection: string;
 }
-
-const TYPE_ALIASES: Record<string, string> = {
-  article_summary: "useful_info",
-  news_context: "useful_info",
-  lesson: "guide",
-  tool: "useful_info",
-  hiring: "useful_info"
-};
 
 const STYLE_CONTRACTS: Record<string, StyleContract> = {
   useful_info: {
@@ -113,7 +106,7 @@ function cleanAccountText(value: string, maxLength: number) {
 }
 
 function activeTweetType(tweetType: string | undefined) {
-  return tweetType ? TYPE_ALIASES[tweetType] ?? tweetType : "";
+  return tweetType ?? "";
 }
 
 function styleContract(tweetType: string | undefined) {
@@ -122,13 +115,6 @@ function styleContract(tweetType: string | undefined) {
 }
 
 export function tweetTypeInstruction(tweetType: string | undefined) {
-  if (tweetType === "hiring") {
-    return [
-      "Style: Hiring.",
-      "Include the role, company, one supplied detail such as stack, location, or compensation, and the disclosure 'sharing, not affiliated'. Do not include or invent any source link.",
-      "Style reference only; never copy facts/wording: use the supplied hiring material in the account's own voice."
-    ].join(" ");
-  }
   const selected = styleContract(tweetType);
   const activeType = activeTweetType(tweetType);
   const exemplar = STYLE_EXEMPLARS[activeType];

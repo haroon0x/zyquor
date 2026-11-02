@@ -20,7 +20,7 @@ const cases = [
     name: "maintainability",
     idea:
       "Title: The Zig project explained its anti-AI contribution policy. Summary: maintainers reject generated patches because authors must understand, explain, and maintain their code over time. Facts: maintainability and accountability are central.",
-    tweetType: "news_context"
+    tweetType: "feed_observation"
   },
   {
     name: "release",
@@ -32,13 +32,13 @@ const cases = [
     name: "science-research",
     idea:
       "Title: Battery researchers published a paper on cheaper sodium-ion storage. Summary: lower-cost storage could matter for grid-scale energy projects if durability holds up. Facts: sodium-ion chemistry; grid storage angle; durability remains the key caveat.",
-    tweetType: "news_context"
+    tweetType: "feed_observation"
   },
   {
     name: "economy-markets",
     idea:
       "Title: Central bank officials signaled rates may stay higher for longer. Summary: markets are repricing growth stocks and debt-heavy startups. Facts: rate expectations changed; financing costs matter for operators and investors.",
-    tweetType: "news_context"
+    tweetType: "feed_observation"
   }
 ];
 
