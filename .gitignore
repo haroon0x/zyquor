@@ -44,3 +44,6 @@ graphify-out/GRAPH_REPORT.md
 graphify-out/graph.html
 data/*.jsonl
 .pi/
+
+# Rust
+/target

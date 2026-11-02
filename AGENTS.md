@@ -1,5 +1,8 @@
 # Project rules
 
+- **The project is migrating from TypeScript to Rust.** The target is a Cargo workspace at the repo root (`crates/zyquor-*`, `apps/api`, `apps/worker`, `apps/desktop`). See `docs/rust-migration.md` for the crate layout, milestone order, and parity rules. New code should be written in Rust where the owning crate already exists on that branch; do not add new TypeScript packages. The TypeScript implementation stays runnable until each Rust crate reaches parity, so keep both green during the transition.
+- Rust toolchain: install with `rustup` (stable). Verify with `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
+- Do not delete a TypeScript package or script until its Rust replacement passes the parity harness described in `docs/rust-migration.md`.
 - Never run the Electron desktop app inside WSL. Start it from native Windows instead.
 - Codebase lookups go through Graphify before grep/read: `graphify query "<question>"`, `graphify path "A" "B"`, `graphify explain "Symbol"`. Only fall back to grep/read when the graph lacks the answer.
 - After structural code changes, refresh the graph: `graphify update . --no-cluster` (zero cost, no API key).

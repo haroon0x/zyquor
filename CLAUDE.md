@@ -2,6 +2,16 @@
 
 Guidance for agents working in this repository. Favor caution, small changes, and verifiable progress.
 
+## Rust Migration (in progress)
+
+Zyquor is being fully migrated from TypeScript to Rust. `docs/rust-migration.md` is the plan of record: target Cargo workspace layout, crate-by-crate mapping, milestones M0–M8, parity strategy, and risks.
+
+- Target layout: `crates/zyquor-{core,accounts,storage,adapters,generation,automation,browser}` plus `apps/{api,worker,desktop,web}` in one Cargo workspace.
+- The TypeScript tree remains the running system until each Rust crate passes its parity harness. Nothing is deleted early.
+- Within a crate that has been ported, new work goes into the Rust version, not the TypeScript one.
+- Build and verify with `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
+- The migration must not change behaviour: same HTTP routes and response shapes, same SQLite/JSON data, same generation output for the same input, same posting safety rails.
+
 ## Project Context
 
 Zyquor is a local-first X posting assistant. Current flow:
@@ -22,6 +32,8 @@ Controlled posting only behind env flags. Multi-account UI, Tauri, and E2E tests
 
 ## Architecture
 
+> Migration target: `crates/zyquor-*` + `apps/api` (axum) + `apps/worker` + `apps/desktop` (Tauri) in a Cargo workspace. The list below describes the TypeScript tree that is still running.
+
 - `apps/web`: Vite React UI.
 - `apps/api`: Fastify API.
 - `apps/worker`: background worker for due jobs.
@@ -37,14 +49,14 @@ Persistence: SQLite via `node:sqlite`, fallback JSON at `data/app.json`.
 
 ## Hard Constraints
 
-- Use TypeScript.
-- Use Playwright for browser automation.
+- Language: Rust is the migration target (see "Rust Migration" above and `docs/rust-migration.md`). TypeScript is legacy and stays only until the corresponding Rust crate reaches parity.
+- Browser automation: Playwright is the current engine; the Rust target is direct CDP via `chromiumoxide` in `crates/zyquor-browser`.
 - Dedicated persistent Chrome profiles per X account under `profiles/`.
 - Never automate user's everyday Chrome profile.
 - Do not use browser-use as production engine.
 - Do not automate follows, likes, reposts, DMs, or engagement loops.
 - No stealth, anti-detection, proxy rotation, CAPTCHA bypass.
-- Keep Rust out of browser automation core.
+- Browser automation stays isolated in the browser crate (was `packages/browser`, becomes `crates/zyquor-browser`); the "no Rust in browser automation" rule is superseded by the migration, but isolation and the anti-detection bans below still apply.
 - Final post action explicit and logged.
 - LLM only writes candidate text; never browses, schedules, ranks, or decides to post.
 - Failed external post jobs are not auto-retried because a failed browser action may still have reached X.
@@ -54,7 +66,7 @@ Persistence: SQLite via `node:sqlite`, fallback JSON at `data/app.json`.
 1. State assumptions before coding if request is ambiguous.
 2. Keep changes small and tied to the requested goal.
 3. Prefer explicit state machines and typed schemas over loose statuses.
-4. Keep browser automation isolated in `packages/browser`.
+4. Keep browser automation isolated in `packages/browser` (TypeScript) / `crates/zyquor-browser` (Rust).
 5. Keep generation outside UI and browser packages.
 6. Keep account profile mapping explicit and inspectable.
 7. Store failure artifacts and attempt state; do not hide browser failures in console logs only.
@@ -271,7 +283,13 @@ Env: `ZYQUOR_POST_ACCOUNT_ID` (default `account_personal`), `ZYQUOR_POST_LOOP_PE
 
 ### Generation Providers
 
-Opencode is the only configured provider: `ZYQUOR_LLM_PROVIDER=opencode` with `opencode/deepseek-v4.1-flash-free#high`. The free tier has a usage cap that is shared across every `opencode/*` free model, so when it is exhausted every lane fails with `Free usage limit reached`. That is an account quota, not a code fault. `command-code` needs paid credits. A Codex provider was written and tested on 2026-10-28 and then removed because Codex is not available to this machine's owner. Freebuff was evaluated and rejected as a generation provider: the CLI is a full TUI with no `--print` or non-interactive mode, it ignores a piped prompt, and it exits without producing an answer, so it cannot be spawned per prompt the way `opencode run` and `command-code --print` can.
+Opencode is the only configured provider: `ZYQUOR_LLM_PROVIDER=opencode` with `opencode/deepseek-v4.1-flash-free#high`. The free tier has a usage cap that is shared across every `opencode/*` free model, so when it is exhausted every lane fails with `Free usage limit reached`. That is an account quota, not a code fault. The paid `opencode/deepseek-v4.1-flash` variant returns `Insufficient account funds` on this account, so do not set it. `command-code` needs paid credits. A Codex provider was written and tested on 2026-10-28 and then removed because Codex is not available to this machine's owner. Freebuff was evaluated and rejected as a generation provider: the CLI is a full TUI with no `--print` or non-interactive mode, it ignores a piped prompt, and it exits without producing an answer, so it cannot be spawned per prompt the way `opencode run` and `command-code --print` can.
+
+Opencode v2.2.0 sometimes exits 1 with `Connection lost while reading the response: ECONNRESET` after a long streaming run, while the complete candidates JSON is already on stdout. The client can also die partway through streaming, leaving truncated JSON on stdout. The opencode provider accepts the stdout when it parses as candidates and otherwise fails the run normally; it never throws inside the child close handler (a throw there killed the whole API once, hence `parseJsonCandidateTexts` returns null on malformed JSON and the rescue path is guarded). `packages/generation/src/opencode-provider.test.ts` covers the complete-output rescue, the no-payload failure, and the truncated-JSON case. During a bursty free-tier window the same prompt can still fail twice in a row before a retry succeeds, so long-create routes (drafts, replies) may need one manual retry.
+
+Provider policy (owner directive, 2026-10-29): the opencode ladder is exactly three models and nothing else: `opencode/glm-5.3-flash-free` (primary), `opencode-go/glm-5.3-flash` (paid, only when glm free is rate limited), `opencode/deepseek-v4.1-flash` (paid, second fallback). beam, iceman, flint, mimo, and nemotron tags are banned, as is any rotation outside this ladder. Ladder rotation triggers only on opencode's rate-limit/unavailable/funds-family errors; transient network drops never rotate (they fail clean and the refine layer retries).
+
+Reply screening for agent lanes (2026-10-29): demand-style openers ("explain X", "make me X", "can you X") read like lazy agent prompts and were publicly called out by a target, so `isInterrogationDodgeReply` in `packages/generation/src/quality.ts` rejects that opener class for outgoing agent replies in all three approval sites: the `screened:true` approval screen, the mentions auto-approve gate (lane paused: `ZYQUOR_MENTIONS_AUTO_APPROVE=0`), the `scripts/overseer.mjs` audit, and the `scripts/reply-loop.mjs` screen.
 
 ### Browser Automation Caveats
 

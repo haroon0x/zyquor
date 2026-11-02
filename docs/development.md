@@ -2,6 +2,31 @@
 
 This repo should stay easy to change as the product grows. Favor explicit contracts over implicit behavior.
 
+## Rust Migration
+
+The project is being migrated from TypeScript to Rust. `docs/rust-migration.md` holds the plan: crate layout, milestone order (M0–M8), dependency mapping, parity harness, and risks.
+
+While the migration runs, two toolchains are live:
+
+```bash
+# Rust (migration target)
+cargo build --workspace
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all --check
+
+# TypeScript (still the running system until parity)
+pnpm check
+pnpm test
+```
+
+Rules:
+
+- Both trees must stay green until a package is retired.
+- New work in a ported crate goes to the Rust version.
+- Do not delete TypeScript code before its Rust replacement passes the parity harness.
+- Toolchain: stable Rust via `rustup`; the pinned version lives in `rust-toolchain.toml` once M0 lands.
+
 ## Current Build Order
 
 1. Keep `@zyquor/core` contracts stable first.
@@ -15,6 +40,7 @@ This repo should stay easy to change as the product grows. Favor explicit contra
 - Add tests for state transitions before expanding lifecycle logic.
 - Keep Playwright selectors isolated in `@zyquor/browser`.
 - Keep generation provider logic outside UI and browser packages.
+- Apply the same layering to the Rust crates: `zyquor-generation` never depends on `zyquor-browser` or the UI.
 - Keep account profile paths visible in account config.
 - Treat browser failures as persisted states, not console-only errors.
 - Approval writes a normalized text fingerprint and rejects duplicate text for the same account.

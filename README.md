@@ -10,6 +10,8 @@ topic/rough post -> fresh source search -> grounded draft -> review/edit or auto
 
 ## Repository Layout
 
+> **Rust migration in progress.** The project is moving to a single Cargo workspace: `crates/zyquor-{core,accounts,storage,adapters,generation,automation,browser}` plus `apps/{api,worker,desktop}` in Rust, with the web UI decision deferred to milestone M7. The TypeScript tree below still runs until each Rust crate reaches parity. See `docs/rust-migration.md`.
+
 - `apps/web`: Vite React local UI.
 - `apps/api`: Fastify local API.
 - `apps/worker`: background worker entrypoint.
@@ -22,7 +24,7 @@ topic/rough post -> fresh source search -> grounded draft -> review/edit or auto
 
 ## Development
 
-Use pnpm workspaces.
+Use pnpm workspaces while the TypeScript tree is still the running system.
 
 ```bash
 pnpm install
@@ -37,6 +39,15 @@ pnpm dev:crawl4ai
 pnpm check
 pnpm test
 pnpm build
+```
+
+Rust side (migration target):
+
+```bash
+cargo build --workspace
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all --check
 ```
 
 Run the local API and web UI in separate terminals:

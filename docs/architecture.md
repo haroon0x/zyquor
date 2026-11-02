@@ -1,5 +1,7 @@
 # Architecture Notes
 
+> **Rust migration in progress.** The target architecture is one Cargo workspace: `crates/zyquor-{core,accounts,storage,adapters,generation,automation,browser}` with `apps/api` (axum), `apps/worker`, and `apps/desktop` (Tauri). Package boundaries and runtime rules documented below carry over unchanged. See `docs/rust-migration.md` for the mapping, milestones, and parity requirements.
+
 Zyquor is a local-first X posting assistant. Current system covers manual drafts, source packets, scheduled jobs, autopost jobs, browser prepare/post, automated source ingest, and short-window post-history analysis.
 
 Core flow:
@@ -36,6 +38,8 @@ mentions tab or post url -> browser fetch -> reply target -> optional Goldfish m
 - `scripts/poll-x-mentions.mjs` is a thin cron shim over the same API (`DRY_RUN=1` lists the scan; otherwise it scan-and-drafts and enqueues external links found in mentions for the demo-checker service).
 
 ## Package Boundaries
+
+These boundaries are preserved 1:1 in the Rust workspace as one crate each; the TypeScript package names below map to `zyquor-core`, `zyquor-accounts`, `zyquor-adapters`, `zyquor-automation`, `zyquor-generation`, `zyquor-storage`, and `zyquor-browser`.
 
 - `@zyquor/core`: domain constants, validation schemas, post-history analysis, shared types.
 - `@zyquor/accounts`: account config and dedicated-profile safety checks.
