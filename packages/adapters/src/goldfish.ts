@@ -1,6 +1,14 @@
 import { spawn } from "node:child_process";
 import type { SourceAdapter, SourceItem } from "./types.js";
 
+function defaultWindowsMcpPath() {
+  const localAppData = process.env.LOCALAPPDATA;
+  if (localAppData) return localAppData + "\\Goldfish\\goldfish-mcp.exe";
+  const userProfile = process.env.USERPROFILE;
+  if (userProfile) return userProfile + "\\AppData\\Local\\Goldfish\\goldfish-mcp.exe";
+  return "goldfish-mcp.exe";
+}
+
 export interface GoldfishAdapterOptions {
   maxItems?: number;
   mode?: "chronicle" | "working_memory" | "recent";
@@ -10,9 +18,9 @@ export interface GoldfishAdapterOptions {
 
 export function goldfishMcpCommand(): string[] {
   if (process.platform === "win32") {
-    return ["C:\\Users\\asus\\AppData\\Local\\Goldfish\\goldfish-mcp.exe"];
+    return [defaultWindowsMcpPath()];
   }
-  return ["powershell.exe", "-NoProfile", "-Command", "C:\\Users\\asus\\AppData\\Local\\Goldfish\\goldfish-mcp.exe"];
+  return ["powershell.exe", "-NoProfile", "-Command", defaultWindowsMcpPath()];
 }
 
 export async function callGoldfishTool<T>(tool: string, params: Record<string, unknown>): Promise<T> {
