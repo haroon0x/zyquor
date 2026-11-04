@@ -35,8 +35,7 @@ Controlled posting only behind env flags (`ZYQUOR_ENABLE_BROWSER_PREPARE` / `ZYQ
 
 > Migration target: `crates/zyquor-*` + `apps/api` (axum) + `apps/worker` + `apps/desktop` (Tauri) in a Cargo workspace. The list below describes the TypeScript tree that is still running.
 
-- `apps/web`: Vite React UI. `apps/api`: Fastify API. `apps/worker`: background worker for due jobs.
-- `packages/core`: domain types, Zod schemas. `packages/adapters`: source adapters, aggregation, source health.
+- `apps/web`: Vite React UI. `apps/api`: Fastify API. `apps/worker`: background worker for due jobs. `packages/core`: domain types, Zod schemas. `packages/adapters`: source adapters, aggregation, source health.
 - `packages/automation`: ingest and source-packet drafting. `packages/generation`: command-code/opencode/Ollama/Gemini providers (no mock provider; tests inject providers via buildApp options). `packages/storage`: SQLite repositories. `packages/browser`: Playwright prepare/post flow. `packages/accounts`: account config helpers.
 
 Persistence: SQLite via `node:sqlite`. There is no JSON fallback; SQLite is the only repository implementation.
@@ -51,6 +50,7 @@ Persistence: SQLite via `node:sqlite`. There is no JSON fallback; SQLite is the 
 - Browser automation stays isolated in the browser crate (was `packages/browser`, becomes `crates/zyquor-browser`); isolation and the anti-detection bans still apply.
 - Final post action is explicit and logged. The LLM only writes candidate text; never browses, schedules, ranks, or decides to post.
 - Failed external post jobs are not auto-retried because a failed browser action may still have reached X.
+- Playwright's bundled Chromium (`playwright install chromium`) can fail on very new distros; if yours is affected, install system Chrome and set `ZYQUOR_BROWSER_CHANNEL=chrome`.
 
 ## Working Rules
 
@@ -79,9 +79,7 @@ Persistence: SQLite via `node:sqlite`. There is no JSON fallback; SQLite is the 
 - `POST /replies/mentions/draft` — draft replies for chosen mention URLs (body `{mentions:[{url}]}`)
 - `POST /replies/mentions/scan-and-draft` — scan and draft all fresh undrafted mentions (cap 10 per call)
 - `POST /replies/mentions/scan-and-auto-approve` — capped auto-approve lane (off unless `ZYQUOR_MENTIONS_AUTO_APPROVE=1`). Approves only when the top candidate clears `passesTweetQualityFloor`, within `ZYQUOR_MENTIONS_AUTO_APPROVE_DAILY_CAP` (default 3, 0 disables, clamped 0..50). Creates a normal queued post job; posting stays gated by worker/browser flags, limits, and quiet hours. Held drafts stay in the review queue.
-- `GET /replies/drafts?accountId=` — reply drafts awaiting review
-
-Reply drafts carry `metadata.memory` (Goldfish terms/wiki/activity titles); the response includes a `memory` summary. Memory rendering is capped at 1600 chars inside the `<personal-memory>` prompt block.
+- `GET /replies/drafts?accountId=` — reply drafts awaiting review. Drafts carry `metadata.memory` (Goldfish terms/wiki/activity titles); memory is capped at 1600 chars inside the `<personal-memory>` prompt block.
 
 ### Batch
 - `POST /draft-batches` — multiple jobs from ideas, optional schedule spacing
@@ -127,9 +125,7 @@ Reply drafts carry `metadata.memory` (Goldfish terms/wiki/activity titles); the 
 
 ## Web UI State
 
-Mode from UI inputs: schedule set → `scheduled`; no schedule + Yolo → `autopost`; otherwise `prepare_only`.
-
-Controls: idea composer (single/batch), tweet type, Yolo autopost toggle, schedule datetime, batch spacing, candidates/editor, prompt/style panel (tone/objective/banned/system), source packets panel, jobs panel, accounts (create/switch/enable/delete; the Accounts panel does not edit limits or quiet hours yet).
+Mode from UI inputs: schedule set → `scheduled`; no schedule + Yolo → `autopost`; otherwise `prepare_only`. Controls: idea composer (single/batch), tweet type, Yolo autopost toggle, schedule datetime, batch spacing, candidates/editor, prompt/style panel (tone/objective/banned/system), source packets panel, jobs panel, accounts (create/switch/enable/delete; the Accounts panel does not edit limits or quiet hours yet).
 
 ## Current Runtime
 
@@ -137,7 +133,6 @@ Controls: idea composer (single/batch), tweet type, Yolo autopost toggle, schedu
 ./zyquor
 ./zyquor check
 ./zyquor post <jobId>
-
 # Electron desktop app (Windows)
 pnpm dev:desktop
 pnpm smoke:desktop
@@ -145,8 +140,7 @@ pnpm dist:desktop
 ```
 
 - Chrome CDP: the posting Chrome binds its debugging port to loopback only. From another host/namespace, use a portproxy or a direct CDP URL that is actually reachable (e.g. a `netsh portproxy` rule forwarding host port → loopback port). Dedicated profile under `profiles/<handle>`; headless via `ZYQUOR_BROWSER_HEADLESS=1`.
-- API: `http://127.0.0.1:3001` locally. Port 3000 is often occupied by an unrelated app; with `ZYQUOR_API_PORT` unset the server tries 3000 and falls back to 3001 on conflict. Set `ZYQUOR_API_PORT=3001` explicitly.
-- Web: `http://127.0.0.1:5173/`. Worker polls due jobs every 5s.
+- API: `http://127.0.0.1:3001` locally (port 3000 is usually taken; with `ZYQUOR_API_PORT` unset the server falls back to 3001 on conflict — set it explicitly). Web: `http://127.0.0.1:5173/`. Worker polls due jobs every 5s.
 - Electron desktop app: `apps/desktop/` — Electron 37, tray-resident, runs API/worker in-process. Data root via `ZYQUOR_DATA_ROOT` (defaults to Electron `userData`). Settings kept as `settings.json` instead of `.env`; API keys encrypted at rest with Electron `safeStorage` when available. Logs to `<dataRoot>/logs/main.log` (rotates to a single `main.log.1` at 5 MB). Entry points: `src/main.ts`, `src/preload.ts`, `src/chrome.ts` (CDP launch), `src/settings.ts`, `src/log.ts`.
 - Desktop settings worth knowing: `headless` maps to `ZYQUOR_BROWSER_HEADLESS` (default off), `cdpPort` maps to `ZYQUOR_BROWSER_CDP_URL`. Per-account ports resolve through `perProfileCdpUrl` from `@zyquor/core` — the same helper the API uses. Do not reimplement that mapping anywhere else.
 - Desktop window: `contextIsolation`, `sandbox`, and `setWindowOpenHandler` are on; `will-navigate` sends external links to the system browser. Never remove those handlers; without them a link in the UI opens a bare Electron window with no address bar.
@@ -158,8 +152,7 @@ Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (di
 - Provider resolution order: saved `data/generation.json` > shell env > `.env` (dotenv skips already-set vars; saved config wins over both).
 - `opencode` is the configured provider and the desktop default (`apps/desktop/src/settings.ts`); it drives the opencode CLI (`opencode run -m <model>#<variant>`).
 - Default model: `opencode/glm-5.3-flash-free`, variant `high` (`DEFAULT_OPENCODE_MODEL` in `packages/generation/src/config.ts`). The opencode ladder is exactly three models (`OPENCODE_MODELS`): `opencode/glm-5.3-flash-free`, `opencode-go/glm-5.3-flash`, `opencode/deepseek-v4.1-flash`. Other tags are rejected; rotation outside this ladder is banned and triggers only on rate-limit/unavailable/funds errors — transient network drops never rotate.
-- The free tier cap is shared across all `opencode/*` free models; when exhausted, every lane fails with `Free usage limit reached` — an account quota, not a code fault. Paid models need funds on your account. `command-code` (model `gpt-5.6-luna`) also works but needs paid credits. `gemini` needs `ZYQUOR_GEMINI_API_KEY`; `ollama` is local (default `gemma4:e4b`); `auto` prefers Gemini, else Ollama.
-- CLI paths: `ZYQUOR_COMMAND_CODE_PATH` / `ZYQUOR_OPENCODE_PATH`; model and variant: `ZYQUOR_OPENCODE_MODEL` / `ZYQUOR_OPENCODE_VARIANT`.
+- The free tier cap is shared across all `opencode/*` free models; when exhausted, every lane fails with `Free usage limit reached` — an account quota, not a code fault. Paid models need funds on your account. `command-code` (model `gpt-5.6-luna`) also works but needs paid credits. `gemini` needs `ZYQUOR_GEMINI_API_KEY`; `ollama` is local (default `gemma4:e4b`); `auto` prefers Gemini, else Ollama. CLI paths: `ZYQUOR_COMMAND_CODE_PATH` / `ZYQUOR_OPENCODE_PATH`; model and variant: `ZYQUOR_OPENCODE_MODEL` / `ZYQUOR_OPENCODE_VARIANT`.
 - A Codex provider was written and removed (Codex unavailable); Freebuff was evaluated and rejected (TUI, no non-interactive mode); do not re-add either. OpenRouter was removed as a generation provider; `packages/adapters/src/model-releases.ts` still calls OpenRouter's public models endpoint for source ingestion — that is not generation.
 - The opencode CLI sometimes exits 1 with `ECONNRESET` after a long run while complete candidates JSON is already on stdout; the provider accepts stdout when it parses as candidates, otherwise fails normally. `packages/generation/src/opencode-provider.test.ts` covers the rescue and truncated-JSON cases.
 
@@ -190,9 +183,7 @@ Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (di
 
 ### Posts-Only Reply Loop
 
-`scripts/reply-loop.mjs` is the unattended posts-only lane. It does not touch mentions. It discovers targets from `GET /replies/feed` first (accounts you follow), then falls back to X search through the logged-in Chrome when the feed is thin, already seen, or rejected. It drafts best-of-N through `POST /replies/from-url`, applies a deterministic slop screen, then approves with `screened:true` and posts through the normal gated job path. Every rejection is appended to `apps/api/data/reply-loop.jsonl` with a reason, which is the input for tightening prompts or filters.
-
-Screen reasons, and why each exists:
+`scripts/reply-loop.mjs` is the unattended posts-only lane. It does not touch mentions. It discovers targets from `GET /replies/feed` first (accounts you follow), then falls back to X search through the logged-in Chrome when the feed is thin, already seen, or rejected. It drafts best-of-N through `POST /replies/from-url`, applies a deterministic slop screen, then approves with `screened:true` and posts through the normal gated job path. Every rejection is appended to `apps/api/data/reply-loop.jsonl` with a reason, which is the input for tightening prompts or filters. Screen reasons, and why each exists:
 
 - `invented_number`: a digit in the reply that does not appear in the target. `invented_experience`: claims of having used, run, shipped, or deployed the thing (first-person opinion like `my pick is` is allowed; fabricated usage is not).
 - `lowercase_opener`: the account voice is sentence case, so an all-lowercase opener reads like a different person. `invented_point`: `Point 2` when the target is not a numbered list.
@@ -223,10 +214,6 @@ node scripts/post-loop.mjs --once --force  # ignore the daily cap
 
 Env: `ZYQUOR_POST_ACCOUNT_ID` (default `account_personal`), `ZYQUOR_POST_LOOP_PER_DAY` (default 5), `ZYQUOR_POST_LOOP_START_HOUR` (default 9), `ZYQUOR_POST_LOOP_END_HOUR` (default 22), `ZYQUOR_POST_LOOP_UTC_OFFSET_MIN` (default 330, i.e. UTC+5:30), `ZYQUOR_POST_LOOP_MIN_QUALITY` (default 7), `ZYQUOR_POST_LOOP_CANDIDATES` (default 4), `ZYQUOR_POST_LOOP_MIN_GAP_MIN` (default 20). Also starts a posting lane.
 
-## Browser Automation Caveats
-
-- Playwright's bundled Chromium (`playwright install chromium`) can fail on very new distros; if yours is affected, install system Chrome and set `ZYQUOR_BROWSER_CHANNEL=chrome`.
-
 ## Common Commands
 
 `pnpm bootstrap` · `pnpm smoke` · `pnpm dev:api` · `pnpm dev:web` · `pnpm dev:worker` · `pnpm check` · `pnpm test` · `pnpm build`. If `pnpm` is missing, install it globally via npm (`npm install -g pnpm`).
@@ -243,8 +230,7 @@ Finishing the Rust migration (details: `docs/rust-migration.md`):
 Verified gaps not yet in the tree:
 
 - Web UI cannot edit per-account limits, quiet hours, or profile assignment; the Accounts panel only toggles `enabled` and deletes (`apps/web/src/components/AccountsPanel.tsx`). `PATCH /accounts/:id` already accepts those fields.
-- No end-to-end test suite (unit and API-workflow tests plus the smoke scripts exist; E2E is deferred).
-- Voice input (deferred).
+- No end-to-end test suite; voice input is also deferred (unit and API-workflow tests plus the smoke scripts exist).
 
 Already in the tree and not pending: account creation (`POST /accounts`, "Add account" form), schedule clearing (`PATCH /jobs/:id` accepts `scheduledFor: null`), shuffled `POST /jobs/post-ready`, the quality-gate-failures panel in Compose, app icon + Azure Trusted Signing for Windows releases (`docs/code-signing.md`), `safeStorage`-encrypted API keys, and `electron-updater` auto-update.
 
