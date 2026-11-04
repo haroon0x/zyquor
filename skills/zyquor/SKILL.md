@@ -15,7 +15,7 @@ Zyquor is the user's local-first posting and reply engine for X (Twitter). Each 
 - Web UI: `ZYQUOR_API_URL=http://127.0.0.1:3001 pnpm --filter @zyquor/web dev`.
   The API in this repo is the source of truth for state (SQLite). All data lives locally.
 - Worker: `pnpm --filter @zyquor/worker dev` drives post jobs, ingest, and performance. It needs desktop settings for browser posting (handled by the desktop app or `GET /settings`).
-- Posting Chrome on this machine: CDP `http://172.31.96.1:9223`, profile `profiles/reply-loop-test`, headless via `ZYQUOR_BROWSER_HEADLESS=1`. Restart with the Windows `relaunch-fresh.ps1`; `relaunch-headed.ps1` is the visible fallback.
+- Posting Chrome: point `ZYQUOR_BROWSER_CDP_URL` at the reachable CDP endpoint of your dedicated posting profile (for example `http://127.0.0.1:9222`), and run it headless with `ZYQUOR_BROWSER_HEADLESS=1` if you do not want a window. On a host that cannot reach Chrome's loopback port, use a portproxy or another reachable URL.
 - Mentions auto-draft (optional, off by default): the worker calls the same scan-and-draft endpoint on a timer when `ZYQUOR_MENTIONS_AUTO_DRAFT=1` and `ZYQUOR_MENTIONS_ACCOUNTS=<account_id>` are set. `ZYQUOR_MENTIONS_INTERVAL_MS` overrides the cadence (default 15 min). Auto-draft only creates drafts for the review queue; it never posts.
 - Mentions auto-approve (optional, stage 2, off by default): when `ZYQUOR_MENTIONS_AUTO_APPROVE=1` the worker calls the capped lane endpoint instead (precedence over auto-draft if both are set). The lane drafts with wiki-only memory and may approve at most `ZYQUOR_MENTIONS_AUTO_APPROVE_DAILY_CAP` (default 3, 0 disables) qualifying top candidates per account per local day into ordinary `review_required` post jobs; everything else stays in the review queue. The lane never posts.
 
@@ -116,11 +116,11 @@ Note: hitting mentions endpoints requires the account's posting Chrome to be run
 - Real logout: the URL is a login or onboarding route, a login form is visible, or the credentials endpoint returns no handle. Only then does a human need to log in.
 - Never clear x.com site data or cookies on either error. That deletes the session and forces the login you were trying to avoid.
 
-Port topology on the owner's machine: the API talks to `http://172.31.96.1:9223`, a Windows `netsh` portproxy to `127.0.0.1:9222`. Chrome binds 9222 to loopback, so use 9223 from WSL.
+Port topology: Chrome binds its debug port to loopback only. From WSL or another host, use a portproxy (for example a Windows `netsh` rule forwarding a host port to `127.0.0.1:9222`) and point `ZYQUOR_BROWSER_CDP_URL` at the forwarded port.
 
-Posting also depends on the per-profile CDP port. `perProfileCdpUrl` gives each profile its own port; profiles in `ZYQUOR_BROWSER_CDP_BASE_PROFILES` (comma separated, default `personal-main`) stay on the base port, everything else gets a hash offset. If posting fails with `Chrome CDP is unavailable at http://172.31.96.1:9224`, the active profile is not on a forwarded port. Add it to that env list; do not open more portproxy rules.
+Posting also depends on the per-profile CDP port. `perProfileCdpUrl` gives each profile its own port; profiles in `ZYQUOR_BROWSER_CDP_BASE_PROFILES` (comma separated, default `personal-main`) stay on the base port, everything else gets a hash offset. If posting fails with `Chrome CDP is unavailable at <base+offset>`, the active profile is not on a forwarded port. Add it to that env list; do not open more portproxy rules.
 
-Posting Chrome runs headless here (`ZYQUOR_BROWSER_HEADLESS=1`, `--headless=new`) on the same profile and CDP port, so no window appears. `ensureBrowserCdp` honours the flag, so auto-launch after a CDP drop stays headless too. Restart with `C:\Users\asus\zyquor-profiles\relaunch-fresh.ps1`; use `relaunch-headed.ps1` only to debug a page that will not render. Debug headless through screenshots in `apps/api/data/artifacts`, not a visible window.
+Posting Chrome can run headless (`ZYQUOR_BROWSER_HEADLESS=1`, `--headless=new`) on the same profile and CDP port, so no window appears. `ensureBrowserCdp` honours the flag, so auto-launch after a CDP drop stays headless too. Debug headless through screenshots in `apps/api/data/artifacts`, not a visible window; switch to a headed launch only when a page will not render.
 
 The desktop app exposes the same switch as a `Headless posting Chrome` checkbox in Settings, stored as `headless` in `settings.json` and mapped to `ZYQUOR_BROWSER_HEADLESS` at startup. Its launcher resolves ports through `perProfileCdpUrl` from `@zyquor/core`, the same helper the API uses, so a port fix lands for both. Desktop links open in the system browser; if a click opens a blank Electron window instead, the `setWindowOpenHandler` / `will-navigate` handlers in `apps/desktop/src/main.ts` were removed. Desktop logs are buffered (100 ms), so a line can lag briefly; `main.log.1` is the previous 5 MB segment.
 
@@ -165,7 +165,7 @@ node scripts/post-loop.mjs --once --force  # ignore the daily cap
 
 ## Generation providers
 
-Opencode is the configured provider: `ZYQUOR_LLM_PROVIDER=opencode` with `opencode/deepseek-v4.1-flash-free#high`. The free tier cap is shared across every `opencode/*` free model, so an exhausted account fails every lane with `Free usage limit reached`. That is quota, not a bug, and no code change fixes it. `command-code` needs paid credits. A Codex provider existed briefly on 2026-10-28 and was removed because Codex is not available. Freebuff cannot be used: it is a TUI with no non-interactive flag, ignores a piped prompt, and exits without answering. Test any provider with `node scripts/smoke-generation.mjs` before blaming the loops.
+Opencode is the configured provider: `ZYQUOR_LLM_PROVIDER=opencode` with `opencode/glm-5.3-flash-free#high`. On rate-limit/unavailable/funds errors, failover walks the approved pool: `opencode-go/glm-5.3-flash`, then `opencode/deepseek-v4.1-flash`. The free tier cap is shared across every `opencode/*` free model, so an exhausted account fails every lane with `Free usage limit reached`. That is quota, not a bug, and no code change fixes it. `command-code` needs paid credits. A Codex provider existed briefly on 2026-10-28 and was removed because Codex is not available. Freebuff cannot be used: it is a TUI with no non-interactive flag, ignores a piped prompt, and exits without answering. Test any provider with `node scripts/smoke-generation.mjs` before blaming the loops.
 
 ## Review the queue
 

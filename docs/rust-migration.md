@@ -9,7 +9,7 @@
 
 Move the whole project — all packages, the API, the worker, the desktop shell,
 and the web UI — onto Rust, keeping behaviour identical: same HTTP surface,
-same SQLite/JSON persistence, same generation providers, same browser
+same SQLite persistence, same generation providers, same browser
 prepare/post flow, same safety rails.
 
 ## Non-goals
@@ -17,8 +17,8 @@ prepare/post flow, same safety rails.
 - No behaviour changes ride along with the port. A migration commit that also
   changes behaviour is rejected.
 - No new features, providers, or endpoints until the port is complete.
-- No schema changes to the persisted data. Existing `data/app.db` and
-  `data/app.json` must load unchanged.
+- No schema changes to the persisted data. Existing `data/app.sqlite` must load
+  unchanged.
 
 ## Scope inventory
 
@@ -78,7 +78,7 @@ Cargo.toml                 # [workspace] members + shared dependency versions
 crates/
   zyquor-core/             # <- packages/core      domain types, state machine, paths, spacing
   zyquor-accounts/         # <- packages/accounts  account config, profile safety
-  zyquor-storage/          # <- packages/storage   SQLite + JSON repositories
+  zyquor-storage/          # <- packages/storage   SQLite repositories
   zyquor-adapters/         # <- packages/adapters  source adapters, health, crawl4ai
   zyquor-generation/       # <- packages/generation provider clients, prompts, quality
   zyquor-automation/       # <- packages/automation ingest selection, source-packet drafting
@@ -121,17 +121,18 @@ worker -> core, storage
 | Milestone | State | Notes |
 | --------- | ----- | ----- |
 | M0 — Scaffold | done | `Cargo.toml` workspace, `rust-toolchain.toml`, Rust CI job (fmt, clippy, test). |
-| M1 — `zyquor-core` | done | Domain enums, lifecycle transitions, path rules, post spacing, reply-target parsing. 41 tests; parity harness matches TypeScript on 96 gate/transition cases and 11 CDP-URL cases. |
+| M1 — `zyquor-core` | done | Domain enums, lifecycle transitions, path rules, post spacing, reply-target parsing. 35 tests; parity harness matches TypeScript on 96 gate/transition cases and 11 CDP-URL cases. |
 | M2 — `zyquor-storage` + `zyquor-accounts` | partial (SQLite complete) | `zyquor-accounts` ported (6 tests). `zyquor-storage` ports the full SQLite `ZyquorRepository` surface — schema, column migrations, first-run seeding, accounts, style profiles, system feedback, knowledge entries, drafts, jobs, attempts, source packets, ingest runs/configs, post history, tweet measurements (23 tests). Verified cross-implementation: a database written by the TypeScript repository is read back by the Rust one with matching draft, job, and history records. No remaining repository surface. |
-| M3 — generation / adapters / automation | partial | `zyquor-generation`: config resolution plus deterministic quality scoring and text post-processing (16 tests). Provider clients, prompt assembly (`prompts.ts`), and `refine.ts` are not ported. OpenRouter provider removed from both stacks. |
+| M3 — generation / adapters / automation | partial | `zyquor-generation`: config resolution, prompt/harness assembly (8 request shapes × 4 builders, byte-identical to TypeScript), deterministic quality scoring and text post-processing, and answer parsing (`parse.rs`) (29 tests). Provider clients and `refine.ts` are not ported. `zyquor-adapters` and `zyquor-automation` are not started. OpenRouter provider removed from both stacks. |
 | M4 — browser | pending | |
 | M5 — api / worker | pending | |
 | M6 — desktop (Tauri) | pending | |
 | M7 — web | pending | |
 | M8 — scripts, retire pnpm | pending | |
 
-The TypeScript tree is untouched and still runs the product. Nothing has been
-removed yet.
+The TypeScript tree still runs the product and the Rust workspace passes 93
+tests. No package has been retired yet; the deliberate removals above are
+already applied in both stacks.
 
 ### Known gaps in `zyquor-storage`
 
@@ -148,6 +149,14 @@ Not ported yet:
   slightly (the Rust version cleans up more). Align these before parity
   testing account deletion.
 
+### Known gaps in `zyquor-generation`
+
+- `parse.rs` is ported (`parse_candidate_texts`, `candidates_from_text`,
+  `parse_json_candidate_texts`, `is_no_candidates_error`, `as_text`, plus the
+  private `is_grounded_candidate` / `strip_generated_urls` helpers) but has no
+  Rust unit tests and no parity harness. Prompt assembly and quality scoring
+  are covered; parsing needs fixtures before the crate can claim parity.
+
 ## Milestones
 
 Each milestone ends with a green `cargo test` and a parity check against the
@@ -161,7 +170,7 @@ TypeScript implementation.
   their three test files. Exit: all core tests pass in Rust.
 - **M2 — `zyquor-storage` + `zyquor-accounts`.** Repositories over rusqlite
   repositories; account config helpers. Exit: read an existing
-  `data/app.db` and `data/app.json` and round-trip them byte-faithfully.
+  `data/app.sqlite` and round-trip it byte-faithfully.
 - **M3 — `zyquor-generation` + `zyquor-adapters` + `zyquor-automation`.**
   Provider clients, prompt assembly, `score_tweet_quality`, source adapters,
   source packets. Exit: same draft for the same fixture prompt.

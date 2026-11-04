@@ -17,8 +17,18 @@ function wslToWinPath(wslPath) {
 }
 
 function launchWindowsChrome() {
-  const windowsUserDir = "C:\\Users\\asus\\zyquor-profiles\\" + profileName;
-  const wslUserDir = "/mnt/c/Users/asus/zyquor-profiles/" + profileName;
+  // Derive the Windows profile root from the environment instead of a hardcoded
+  // user name: ZYQUOR_PROFILES_DIR wins, then USERPROFILE (Windows) or the WSL
+  // mount of it.
+  const profilesRoot = process.env.ZYQUOR_PROFILES_DIR
+    ? process.env.ZYQUOR_PROFILES_DIR
+    : process.env.USERPROFILE
+      ? `${process.env.USERPROFILE}\\zyquor-profiles`
+      : process.env.USER
+        ? `/mnt/c/Users/${process.env.USER}/zyquor-profiles`
+        : "zyquor-profiles";
+  const windowsUserDir = profilesRoot.includes(":") ? `${profilesRoot}\\${profileName}` : `${wslToWinPath(profilesRoot)}\\${profileName}`;
+  const wslUserDir = profilesRoot.startsWith("/mnt/") ? `${profilesRoot}/${profileName}` : `/mnt/c/Users/${process.env.USER ?? "example"}/zyquor-profiles/${profileName}`;
   mkdirSync(wslUserDir, { recursive: true });
 
   const psScript = [
@@ -81,6 +91,7 @@ function launchLinuxChrome() {
           "--disable-crash-reporter",
           "--disable-dev-shm-usage",
           "--ozone-platform=x11",
+          ...(process.env.ZYQUOR_BROWSER_HEADLESS === "1" ? ["--headless=new"] : []),
           "https://x.com/home"
         ],
         {

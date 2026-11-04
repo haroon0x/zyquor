@@ -7,10 +7,18 @@ const crypto = await import("node:crypto");
 
 const dryRun = process.argv.includes("--dry-run");
 const maxTweets = Number(process.env.BACKFILL_MAX_TWEETS ?? 30);
-const dbPath = process.env.ZYQUOR_MENTIONS_DB ?? "/mnt/c/Users/asus/AppData/Roaming/Zyquor/data/app.sqlite";
+function defaultDbPath() {
+  if (process.env.ZYQUOR_DATA_ROOT) return resolve(process.env.ZYQUOR_DATA_ROOT, "data/app.sqlite");
+  if (process.platform === "linux" && process.env.WSL_DISTRO_NAME) {
+    const wslUser = process.env.USERPROFILE_USER || process.env.USER || "";
+    return "/mnt/c/Users/" + wslUser + "/AppData/Roaming/Zyquor/data/app.sqlite";
+  }
+  return resolve(new URL("..", import.meta.url).pathname, "data/app.sqlite");
+}
+const dbPath = process.env.ZYQUOR_MENTIONS_DB ?? defaultDbPath();
 
 function cdpUrlForProfile(profileDir, baseUrl) {
-  const base = baseUrl ?? "http://172.31.96.1:9222";
+  const base = baseUrl ?? "http://127.0.0.1:9222";
   try {
     const url = new URL(base);
     const basePort = Number(url.port || 9222);
@@ -30,7 +38,7 @@ function cdpUrlForProfile(profileDir, baseUrl) {
 function baseCdpUrl() {
   if (process.env.ZYQUOR_BROWSER_CDP_URL) return process.env.ZYQUOR_BROWSER_CDP_URL;
   const isWsl = process.platform === "linux" && Boolean(process.env.WSL_DISTRO_NAME);
-  return isWsl ? "http://172.31.96.1:9222" : "http://127.0.0.1:9222";
+  return "http://127.0.0.1:9222";
 }
 
 const db = new DatabaseSync(dbPath);

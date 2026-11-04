@@ -5,6 +5,6 @@ set -u
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" >/dev/null 2>&1
 
-cd /home/asus/dev/projects/zyquor || exit 1
+cd "$(cd "$(dirname "$0")/.." && pwd)" || exit 1
 node scripts/poll-x-mentions.mjs
 exec node services/demo-checker/run-queue.mjs

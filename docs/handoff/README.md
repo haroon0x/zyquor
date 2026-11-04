@@ -12,11 +12,11 @@ Read this first, then the brief for the milestone you are picking up.
 | --- | --- |
 | M0 scaffold | done |
 | M1 `zyquor-core` | done |
-| M2 `zyquor-accounts` + `zyquor-storage` (SQLite) | SQLite surface complete; JSON fallback not ported |
-| M3 `zyquor-generation` | config + quality scoring ported; providers, `prompts.ts`, `refine.ts` not ported |
+| M2 `zyquor-accounts` + `zyquor-storage` (SQLite) | SQLite surface complete; no JSON fallback exists |
+| M3 `zyquor-generation` | config, quality, prompts, harness, and parsing ported; provider clients + `refine.ts` not ported |
 | M4 browser, M5 api/worker, M6 desktop, M7 web, M8 scripts | not started |
 
-80 Rust tests pass. The TypeScript tree still runs the product; nothing has been deleted.
+93 Rust tests pass. The TypeScript tree still runs the product; no package has been retired.
 
 ## Ground rules
 

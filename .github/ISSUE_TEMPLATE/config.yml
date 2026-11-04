@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/haroon0x/zyquor/discussions
+    about: Ask usage questions, share setups, and discuss ideas before filing an issue.
+  - name: Report a security vulnerability
+    url: https://github.com/haroon0x/zyquor/security/advisories/new
+    about: Report privately through GitHub Security Advisories. Never open a public issue with cookies, tokens, or .env contents.

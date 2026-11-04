@@ -14,7 +14,12 @@
   `render_source_context` / `build_source_tweet_input`. All 32 rendered prompts
   (8 request shapes × 4 builders) are byte-identical to the TypeScript output;
   see "Parity harnesses" below.
-- 16 tests; quality verified against TypeScript over 34 cases × 5 fields.
+- `crates/zyquor-generation/src/parse.rs` — `parse_candidate_texts`,
+  `candidates_from_text`, `parse_json_candidate_texts`, `is_no_candidates_error`,
+  `as_text`, and the private `is_grounded_candidate` / `strip_generated_urls`
+  helpers, ported from the tail of `quality.ts`.
+- 29 tests (config, quality, prompts); quality verified against TypeScript over
+  34 cases × 5 fields. Parsing has no dedicated tests yet.
 
 ## Remaining
 
@@ -22,10 +27,8 @@
    `types.rs`. Add new request shapes to `scripts/prompt-parity.mjs` and
    `crates/zyquor-generation/examples/prompt_parity.rs` together so the diff
    stays meaningful.
-2. **`quality.ts` residue** — `parse_candidate_texts`, `candidates_from_text`,
-   `parse_json_candidate_texts`, `is_no_candidates_error`, `as_text`,
-   `is_grounded_candidate`, `strip_generated_urls`. These depend on
-   `GenerateDraftCandidatesInput`; port the input type with the prompt work.
+2. ~~**`quality.ts` residue**~~ — done in `parse.rs` (see above). Add parse
+   tests/fixtures before M3 exit.
 3. **Providers** — `command-code` and `opencode` shell out to CLIs; `gemini`
    and `ollama` are plain HTTP. Use `tokio::process::Command` and `reqwest`.
    - Provider parity is best proven with the `FetchLike` seam already present
@@ -35,7 +38,8 @@
      jobs are not auto-retried` is a product rule; the same caution applies to
      generation retries (there is exactly one line-prompt retry).
 4. **`refine.ts`** — the revision-pass orchestration. Depends on the providers.
-5. **`harness.ts`** — `renderSourceContext` and friends; pure, port alongside prompts.
+5. ~~**`harness.ts`**~~ — done in `harness.rs`
+   (`render_source_context`, `build_source_tweet_input`).
 
 ## Exit criteria
 

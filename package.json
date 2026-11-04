@@ -1,8 +1,27 @@
 {
   "name": "zyquor",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
-  "description": "Local-first X posting assistant.",
+  "description": "Local-first X posting assistant: source-grounded drafts, review queue, scheduled posting through dedicated Chrome profiles.",
+  "license": "AGPL-3.0-only",
+  "author": "haroon0x",
+  "homepage": "https://github.com/haroon0x/zyquor#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/haroon0x/zyquor.git"
+  },
+  "bugs": {
+    "url": "https://github.com/haroon0x/zyquor/issues"
+  },
+  "keywords": [
+    "x",
+    "twitter",
+    "posting",
+    "local-first",
+    "sqlite",
+    "electron",
+    "rust"
+  ],
   "type": "module",
   "packageManager": "pnpm@10.30.3",
   "bin": {

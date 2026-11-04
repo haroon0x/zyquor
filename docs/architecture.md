@@ -13,7 +13,7 @@ idea/source -> generation -> review/edit or autopost approval -> durable job -> 
 Topic flow:
 
 ```text
-topic or rough post -> fresh topic search -> source packet -> Command Code candidates -> review/edit or autopost approval
+topic or rough post -> fresh topic search -> source packet -> opencode candidates -> review/edit or autopost approval
 ```
 
 Automated source flow:
@@ -46,7 +46,7 @@ These boundaries are preserved 1:1 in the Rust workspace as one crate each; the 
 - `@zyquor/adapters`: live source adapters, aggregation, source health, optional Crawl4AI client.
 - `@zyquor/automation`: source-packet context cleanup, ingest selection, draft-from-source flow.
 - `@zyquor/generation`: provider clients, prompts, parsing, tweet post-processing.
-- `@zyquor/storage`: SQLite/JSON/memory repositories and persistence mappers.
+- `@zyquor/storage`: SQLite repositories and persistence mappers.
 - `@zyquor/browser`: Playwright/CDP compose, prepare, post, and verification flow.
 - `apps/api`: Fastify API and local orchestration.
 - `apps/worker`: background polling for async ingest and due jobs.
@@ -84,7 +84,7 @@ Only `@zyquor/generation` knows provider wire formats. API selects provider from
 
 Supported providers:
 
+- `opencode`: authenticated local opencode CLI (`opencode run -m <model>#<variant>`); default model `opencode/glm-5.3-flash-free` with the high reasoning variant. This is the configured provider.
 - `command-code`: authenticated local Command Code CLI in non-interactive plan mode; default model `gpt-5.6-luna`.
-- `codex`: authenticated Codex CLI in ephemeral, read-only, non-interactive mode; default model `gpt-5.6-luna` with high reasoning.
 - `gemini`: Google Gemini `models/{model}:generateContent`.
 - `ollama`: local `/api/generate`.

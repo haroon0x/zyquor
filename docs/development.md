@@ -25,7 +25,7 @@ Rules:
 - Both trees must stay green until a package is retired.
 - New work in a ported crate goes to the Rust version.
 - Do not delete TypeScript code before its Rust replacement passes the parity harness.
-- Toolchain: stable Rust via `rustup`; the pinned version lives in `rust-toolchain.toml` once M0 lands.
+- Toolchain: stable Rust via `rustup`; `rust-toolchain.toml` pins the `stable` channel and the `rustfmt`/`clippy` components.
 
 ## Current Build Order
 
@@ -56,36 +56,62 @@ Runtime data should live under:
 ```text
 data/
   app.sqlite
-  app.json
   artifacts/
 profiles/
 ```
 
-These paths are ignored because they can contain session state and debug artifacts.
+SQLite is the only repository implementation in `@zyquor/storage`; the older
+`data/app.json` JSON fallback no longer exists. These paths are ignored because
+they can contain session state and debug artifacts.
 
 ## API Routes
 
-Core workflow:
+Drafts:
 - `POST /drafts` — create an ungrounded draft
 - `POST /drafts/research` — search fresh sources and generate grounded candidates from a topic or rough post
 - `POST /drafts/:id/generate` — generate candidates for an existing draft
+- `GET /drafts/pending` — pending yolo/batch drafts
+- `GET /drafts/quality-gate-failures` — drafts that failed the quality gate
 - `GET /drafts/:id` — get draft with candidates
+- `POST /drafts/:id/evaluate` — re-score the existing candidates
 - `POST /drafts/:id/select` — select candidate, optionally edit text
 - `POST /drafts/:id/approve` — approve with optional mode/scheduledFor → creates job
+- `DELETE /drafts/:id` — delete a draft
+
+Jobs:
 - `GET /jobs?accountId=` — list jobs filtered by account
 - `POST /jobs/:id/prepare` — dry-run or real browser prepare
 - `POST /jobs/:id/post` — explicit post click (requires enable flag)
-- `POST /jobs/post-ready` — queue all ready jobs (approved/prepared/failed, shuffled)
+- `POST /jobs/:id/retry` — verify the post, then re-arm and retry when absent
+- `PATCH /jobs/:id` — change a job's schedule
+- `POST /jobs/post-ready` — post all ready jobs (approved/prepared, scheduled time reached, shuffled, sequential)
+- `POST /jobs/post-next` — post the next approved autopost job for an account
+- `POST /jobs/recover-stale` — mark stale `running` jobs failed with an attempt log
 - `DELETE /jobs/:id` — delete non-running job
+- `DELETE /jobs?accountId=` — delete all non-running jobs for an account
+- `DELETE /jobs/cleanup` — delete posted/failed jobs
 - `GET /jobs/:id/attempts` — attempt logs for a job
 
 Batch:
 - `POST /draft-batches` — create multiple jobs from one idea/line, optional schedule spacing
 
+Replies:
+- `GET /replies/feed?accountId=` — scan the X home feed for reply targets
+- `POST /replies/from-url` — fetch one post URL and create a reply draft
+- `GET /replies/mentions?accountId=` — fresh (48h) mentions with drafted/posted flags
+- `POST /replies/mentions/draft` — draft replies for chosen mention URLs
+- `POST /replies/mentions/scan-and-draft` — scan and draft fresh undrafted mentions (cap 10)
+- `POST /replies/mentions/scan-and-auto-approve` — capped auto-approve lane (quality floor + daily cap)
+- `GET /replies/drafts?accountId=` — reply drafts awaiting review
+
 Source packets:
 - `GET /source-packets?accountId=` — list packets
 - `POST /source-packets` — create packet
 - `POST /source-packets/:id/draft` — generate draft from packet → marks packet drafted
+- `GET /source-packets/:id/draft` — existing draft for a packet
+- `POST /source-packets/:id/regenerate` — save feedback and redraft with it
+- `POST /source-packets/:id/feedback` — save/clear feedback without redrafting
+- `DELETE /source-packets/:id/draft` — delete the generated draft and reset packet
 - `DELETE /source-packets/:id` — delete packet and non-posted generated draft
 - `DELETE /source-packets?accountId=` — delete all packets for account when safe
 
@@ -95,9 +121,22 @@ Ingest configs (CRUD for automated source ingestion):
 - `POST /ingest-configs/default-news` — create/reuse default automated news config
 - `PATCH /ingest-configs/:id` — update config
 - `DELETE /ingest-configs/:id` — delete config
+- `GET /ingest-runs?accountId=` — recent ingest runs
+- `POST /ingest-runs/recover-stale` — recover interrupted ingest runs
 - `GET /ingest-sources` — list source adapters and aggregated source health
 - `POST /ingest-run` — run ingest synchronously
 - `POST /ingest-run/async` — queue ingest without blocking worker/API callers
+
+Knowledge:
+- `GET /knowledge?accountId=` — list account knowledge entries
+- `POST /knowledge` — create entry
+- `PATCH /knowledge/:id` — update entry
+- `DELETE /knowledge/:id` — delete entry
+
+System feedback (standing corrections injected into every generation):
+- `GET /system-feedback?accountId=` — list for one account, or all accounts
+- `POST /system-feedback` — add `{accountId, text}`
+- `DELETE /system-feedback/:id` — delete entry
 
 Style profiles:
 - `GET /style-profiles/:id` — get profile
@@ -108,16 +147,42 @@ Generation config:
 - `PATCH /generation` — change provider/model at runtime
 
 Browser:
+- `POST /browser/activate` — launch/verify the account's posting Chrome
+- `GET /browser/active` — accounts with a running posting Chrome
 - `GET /browser/x-session?accountId=` — check X login state
-- `POST /jobs/:id/prepare` — prepare (writes text to X compose, dry-run or real)
-- `POST /jobs/:id/post` — click Post (real submit, requires enable flag)
+- `POST /browser/launch-chrome` — desktop-only launcher path
+
+Accounts:
+- `GET /accounts` — list accounts
+- `POST /accounts` — create account
+- `PATCH /accounts/:id` — update account
+- `DELETE /accounts/:id` — delete account
 
 History:
 - `GET /history` — posted tweet history
 - `POST /history/:id/delete` — delete the live X post via the account's posting Chrome (requires browser-post flag), marks the history row deleted
 - `GET /history/analysis?accountId=&sinceHours=` — recent post quality analysis
+- `GET /performance` — history with performance and tweet measurements
+- `POST /performance/refresh` — refresh tweet measurements
+
+Settings and onboarding (desktop settings file only):
+- `GET /settings` — masked desktop settings
+- `PATCH /settings` — update desktop settings
+- `GET /onboarding/status` — first-run status
+
+System (desktop control plane):
+- `GET /system/status` — posting, worker, and config state
+- `POST /system/posting` — toggle prepare/post flags live
+- `POST /system/ingest/cancel` — cancel a running ingest
+- `GET /system/logs` — recent process logs
+- `POST /system/worker/pause` — pause the worker
+- `POST /system/chrome/close` — close posting Chrome
+- `POST /system/stop-all` — pause worker, cancel ingest, disable prepare/post, close Chrome
+- `POST /system/quit` — quit the desktop app
+- `POST /system/restart` — restart the desktop app
 
 Worker:
+- `GET /health` — API liveness plus provider/model
 - `GET /worker/status` — heartbeat, ingest run state, config state
 - `POST /worker/heartbeat` — worker heartbeat
 
@@ -205,23 +270,23 @@ ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
 
 - Resolution priority: saved `data/generation.json` > `.env` file > shell `process.env`.
 - Shell env vars take precedence over `.env` — the dotenv loader skips already-set vars.
-- The default provider is `codex` with `gpt-5.6-luna` and high reasoning. Command Code remains available with the same model.
-- Command Code must be installed and authenticated on the same operating system that runs Zyquor. Set `ZYQUOR_COMMAND_CODE_PATH` when it is not available on `PATH`.
-- Codex CLI must be installed and authenticated on the same operating system that runs Zyquor. Set `ZYQUOR_CODEX_PATH` when it is not available on `PATH`.
+- Opencode is the configured provider: `opencode/glm-5.3-flash-free` with the `high` variant. When `ZYQUOR_LLM_PROVIDER` is unset, `auto` resolves to Gemini when `ZYQUOR_GEMINI_API_KEY` is set, otherwise Ollama.
+- The opencode model may be one of `opencode/glm-5.3-flash-free`, `opencode-go/glm-5.3-flash`, or `opencode/deepseek-v4.1-flash`; other tags fall back to the default. `ZYQUOR_OPENCODE_VARIANT` accepts `low`, `high`, or `max`.
+- Command Code remains available with `gpt-5.6-luna`.
+- The selected CLI must be installed and authenticated on the same operating system that runs Zyquor. Set `ZYQUOR_COMMAND_CODE_PATH` or `ZYQUOR_OPENCODE_PATH` when it is not available on `PATH`.
 
 ## LLM Providers
 
 Provider selection uses environment variables:
 
 ```bash
+ZYQUOR_LLM_PROVIDER=opencode ZYQUOR_OPENCODE_MODEL=opencode/glm-5.3-flash-free ZYQUOR_OPENCODE_VARIANT=high
 ZYQUOR_LLM_PROVIDER=command-code ZYQUOR_COMMAND_CODE_MODEL=gpt-5.6-luna
-ZYQUOR_LLM_PROVIDER=codex ZYQUOR_CODEX_MODEL=gpt-5.6-luna ZYQUOR_CODEX_PATH=codex
 ZYQUOR_LLM_PROVIDER=gemini ZYQUOR_GEMINI_API_KEY=... ZYQUOR_GEMINI_MODEL=gemini-2.5-flash
 ZYQUOR_LLM_PROVIDER=ollama ZYQUOR_OLLAMA_BASE_URL=http://127.0.0.1:11434 ZYQUOR_OLLAMA_MODEL=llama3.1
-ZYQUOR_LLM_PROVIDER=gemini ZYQUOR_GEMINI_API_KEY=... ZYQUOR_GEMINI_MODEL=gemini-2.5-flash
 ```
 
-`command-code` pipes the generation prompt to the authenticated CLI in headless, read-only plan mode. `codex` uses `codex exec` with the `luna` default and high reasoning in ephemeral, read-only, non-interactive mode. `ollama` calls `/api/generate` with `stream: false` and JSON output. `gemini` calls Gemini `models/{model}:generateContent` with JSON response config.
+`opencode` drives `opencode run -m <model>#<variant>` in a temp directory with the prompt on stdin; rate-limit and unavailable-model errors walk the approved three-model ladder. `command-code` pipes the generation prompt to the authenticated CLI in headless, read-only plan mode. `ollama` calls `/api/generate` with `stream: false` and JSON output. `gemini` calls Gemini `models/{model}:generateContent` with JSON response config.
 
 ## Desktop app (Windows)
 
@@ -234,7 +299,7 @@ Run Electron from a native Windows PowerShell session. Do not run the Electron p
 Use a Windows checkout such as `C:\src\zyquor`. If the source currently lives in WSL, copy it to a Windows path first, then install dependencies there so pnpm installs the Windows Electron binary:
 
 ```powershell
-robocopy \\wsl$\Ubuntu\home\asus\dev\projects\zyquor C:\src\zyquor /E /XD .git node_modules dist coverage release
+robocopy \\wsl$\Ubuntu\home\<user>\dev\projects\zyquor C:\src\zyquor /E /XD .git node_modules dist coverage release
 Set-Location C:\src\zyquor
 pnpm install --frozen-lockfile
 pnpm dev:desktop
