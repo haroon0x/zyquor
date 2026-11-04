@@ -85,7 +85,7 @@ describe("profilesPath", () => {
 });
 
 describe("perProfileCdpUrl", () => {
-  const base = "http://172.31.96.1:9223";
+  const base = "http://127.0.0.1:9223";
 
   afterEach(() => {
     delete process.env.ZYQUOR_BROWSER_CDP_BASE_PROFILES;
@@ -111,7 +111,7 @@ describe("perProfileCdpUrl", () => {
 
   it("matches profile names case-insensitively through Windows paths", () => {
     process.env.ZYQUOR_BROWSER_CDP_BASE_PROFILES = "reply-loop-test";
-    expect(perProfileCdpUrl(base, "C:\\Users\\asus\\zyquor-profiles\\Reply-Loop-Test")).toBe(base);
+    expect(perProfileCdpUrl(base, "C:\\Users\\example\\zyquor-profiles\\Reply-Loop-Test")).toBe(base);
   });
 
   it("falls back to the base URL when the input is unparseable", () => {

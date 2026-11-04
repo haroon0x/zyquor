@@ -57,7 +57,7 @@ describe("revision pass", () => {
   it("keeps originals when the revision is unparseable or loses quality", async () => {
     let calls = 0;
     const candidates = await generateDraftCandidates({
-      generationInput: { idea: "SQLite handles 8 million rows on a $20 node.", count: 1, tweetType: "article_summary" },
+      generationInput: { idea: "SQLite handles 8 million rows on a $20 node.", count: 1, tweetType: "useful_info" },
       model: "test-model",
       providerName: "opencode",
       revise: true,
@@ -78,7 +78,7 @@ describe("revision pass", () => {
   it("falls back to first-pass drafts when the revision call fails", async () => {
     let calls = 0;
     const candidates = await generateDraftCandidates({
-      generationInput: { idea: "SQLite handles 8 million rows on a $20 node.", count: 1, tweetType: "article_summary" },
+      generationInput: { idea: "SQLite handles 8 million rows on a $20 node.", count: 1, tweetType: "useful_info" },
       model: "test-model",
       providerName: "opencode",
       revise: true,
@@ -98,7 +98,7 @@ describe("revision pass", () => {
   it("makes no second call when revision is disabled", async () => {
     let calls = 0;
     const candidates = await generateDraftCandidates({
-      generationInput: { idea: "SQLite handles 8 million rows on a $20 node.", count: 1, tweetType: "article_summary" },
+      generationInput: { idea: "SQLite handles 8 million rows on a $20 node.", count: 1, tweetType: "useful_info" },
       model: "test-model",
       providerName: "opencode",
       runPrompt: async () => {

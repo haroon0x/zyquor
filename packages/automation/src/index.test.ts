@@ -182,8 +182,9 @@ describe("automatic ingest", () => {
 
     const jobs = await repository.listJobs();
     const draft = await repository.getDraft(jobs[0]!.draftId);
+    // The source is a company blog post, so the repaired text keeps its link.
     expect(draft?.draft.editedText).toBe(
-      "> old failover was brittle\n> new defaults reduce operator risk"
+      "> old failover was brittle\n> new defaults reduce operator risk\nhttps://example.com/database-failover"
     );
   });
 

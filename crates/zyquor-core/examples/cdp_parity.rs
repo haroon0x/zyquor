@@ -5,14 +5,14 @@
 use zyquor_core::paths::per_profile_cdp_url;
 
 fn main() {
-    let base = "http://172.31.96.1:9223";
+    let base = "http://127.0.0.1:9223";
     let profiles = [
         "profiles/personal-main",
         "profiles/another-account",
         "profiles/third-account",
         "profiles/willainotice",
         "profiles/Reply-Loop-Test",
-        "C:\\Users\\asus\\zyquor-profiles\\Reply-Loop-Test",
+        "C:\\Users\\example\\zyquor-profiles\\Reply-Loop-Test",
         "profiles/skywalker",
         "profiles/acct-0",
         "profiles/acct-1",

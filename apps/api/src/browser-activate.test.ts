@@ -170,7 +170,7 @@ describe("GET /browser/active", () => {
       displayName: "Notice AI",
       profileDir: "profiles/willainotice"
     });
-    writeCdpLaunchState({ profileDir: "C:\\Users\\asus\\AppData\\Roaming\\Zyquor\\profiles\\willainotice", pid: 456 });
+    writeCdpLaunchState({ profileDir: "C:\\Users\\example\\AppData\\Roaming\\Zyquor\\profiles\\willainotice", pid: 456 });
     const app = buildApp({ repository });
 
     const response = await app.inject({ method: "GET", url: "/browser/active" });

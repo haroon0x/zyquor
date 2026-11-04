@@ -53,7 +53,7 @@ describe("ensureBrowserCdp per-profile concurrency", () => {
 
   it("normalizes a Windows-style recorded path to the current data root", async () => {
     connectOverCDP.mockResolvedValue({});
-    writeCdpLaunchState({ profileDir: "C:\\Users\\asus\\AppData\\Roaming\\Zyquor\\profiles\\personal-main", pid: 23772 });
+    writeCdpLaunchState({ profileDir: "C:\\Users\\example\\AppData\\Roaming\\Zyquor\\profiles\\personal-main", pid: 23772 });
 
     expect(readCdpLaunchState()?.profileDir).toBe(join(testDataRoot, "profiles", "personal-main"));
 

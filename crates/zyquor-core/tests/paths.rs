@@ -90,7 +90,7 @@ fn profiles_path_returns_profiles_dir_with_no_segments() {
 
 // --- perProfileCdpUrl ---------------------------------------------------
 
-const BASE: &str = "http://172.31.96.1:9223";
+const BASE: &str = "http://127.0.0.1:9223";
 
 fn empty_env() -> impl Fn(&str) -> Option<String> {
     |_| None
@@ -136,7 +136,7 @@ fn matches_profile_names_case_insensitively_through_windows_paths() {
         per_profile_cdp_url_with(
             &env,
             Some(BASE),
-            r"C:\Users\asus\zyquor-profiles\Reply-Loop-Test"
+            r"C:\Users\example\zyquor-profiles\Reply-Loop-Test"
         ),
         BASE
     );

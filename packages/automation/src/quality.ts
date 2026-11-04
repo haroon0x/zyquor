@@ -76,8 +76,14 @@ function sourceIsExternal(packet: SourcePacket) {
 // Long-form company/blog sources carry their real link. ShareViaCopyLink is the
 // highest-weight organic action in the x-algorithm scoring, and the tweet text
 // stays link-free so the model never invents one; the link is attached post-hoc.
+//
+// Packets do not persist the adapter name, and the retired `article_summary`
+// type no longer exists, so the title shape that `inferTweetTypeFromText` uses
+// to recognise long-form items is the signal left. This is a proxy, not an
+// exact replacement: a news item whose title says "article" or "blog" gets its
+// source URL attached.
 function sourceNeedsLink(packet: SourcePacket) {
-  return packet.sourceType === "company-rss";
+  return packet.sourceType !== "x-feed" && /\b(blog|article|post|essay|guide)\b/i.test(packet.title);
 }
 
 function sourceEvidence(packet: SourcePacket) {
