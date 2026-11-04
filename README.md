@@ -1,5 +1,13 @@
 # Zyquor
 
+> **Not in active development — Herald is the successor.**
+> This repository is no longer being worked on. New X (Twitter) agent
+> capabilities — reading mentions and DMs, drafting, posting, scheduling-grade
+> autonomy controls, and the same approval-gated safety model — are being built
+> in [herald](https://github.com/haroon0x/herald), which absorbs this project's
+> role. This tree stays available as a reference and for the posting pipeline
+> you already use; expect no fixes, releases, or support.
+
 **Local-first X posting assistant.** Zyquor turns an idea or a fresh source into a grounded draft, puts it in a review queue, and posts it through a dedicated Chrome profile you control. Everything runs on your machine: SQLite storage, no hosted backend, no cloud account.
 
 [![CI](https://github.com/haroon0x/zyquor/actions/workflows/ci.yml/badge.svg)](https://github.com/haroon0x/zyquor/actions/workflows/ci.yml)
