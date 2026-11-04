@@ -78,10 +78,15 @@ impl GenerateDraftCandidatesInput {
     }
 }
 
-/// One generated candidate, before quality scoring attaches its report.
+/// One generated candidate with its quality report.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GeneratedDraftCandidate {
     pub text: String,
+    pub quality: i64,
+    pub provider: String,
+    pub model: String,
+    /// 1-based position in the returned list.
+    pub rank: usize,
 }
 
 /// Errors a generation provider can report.

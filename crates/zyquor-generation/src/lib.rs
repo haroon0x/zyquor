@@ -6,6 +6,7 @@
 
 pub mod config;
 pub mod harness;
+pub mod parse;
 pub mod prompts;
 pub mod quality;
 pub mod types;
