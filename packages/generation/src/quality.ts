@@ -262,6 +262,16 @@ export function isCleanTweetText(text: string) {
   );
 }
 
+// Demand-style opener: a reply that opens by asking the author to explain,
+// show, or build their own thing reads like a lazy agent prompt, not a
+// conversation. Shipped one live on 2026-10-29 and the target called it out,
+// so agent reply lanes must reject this class before approval.
+export const REPLY_DODGE_REASON = "interrogation_dodge";
+export function isInterrogationDodgeReply(text: string) {
+  const unquoted = text.trim().replace(/^["'\u201c\u201d]/, "");
+  return /^(?:explain|describe|tell\s+me|show\s+me|walk\s+me|can\s+you|could\s+you|would\s+you|please\s+(?:explain|describe|show|make|write|do)|what\s+(?:is|are|does)|what\s+kind\s+of|how\s+(?:do|does|would|to)|why\s+(?:do|does|is|are)|which\s+(?:one|part|api|class|tool|module)|make\s+me|write\s+me)\b/i.test(unquoted);
+}
+
 export function passesTweetQualityFloor(text: string, minimum = qualityMinimum()) {
   return isCleanTweetText(text) && !looksLikeSourceRecap(text) && scoreTweetQuality(text) >= minimum;
 }
@@ -270,14 +280,19 @@ export function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function parseJsonCandidateTexts(raw: string, count: number): string[] | null {
+export function parseJsonCandidateTexts(raw: string, count: number): string[] | null {
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
   if (start === -1 || end === -1 || end <= start) {
     return null;
   }
 
-  const parsed = JSON.parse(raw.slice(start, end + 1)) as { candidates?: Array<{ text?: unknown } | string> };
+  let parsed: { candidates?: Array<{ text?: unknown } | string> };
+  try {
+    parsed = JSON.parse(raw.slice(start, end + 1)) as { candidates?: Array<{ text?: unknown } | string> };
+  } catch {
+    return null;
+  }
   if (!("candidates" in parsed)) {
     return null;
   }

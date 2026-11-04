@@ -3,7 +3,11 @@ import { z } from "zod";
 import { assertDedicatedProfileDir } from "@zyquor/accounts";
 import { parseReplyTargetUrl, type ReplyTarget } from "@zyquor/core";
 import { accountGenerationContext, normalizeTweetType, analyzePostFeatures } from "@zyquor/automation";
-import { passesTweetQualityFloor } from "@zyquor/generation";
+import {
+  isInterrogationDodgeReply,
+  passesTweetQualityFloor,
+  REPLY_DODGE_REASON
+} from "@zyquor/generation";
 import {
   renderGoldfishMemory,
   type GoldfishContextBundle,
@@ -696,6 +700,10 @@ export function registerRepliesRoutes(app: FastifyInstance, deps: AppDeps): void
       const preserveCase = selected.score.provider === deps.generationProvider.name;
       // Same shaping as the human approve step, with a lane-specific trace label.
       const approvedText = tracePostProcessTweetText("mentions-auto-approve", selected.text, preserveCase);
+      if (isInterrogationDodgeReply(approvedText)) {
+        held.push({ url: item.url, reason: REPLY_DODGE_REASON });
+        continue;
+      }
       if (!passesTweetQualityFloor(approvedText)) {
         held.push({ url: item.url, reason: "quality_below_floor" });
         continue;

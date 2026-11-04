@@ -44,7 +44,7 @@ const dry = args.has("--dry");
 
 const configuredApiUrl = (process.env.ZYQUOR_API_URL ?? "").replace(/\/$/, "");
 const accountId = process.env.ZYQUOR_REPLY_ACCOUNT_ID ?? "account_personal";
-const cdpUrl = process.env.ZYQUOR_BROWSER_CDP_URL ?? "http://172.31.96.1:9223";
+const cdpUrl = process.env.ZYQUOR_BROWSER_CDP_URL ?? "http://127.0.0.1:9222";
 const intervalMs = Number(process.env.ZYQUOR_REPLY_LOOP_INTERVAL_MS ?? 30 * 60 * 1000);
 const maxPosts = Number(process.env.ZYQUOR_REPLY_LOOP_MAX_POSTS ?? 1);
 const minQuality = Number(process.env.ZYQUOR_REPLY_LOOP_MIN_QUALITY ?? 5);
@@ -161,6 +161,12 @@ function slopReasons(text, target) {
   if (t.length < 60) reasons.push("too_short");
   if (t.length > 279) reasons.push("too_long");
   if (t.includes("?") && !target.includes("?")) reasons.push("question_not_asked");
+  // A reply that opens by demanding the author explain their own work reads
+  // like a lazy agent prompt (this exact class shipped once and got called
+  // out as AI slop by the target).
+  if (/^(?:explain|describe|tell\s+me|show\s+me|walk\s+me|can\s+you|could\s+you|would\s+you|please\s+(?:explain|describe|show|make|write|do)|what\s+(?:is|are|does)|what\s+kind\s+of|how\s+(?:do|does|would|to)|why\s+(?:do|does|is|are)|which\s+(?:one|part|api|class|tool|module)|make\s+me|write\s+me)\b/i.test(t)) {
+    reasons.push("prompt_dodge");
+  }
   if (ADVICE.test(t)) reasons.push("advice");
   if (FORMULA_A.test(t) || FORMULA_B.test(t) || REAL_X.test(t) || PARALLEL.test(t)) reasons.push("formula_contrast");
   if (SLOP_WORDS.test(t)) reasons.push("slop_word");
