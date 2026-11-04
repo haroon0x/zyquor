@@ -51,7 +51,7 @@ describe("automatic ingest", () => {
     });
   });
 
-  it("routes hiring and company blog sources to specialized tweet types", () => {
+  it("routes job and company blog sources to supported tweet types", () => {
     expect(
       inferTweetTypeFromText({
         title: "ExampleCo is hiring infra engineers",
@@ -59,7 +59,7 @@ describe("automatic ingest", () => {
         content: "Verified hiring source.",
         metadata: { source: "hackernews-jobs", type: "hiring" }
       })
-    ).toBe("hiring");
+    ).toBe("useful_info");
 
     expect(
       inferTweetTypeFromText({
@@ -68,7 +68,7 @@ describe("automatic ingest", () => {
         content: "A company blog explains browser agents.",
         metadata: { source: "company-rss" }
       })
-    ).toBe("article_summary");
+    ).toBe("useful_info");
   });
 
   it("turns source items into packets, generated drafts, and autopost jobs", async () => {
@@ -96,7 +96,7 @@ describe("automatic ingest", () => {
       scheduleWindowEnd: "23:59",
       scheduleWindowStart: "00:00",
       sourceType: "news",
-      tweetTypeMix: { news_context: 100 }
+      tweetTypeMix: { feed_observation: 100 }
     });
 
     const result = await runAutomaticIngest({
@@ -115,7 +115,7 @@ describe("automatic ingest", () => {
       {
         status: "drafted",
         title: "HN: automatic workers",
-        tweetType: "news_context"
+        tweetType: "feed_observation"
       }
     ]);
     const jobs = await repository.listJobs();
@@ -125,7 +125,7 @@ describe("automatic ingest", () => {
       mediaUrls: ["https://example.com/news.png"],
       sourcePacketId: result.results[0]!.packetId,
       sourceType: "news",
-      tweetType: "news_context"
+      tweetType: "feed_observation"
     });
     expect(draft?.candidates).toEqual([]);
     expect(draft?.draft.editedText).toBe(
@@ -170,7 +170,7 @@ describe("automatic ingest", () => {
       scheduleWindowEnd: "23:59",
       scheduleWindowStart: "00:00",
       sourceType: "news",
-      tweetTypeMix: { article_summary: 100 }
+      tweetTypeMix: { useful_info: 100 }
     });
 
     await runAutomaticIngest({
@@ -182,6 +182,7 @@ describe("automatic ingest", () => {
 
     const jobs = await repository.listJobs();
     const draft = await repository.getDraft(jobs[0]!.draftId);
+    // The source is a company blog post, so the repaired text keeps its link.
     expect(draft?.draft.editedText).toBe(
       "> old failover was brittle\n> new defaults reduce operator risk\nhttps://example.com/database-failover"
     );
@@ -522,7 +523,7 @@ describe("automatic ingest", () => {
       title: "Celld SQLite sharding for Durable Objects launch",
       summary: "Celld ships sharding for Durable Objects.",
       facts: ["Celld uses SQLite sharding."],
-      tweetType: "article_summary",
+      tweetType: "useful_info",
       url: "https://example.com/celld-a"
     });
     await draftFromSourcePacket({
@@ -538,7 +539,7 @@ describe("automatic ingest", () => {
       title: "Celld SQLite sharding for Durable Objects second look",
       summary: "Another take on Celld sharding.",
       facts: ["Celld object databases."],
-      tweetType: "article_summary",
+      tweetType: "useful_info",
       url: "https://example.com/celld-b"
     });
     await expect(
@@ -556,7 +557,7 @@ describe("automatic ingest", () => {
       title: "DeepSeek cuts pricing again",
       summary: "Pricing cut announcement.",
       facts: ["DeepSeek lowered prices."],
-      tweetType: "article_summary",
+      tweetType: "useful_info",
       url: "https://example.com/deepseek"
     });
     await expect(

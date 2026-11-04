@@ -44,7 +44,7 @@ describe("source performance feedback", () => {
       postedText: "news post one text",
       postUrl: "https://x.com/personal/status/1",
       sourceType: "news",
-      tweetType: "article_summary"
+      tweetType: "useful_info"
     });
     await repository.createPostHistory({
       accountId: "account_personal",
@@ -53,7 +53,7 @@ describe("source performance feedback", () => {
       postedText: "news post two text",
       postUrl: "https://x.com/personal/status/2",
       sourceType: "news",
-      tweetType: "article_summary"
+      tweetType: "useful_info"
     });
     await repository.createPostHistory({
       accountId: "account_personal",

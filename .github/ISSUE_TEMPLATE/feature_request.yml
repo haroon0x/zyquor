@@ -1,0 +1,59 @@
+name: Feature request
+description: Propose a change in behaviour or a new capability.
+title: "[feat]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Zyquor is a local-first posting assistant with deliberate limits. Read
+        the safety section of `README.md` and
+        [CONTRIBUTING.md](https://github.com/haroon0x/zyquor/blob/master/CONTRIBUTING.md)
+        before proposing automation that touches X. Requests for stealth,
+        anti-detection, proxy rotation, CAPTCHA bypass, or automated
+        follows/likes/reposts/DMs will be closed.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and where does the current product get in the way? Reference the route, lane, or panel involved.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: The behaviour you want. If it changes an API route, say which one and what the request/response should look like.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches, existing flags or routes that almost cover it, and why they fall short.
+    validations:
+      required: false
+  - type: dropdown
+    id: lane
+    attributes:
+      label: Which lane does this affect?
+      options:
+        - Draft (single / batch / yolo)
+        - Source (ingest, source packets)
+        - Reply (mentions, from-url, auto-approve gate)
+        - Post (prepare / post / jobs / worker)
+        - Desktop (Electron app, settings, tray)
+        - Rust migration (crates/zyquor-*)
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety-rail impact
+      description: The rails are listed in CONTRIBUTING.md and docs/rust-migration.md. A request that weakens one will not be accepted.
+      options:
+        - label: This request does not weaken any posting safety rail (dedicated Chrome profiles only; no stealth, anti-detection, proxy rotation, or CAPTCHA bypass; no automated follows, likes, reposts, or DMs; the LLM writes candidate text only; failed post jobs are never auto-retried; posting stays disabled by default behind env flags).
+          required: true
+        - label: This request would change a safety rail, and the reasoning is explained above.
+          required: false

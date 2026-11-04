@@ -31,7 +31,7 @@ describe("/settings routes", () => {
     const patchRes = await app.inject({
       method: "PATCH",
       url: "/settings",
-      payload: { llmProvider: "openrouter" },
+      payload: { llmProvider: "gemini" },
     });
     expect(patchRes.statusCode).toBe(404);
     await app.close();
@@ -40,7 +40,6 @@ describe("/settings routes", () => {
   it("GET returns masked settings", async () => {
     const dep = mockDesktopSettings({
       enableBrowserPrepare: true,
-      openrouterApiKey: "sk-or-v1-1234567890abcdef",
       geminiApiKey: "AIza1234567890abcdef",
       cdpPort: 9222,
     });
@@ -53,13 +52,12 @@ describe("/settings routes", () => {
     const body = res.json<DesktopSettingsData>();
     expect(body.enableBrowserPrepare).toBe(true);
     expect(body.cdpPort).toBe(9222);
-    expect(body.openrouterApiKey).toBe("*********************cdef");
     expect(body.geminiApiKey).toBe("****************cdef");
     await app.close();
   });
 
   it("PATCH updates settings and returns masked result", async () => {
-    const dep = mockDesktopSettings({ llmProvider: "openrouter" });
+    const dep = mockDesktopSettings({ llmProvider: "gemini" });
     const app = buildApp({
       desktopSettings: dep,
       repository: await createSqliteRepository(":memory:"),
@@ -69,24 +67,24 @@ describe("/settings routes", () => {
       url: "/settings",
       payload: {
         enableBrowserPost: true,
-        openrouterApiKey: "sk-or-v1-newkey1234",
+        geminiApiKey: "sk-or-v1-newkey1234",
       },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json<DesktopSettingsData & { restartRequired?: boolean }>();
     expect(body.enableBrowserPost).toBe(true);
-    expect(body.openrouterApiKey).toBe("***************1234");
+    expect(body.geminiApiKey).toBe("***************1234");
     expect(body.restartRequired).toBe(false);
     expect(dep.update).toHaveBeenCalledWith({
       enableBrowserPost: true,
-      openrouterApiKey: "sk-or-v1-newkey1234",
+      geminiApiKey: "sk-or-v1-newkey1234",
     });
     await app.close();
   });
 
   it("PATCH ignores a masked API key", async () => {
-    const openrouterApiKey = "sk-or-v1-1234567890abcdef";
-    const dep = mockDesktopSettings({ openrouterApiKey });
+    const geminiApiKey = "sk-or-v1-1234567890abcdef";
+    const dep = mockDesktopSettings({ geminiApiKey });
     const app = buildApp({
       desktopSettings: dep,
       repository: await createSqliteRepository(":memory:"),
@@ -95,11 +93,11 @@ describe("/settings routes", () => {
     const res = await app.inject({
       method: "PATCH",
       url: "/settings",
-      payload: { openrouterApiKey: masked },
+      payload: { geminiApiKey: masked },
     });
     expect(res.statusCode).toBe(200);
     expect(dep.update).toHaveBeenCalledWith({});
-    expect(dep.get().openrouterApiKey).toBe(openrouterApiKey);
+    expect(dep.get().geminiApiKey).toBe(geminiApiKey);
     expect(res.json().restartRequired).toBe(false);
     await app.close();
   });
@@ -139,7 +137,7 @@ describe("/settings routes", () => {
   });
 
   it("masks short API keys entirely", async () => {
-    const dep = mockDesktopSettings({ openrouterApiKey: "ab", geminiApiKey: "xyz" });
+    const dep = mockDesktopSettings({ geminiApiKey: "xyz" });
     const app = buildApp({
       desktopSettings: dep,
       repository: await createSqliteRepository(":memory:"),
@@ -147,7 +145,6 @@ describe("/settings routes", () => {
     const res = await app.inject({ method: "GET", url: "/settings" });
     expect(res.statusCode).toBe(200);
     const body = res.json<DesktopSettingsData>();
-    expect(body.openrouterApiKey).toBe("****");
     expect(body.geminiApiKey).toBe("****");
     await app.close();
   });

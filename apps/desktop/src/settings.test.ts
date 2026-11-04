@@ -48,7 +48,7 @@ describe("loadSettings", () => {
   it("loads valid settings", () => {
     const settings: DesktopSettings = {
       enableBrowserPrepare: true,
-      llmProvider: "openrouter",
+      llmProvider: "gemini",
       cdpPort: 9222,
     };
     writeFileSync(join(dataRoot, "settings.json"), JSON.stringify(settings), "utf8");
@@ -57,7 +57,6 @@ describe("loadSettings", () => {
 
   it("loads plaintext API keys for backward compatibility", () => {
     const settings: DesktopSettings = {
-      openrouterApiKey: "sk-or-plaintext",
       geminiApiKey: "gemini-plaintext",
     };
     writeFileSync(join(dataRoot, "settings.json"), JSON.stringify(settings), "utf8");
@@ -69,15 +68,12 @@ describe("saveSettings", () => {
   it("saves and round-trips settings", () => {
     const settings: DesktopSettings = {
       enableBrowserPost: true,
-      openrouterApiKey: "sk-or-v1-secret",
       geminiApiKey: "gemini-secret",
       chromePath: "/usr/bin/chrome",
     };
     saveSettings(dataRoot, settings);
     const stored = JSON.parse(readFileSync(join(dataRoot, "settings.json"), "utf8"));
-    expect(stored.openrouterApiKey).toMatch(/^enc:v1:/);
     expect(stored.geminiApiKey).toMatch(/^enc:v1:/);
-    expect(stored.openrouterApiKey).not.toContain(settings.openrouterApiKey);
     expect(stored.geminiApiKey).not.toContain(settings.geminiApiKey);
     const loaded = loadSettings(dataRoot);
     expect(loaded).toEqual(settings);
@@ -85,10 +81,10 @@ describe("saveSettings", () => {
 
   it("keeps API keys plaintext when encryption is unavailable", () => {
     safeStorageMock.isEncryptionAvailable.mockReturnValue(false);
-    const settings: DesktopSettings = { openrouterApiKey: "sk-or-plaintext" };
+    const settings: DesktopSettings = { geminiApiKey: "sk-or-plaintext" };
     saveSettings(dataRoot, settings);
     const stored = JSON.parse(readFileSync(join(dataRoot, "settings.json"), "utf8"));
-    expect(stored.openrouterApiKey).toBe(settings.openrouterApiKey);
+    expect(stored.geminiApiKey).toBe(settings.geminiApiKey);
   });
 
   it("atomic write leaves valid file after crash", () => {
@@ -114,7 +110,6 @@ describe("applySettingsToEnv", () => {
       "ZYQUOR_ENABLE_BROWSER_PREPARE",
       "ZYQUOR_ENABLE_BROWSER_POST",
       "ZYQUOR_LLM_PROVIDER",
-      "ZYQUOR_OPENROUTER_API_KEY",
       "ZYQUOR_GEMINI_API_KEY",
       "ZYQUOR_CHROME_PATH",
       "ZYQUOR_BROWSER_CDP_PORT",
@@ -140,13 +135,13 @@ describe("applySettingsToEnv", () => {
     withCleanEnv(() => {
       applySettingsToEnv({
         enableBrowserPrepare: true,
-        llmProvider: "openrouter",
-        openrouterApiKey: "sk-test",
+        llmProvider: "gemini",
+        geminiApiKey: "sk-test",
         cdpPort: 9222,
       });
       expect(process.env.ZYQUOR_ENABLE_BROWSER_PREPARE).toBe("1");
-      expect(process.env.ZYQUOR_LLM_PROVIDER).toBe("openrouter");
-      expect(process.env.ZYQUOR_OPENROUTER_API_KEY).toBe("sk-test");
+      expect(process.env.ZYQUOR_LLM_PROVIDER).toBe("gemini");
+      expect(process.env.ZYQUOR_GEMINI_API_KEY).toBe("sk-test");
       expect(process.env.ZYQUOR_BROWSER_CDP_PORT).toBe("9222");
     });
   });
@@ -154,7 +149,7 @@ describe("applySettingsToEnv", () => {
   it("does not override pre-existing env vars (shell precedence)", () => {
     withCleanEnv(() => {
       process.env.ZYQUOR_LLM_PROVIDER = "gemini";
-      applySettingsToEnv({ llmProvider: "openrouter" });
+      applySettingsToEnv({ llmProvider: "ollama" });
       expect(process.env.ZYQUOR_LLM_PROVIDER).toBe("gemini");
     });
   });

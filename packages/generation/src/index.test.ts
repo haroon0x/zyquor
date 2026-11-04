@@ -1,9 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { TWEET_TYPES } from "@zyquor/core";
 import {
   createGeminiGenerationProvider,
   createOllamaGenerationProvider,
-  createOpenRouterGenerationProvider,
   DEFAULT_QUALITY_MIN,
   GENERATION_MODEL_OPTIONS,
   generateDraftCandidates,
@@ -34,7 +33,7 @@ describe("revision pass", () => {
       generationInput: {
         idea: "SQLite serves 8 million rows from one $20 node.",
         count: 2,
-        tweetType: "article_summary"
+        tweetType: "useful_info"
       },
       model: "test-model",
       providerName: "opencode",
@@ -58,7 +57,7 @@ describe("revision pass", () => {
   it("keeps originals when the revision is unparseable or loses quality", async () => {
     let calls = 0;
     const candidates = await generateDraftCandidates({
-      generationInput: { idea: "SQLite handles 8 million rows on a $20 node.", count: 1, tweetType: "article_summary" },
+      generationInput: { idea: "SQLite handles 8 million rows on a $20 node.", count: 1, tweetType: "useful_info" },
       model: "test-model",
       providerName: "opencode",
       revise: true,
@@ -79,7 +78,7 @@ describe("revision pass", () => {
   it("falls back to first-pass drafts when the revision call fails", async () => {
     let calls = 0;
     const candidates = await generateDraftCandidates({
-      generationInput: { idea: "SQLite handles 8 million rows on a $20 node.", count: 1, tweetType: "article_summary" },
+      generationInput: { idea: "SQLite handles 8 million rows on a $20 node.", count: 1, tweetType: "useful_info" },
       model: "test-model",
       providerName: "opencode",
       revise: true,
@@ -99,7 +98,7 @@ describe("revision pass", () => {
   it("makes no second call when revision is disabled", async () => {
     let calls = 0;
     const candidates = await generateDraftCandidates({
-      generationInput: { idea: "SQLite handles 8 million rows on a $20 node.", count: 1, tweetType: "article_summary" },
+      generationInput: { idea: "SQLite handles 8 million rows on a $20 node.", count: 1, tweetType: "useful_info" },
       model: "test-model",
       providerName: "opencode",
       runPrompt: async () => {
@@ -316,7 +315,7 @@ describe("ollama generation", () => {
       fetch: fetchImpl
     });
 
-    const candidates = await provider.generateDraftCandidates({ idea: "Make it local.", count: 2, tweetType: "hiring" });
+    const candidates = await provider.generateDraftCandidates({ idea: "Make it local.", count: 2, tweetType: "guide" });
     const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
 
     expect(calls[0]?.url).toBe("http://127.0.0.1:11434/api/chat");
@@ -328,7 +327,7 @@ describe("ollama generation", () => {
     });
     const messages = body.messages as Array<{ content: string; role: string }>;
     expect(messages[0]?.content).toContain("Never use em or en dashes (— or –)");
-    expect(messages[0]?.content).toContain("not affiliated");
+    expect(messages[0]?.content).toContain("Style: Guide.");
     expect(candidates).toEqual([
       { text: "first local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 1, quality: 3 } },
       { text: "second local draft.", score: { provider: "ollama", model: "llama3.1:8b", rank: 2, quality: 3 } }
@@ -396,7 +395,7 @@ describe("ollama generation", () => {
       ],
       systemPromptExtra: "Prefer lessons grounded in hands-on experience.",
       tone: "practical, candid, concise",
-      tweetType: "article_summary"
+      tweetType: "useful_info"
     });
 
     const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
@@ -427,144 +426,6 @@ describe("ollama generation", () => {
   });
 });
 
-describe("openrouter generation", () => {
-  it("confirms free pricing before posting chat completion request with bearer auth", async () => {
-    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
-    const fetchImpl: FetchLike = async (url, init) => {
-      calls.push({ url: String(url), init });
-      if (String(url).endsWith("/models")) {
-        return jsonResponse({
-          data: [
-            {
-              id: "cohere/north-mini-code:free",
-              pricing: { prompt: "0", completion: "0", request: "0" }
-            }
-          ]
-        });
-      }
-      return jsonResponse({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({
-                candidates: [{ text: "A clean OpenRouter draft." }, { text: "Another clean OpenRouter draft." }]
-              })
-            }
-          }
-        ]
-      });
-    };
-    const provider = createOpenRouterGenerationProvider({
-      apiKey: "test-key",
-      model: "cohere/north-mini-code:free",
-      fetch: fetchImpl
-    });
-
-    const candidates = await provider.generateDraftCandidates({ idea: "Make it better.", count: 2 });
-    const body = JSON.parse(String(calls[1]?.init?.body)) as Record<string, unknown>;
-    const headers = calls[1]?.init?.headers as Record<string, string>;
-
-    expect(calls[0]?.url).toBe("https://openrouter.ai/api/v1/models");
-    expect(calls[1]?.url).toBe("https://openrouter.ai/api/v1/chat/completions");
-    expect(headers.authorization).toBe("Bearer test-key");
-    expect(body).toMatchObject({ model: "cohere/north-mini-code:free", response_format: { type: "json_object" } });
-    expect(candidates).toEqual([
-      { text: "a clean openrouter draft.", score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 1, quality: 3 } },
-      { text: "another clean openrouter draft.", score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 2, quality: 3 } }
-    ]);
-  });
-
-  it("retries OpenRouter with a line prompt when JSON candidates are empty", async () => {
-    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
-    let chatCount = 0;
-    const fetchImpl: FetchLike = async (url, init) => {
-      calls.push({ url: String(url), init });
-      if (String(url).endsWith("/models")) {
-        return jsonResponse({
-          data: [
-            {
-              id: "cohere/north-mini-code:free",
-              pricing: { prompt: "0", completion: "0", request: "0" }
-            }
-          ]
-        });
-      }
-      chatCount += 1;
-      // First chat call returns empty JSON candidates; generateDraftCandidates retries once with linePrompt.
-      if (chatCount === 1) {
-        return jsonResponse({
-          choices: [
-            {
-              message: {
-                content: '{"candidates":[]}'
-              }
-            }
-          ]
-        });
-      }
-      return jsonResponse({
-        choices: [
-          {
-            message: {
-              content:
-                "Keep ingest drafts human-reviewed before anything reaches X.\nMake local posting automation auditable enough that every account action has a trail."
-            }
-          }
-        ]
-      });
-    };
-    const provider = createOpenRouterGenerationProvider({
-      apiKey: "test-key",
-      model: "cohere/north-mini-code:free",
-      fetch: fetchImpl
-    });
-
-    const candidates = await provider.generateDraftCandidates({ idea: "Make ingest reliable and auditable.", count: 2 });
-    const firstBody = JSON.parse(String(calls[1]?.init?.body)) as Record<string, unknown>;
-    const retryBody = JSON.parse(String(calls.at(-1)?.init?.body)) as Record<string, unknown>;
-
-    expect(calls[0]?.url).toBe("https://openrouter.ai/api/v1/models");
-    expect(calls[1]?.url).toBe("https://openrouter.ai/api/v1/chat/completions");
-    expect(calls.at(-1)?.url).toBe("https://openrouter.ai/api/v1/chat/completions");
-    expect(firstBody).toMatchObject({ response_format: { type: "json_object" } });
-    expect(retryBody).toMatchObject({ response_format: { type: "json_object" } });
-    expect(candidates).toEqual([
-      {
-        text: "keep ingest drafts human-reviewed before anything reaches x.",
-        score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 1, quality: 3 }
-      },
-      {
-        text: "make local posting automation auditable enough that every account action has a trail.",
-        score: { provider: "openrouter", model: "cohere/north-mini-code:free", rank: 2, quality: 3 }
-      }
-    ]);
-  });
-
-  it("does not send a chat request when OpenRouter cannot confirm free pricing", async () => {
-    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
-    const fetchImpl: FetchLike = async (url, init) => {
-      calls.push({ url: String(url), init });
-      return jsonResponse({
-        data: [
-          {
-            id: "cohere/north-mini-code:free",
-            pricing: { prompt: "0.000001", completion: "0", request: "0" }
-          }
-        ]
-      });
-    };
-    const provider = createOpenRouterGenerationProvider({
-      apiKey: "test-key",
-      model: "cohere/north-mini-code:free",
-      fetch: fetchImpl
-    });
-
-    await expect(provider.generateDraftCandidates({ idea: "Make it safe.", count: 1 })).rejects.toThrow(
-      "OpenRouter model is not confirmed free: cohere/north-mini-code:free"
-    );
-    expect(calls.map((call) => call.url)).toEqual(["https://openrouter.ai/api/v1/models"]);
-  });
-});
 
 describe("gemini generation", () => {
   it("posts JSON generation request to Gemini with selected model", async () => {
@@ -726,17 +587,6 @@ describe("generation config", () => {
   it("resolves provider config from environment", () => {
     expect(
       resolveGenerationProviderConfig({
-        ZYQUOR_OPENROUTER_API_KEY: "test-key",
-        ZYQUOR_OPENROUTER_MODEL: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
-      })
-    ).toMatchObject({
-      provider: "openrouter",
-      model: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-      configured: true
-    });
-
-    expect(
-      resolveGenerationProviderConfig({
         ZYQUOR_LLM_PROVIDER: "auto",
         ZYQUOR_GEMINI_API_KEY: "gemini-key"
       })
@@ -767,71 +617,7 @@ describe("generation config", () => {
     ).toThrow("Unsupported LLM provider: unsupported");
   });
 
-  it("forces OpenRouter onto the free model allowlist", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    expect(
-      resolveGenerationProviderConfig({
-        ZYQUOR_LLM_PROVIDER: "openrouter",
-        ZYQUOR_OPENROUTER_API_KEY: "test-key",
-        ZYQUOR_OPENROUTER_MODEL: "openai/gpt-4.1-mini"
-      })
-    ).toMatchObject({
-      provider: "openrouter",
-      model: "inclusionai/ling-3.0-flash:free",
-      configured: true
-    });
-    expect(warn).toHaveBeenCalledWith(
-      'generation: OpenRouter model "openai/gpt-4.1-mini" is not in the free allowlist; using "inclusionai/ling-3.0-flash:free"'
-    );
-
-    expect(
-      resolveGenerationProviderConfig({
-        ZYQUOR_LLM_PROVIDER: "openrouter",
-        ZYQUOR_OPENROUTER_API_KEY: "test-key",
-        ZYQUOR_OPENROUTER_MODEL: "cohere/north-mini-code:free"
-      })
-    ).toMatchObject({
-      provider: "openrouter",
-      model: "cohere/north-mini-code:free",
-      configured: true
-    });
-
-    expect(
-      resolveGenerationProviderConfig({
-        ZYQUOR_LLM_PROVIDER: "openrouter",
-        ZYQUOR_OPENROUTER_API_KEY: "test-key",
-        ZYQUOR_OPENROUTER_MODEL: "tencent/hy3:free"
-      })
-    ).toMatchObject({
-      provider: "openrouter",
-      model: "tencent/hy3:free",
-      configured: true
-    });
-
-    expect(
-      resolveGenerationProviderConfig({
-        ZYQUOR_LLM_PROVIDER: "openrouter",
-        ZYQUOR_OPENROUTER_API_KEY: "test-key",
-        ZYQUOR_OPENROUTER_MODEL: "poolside/laguna-xs-2.1:free"
-      })
-    ).toMatchObject({
-      provider: "openrouter",
-      model: "poolside/laguna-xs-2.1:free",
-      configured: true
-    });
-    warn.mockRestore();
-  });
-
   it("exposes provider-specific model dropdown options", () => {
-    expect(GENERATION_MODEL_OPTIONS.openrouter).toEqual([
-      "inclusionai/ling-3.0-flash:free",
-      "google/gemma-4-26b-a4b-it:free",
-      "google/gemma-4-31b-it:free",
-      "tencent/hy3:free",
-      "poolside/laguna-xs-2.1:free",
-      "cohere/north-mini-code:free",
-      "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
-    ]);
     expect(GENERATION_MODEL_OPTIONS.gemini).toContain("gemini-2.0-flash");
     expect(GENERATION_MODEL_OPTIONS.ollama).toContain("gemma4:e4b");
   });

@@ -196,15 +196,6 @@ CREATE TABLE IF NOT EXISTS post_history (
   posted_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS content_fingerprints (
-  id TEXT PRIMARY KEY NOT NULL,
-  account_id TEXT NOT NULL REFERENCES accounts(id),
-  draft_id TEXT NOT NULL REFERENCES drafts(id),
-  text_hash TEXT NOT NULL,
-  normalized_text TEXT NOT NULL,
-  embedding_ref TEXT,
-  created_at TEXT NOT NULL
-);
 
 CREATE TABLE IF NOT EXISTS tweet_measurements (
   id TEXT PRIMARY KEY NOT NULL,
@@ -253,8 +244,6 @@ CREATE INDEX IF NOT EXISTS idx_history_posted_at ON post_history(posted_at);
 CREATE INDEX IF NOT EXISTS idx_history_account_posted ON post_history(account_id, posted_at DESC);
 CREATE INDEX IF NOT EXISTS idx_history_account_source_packet ON post_history(account_id, source_packet_id);
 CREATE INDEX IF NOT EXISTS idx_history_account_source_url ON post_history(account_id, source_url);
-CREATE INDEX IF NOT EXISTS idx_fingerprints_hash ON content_fingerprints(text_hash);
-CREATE INDEX IF NOT EXISTS idx_fingerprints_account_hash ON content_fingerprints(account_id, text_hash);
 CREATE INDEX IF NOT EXISTS idx_source_packets_account_status ON source_packets(account_id, status);
 CREATE INDEX IF NOT EXISTS idx_source_packets_created ON source_packets(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_status_updated ON post_jobs(status, updated_at DESC);
@@ -330,6 +319,10 @@ export async function createSqliteRepository(
   ensureColumn(db, "post_jobs", "reply_to_url", "reply_to_url TEXT");
   ensureColumn(db, "ingest_configs", "metadata_json", "metadata_json TEXT NOT NULL DEFAULT '{}'");
   ensureColumn(db, "source_packets", "feedback", "feedback TEXT");
+  ensureColumn(db, "drafts", "text_hash", "text_hash TEXT");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_drafts_account_text_hash ON drafts(account_id, text_hash) WHERE text_hash IS NOT NULL");
+  // Folded into drafts.text_hash; the table carried no independent data.
+  db.exec("DROP TABLE IF EXISTS content_fingerprints");
   const historyColumns = rows(prepare("PRAGMA table_info(post_history)").all());
   const ensureHistoryColumn = (name: string, definition: string) => {
     if (!historyColumns.some((column) => column.name === name)) {
@@ -348,6 +341,21 @@ export async function createSqliteRepository(
   // query costs nothing once all rows carry a hash. It references the column
   // above, so it can only be created after the migration has run.
   db.exec("CREATE INDEX IF NOT EXISTS idx_history_account_no_hash ON post_history(account_id) WHERE text_hash IS NULL");
+
+  // The five legacy tweet types were retired. Fold surviving rows into the
+  // current set so validation and type filters keep working.
+  for (const table of ["post_history", "source_packets", "tweet_measurements"]) {
+    db.exec(`
+      UPDATE ${table} SET tweet_type = CASE tweet_type
+        WHEN 'news_context' THEN 'useful_info'
+        WHEN 'lesson' THEN 'guide'
+        WHEN 'tool' THEN 'useful_info'
+        WHEN 'hiring' THEN 'useful_info'
+        WHEN 'article_summary' THEN 'useful_info'
+      END
+      WHERE tweet_type IN ('news_context', 'lesson', 'tool', 'hiring', 'article_summary')
+    `);
+  }
 
   const styleCount = row(prepare("SELECT COUNT(*) AS count FROM style_profiles").get());
   if (Number(styleCount?.count ?? 0) === 0) {
@@ -470,7 +478,6 @@ export async function createSqliteRepository(
 
         prepare("DELETE FROM post_attempts WHERE job_id IN (SELECT id FROM post_jobs WHERE account_id = ?)").run(accountId);
         prepare("DELETE FROM post_history WHERE account_id = ?").run(accountId);
-        prepare("DELETE FROM content_fingerprints WHERE account_id = ?").run(accountId);
         prepare("DELETE FROM tweet_measurements WHERE account_id = ?").run(accountId);
         prepare("DELETE FROM post_jobs WHERE account_id = ?").run(accountId);
         prepare("DELETE FROM draft_candidates WHERE draft_id IN (SELECT id FROM drafts WHERE account_id = ?)").run(accountId);
@@ -977,7 +984,6 @@ export async function createSqliteRepository(
 
         prepare("DELETE FROM post_attempts WHERE job_id IN (SELECT id FROM post_jobs WHERE draft_id = ?)").run(draftId);
         prepare("DELETE FROM post_jobs WHERE draft_id = ?").run(draftId);
-        prepare("DELETE FROM content_fingerprints WHERE draft_id = ?").run(draftId);
         prepare("DELETE FROM draft_candidates WHERE draft_id = ?").run(draftId);
         prepare("DELETE FROM drafts WHERE id = ?").run(draftId);
 
@@ -1091,17 +1097,21 @@ export async function createSqliteRepository(
           throw new Error(`Cannot approve draft from status: ${draft.status}`);
         }
         const timestamp = now();
-        const normalizedText = normalizePostText(input.editedText);
         const textHash = hashPostText(input.editedText);
+        // The draft row itself is the duplicate index: one approved draft per
+        // (account, text hash). `drafts.text_hash` replaced content_fingerprints.
         const duplicate = row(
-          prepare("SELECT id FROM content_fingerprints WHERE account_id = ? AND text_hash = ?").get(draft.accountId, textHash)
+          prepare(
+            "SELECT id FROM drafts WHERE account_id = ? AND text_hash = ? AND status = 'approved' AND id <> ? LIMIT 1"
+          ).get(draft.accountId, textHash, input.draftId)
         );
         if (duplicate) {
           throw new Error("Duplicate post text for this account");
         }
 
-        prepare("UPDATE drafts SET edited_text = ?, status = ?, updated_at = ? WHERE id = ?").run(
+        prepare("UPDATE drafts SET edited_text = ?, text_hash = ?, status = ?, updated_at = ? WHERE id = ?").run(
           input.editedText,
+          textHash,
           "approved",
           timestamp,
           input.draftId
@@ -1172,12 +1182,6 @@ export async function createSqliteRepository(
           job.createdAt,
           job.updatedAt
         );
-
-        prepare(
-          `INSERT INTO content_fingerprints (
-            id, account_id, draft_id, text_hash, normalized_text, embedding_ref, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)`
-        ).run(id("fingerprint"), draft.accountId, draft.id, textHash, normalizedText, null, timestamp);
 
         return { draft: requireDraft(input.draftId), job };
       });

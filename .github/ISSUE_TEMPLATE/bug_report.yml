@@ -1,0 +1,89 @@
+name: Bug report
+description: Report something in Zyquor that does not work as expected.
+title: "[bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not use this form for security problems. Report those privately
+        through GitHub Security Advisories as described in
+        [SECURITY.md](https://github.com/haroon0x/zyquor/blob/master/SECURITY.md).
+
+        Before filing, check whether the behaviour is one of the documented
+        posting defaults (see `README.md`): posting is off until
+        `ZYQUOR_ENABLE_BROWSER_PREPARE=1` and `ZYQUOR_ENABLE_BROWSER_POST=1`, and
+        failed post jobs are never retried automatically.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you observed, including the exact error text or API response.
+      placeholder: "Example: GET /browser/x-session reports loggedIn: false for a profile that is signed in, and prepare stops at the login check."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: What should have happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: The smallest sequence that triggers it. Include the HTTP calls, the UI path, or the script and flags you used.
+      placeholder: |
+        1. Start the API with ZYQUOR_API_PORT=3001 pnpm dev:api
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: stack
+    attributes:
+      label: Stack
+      description: Which implementation were you running?
+      options:
+        - TypeScript (pnpm dev:api / dev:web / dev:worker)
+        - Rust (cargo test / a crates/ crate)
+        - Both
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: Distribution and version, or Windows/macOS version. Say if you run under WSL or a container.
+      placeholder: Ubuntu 24.04 (bare metal) / Windows 11 / macOS 15 / Windows 11 with WSL2
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Node, pnpm, and Rust versions
+      description: Output of `node -v`, `pnpm -v`, and `cargo -V`.
+      placeholder: "node v24.4.1, pnpm 10.30.3, cargo 1.85.0"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Relevant log lines, the console output, or `data/artifacts` paths.
+        Redact cookies, tokens, `.env` values, API keys, and account handles
+        before pasting. Never attach `profiles/`, `settings.json`, or
+        `data/app.sqlite`.
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Secrets
+      options:
+        - label: The logs and report contain no cookies, tokens, API keys, `.env` contents, or account credentials.
+          required: true

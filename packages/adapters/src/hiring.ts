@@ -59,6 +59,8 @@ async function fetchHiringItem(id: number): Promise<SourceItem | null> {
         published: item.time ? new Date(item.time * 1000).toISOString() : null,
         source: "hackernews-jobs",
         sourceId: id,
+        // Source metadata kind, not a tweet type: routing maps job items to
+        // the useful_info tweet type.
         type: "hiring"
       }
     };

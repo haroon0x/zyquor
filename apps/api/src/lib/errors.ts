@@ -24,8 +24,7 @@ export function isGenerationError(error: Error) {
   return (
     error.message.startsWith("Generation request failed:") ||
     error.message.startsWith("Command Code") ||
-    error.message.includes(" returned no draft candidates") ||
-    error.message.includes("ZYQUOR_OPENROUTER_API_KEY")
+    error.message.includes(" returned no draft candidates")
   );
 }
 

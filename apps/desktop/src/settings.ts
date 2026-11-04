@@ -12,7 +12,6 @@ export interface DesktopSettings {
   opencodePath?: string;
   opencodeVariant?: string;
   llmProvider?: string;
-  openrouterApiKey?: string;
   geminiApiKey?: string;
   chromePath?: string;
   cdpPort?: number;
@@ -21,7 +20,7 @@ export interface DesktopSettings {
   autoApproveSourcePackets?: boolean;
 }
 
-const SECRET_FIELDS = ["openrouterApiKey", "geminiApiKey"] as const;
+const SECRET_FIELDS = ["geminiApiKey"] as const;
 const ENCRYPTED_PREFIX = "enc:v1:";
 
 let encryptionUnavailableWarningLogged = false;
@@ -120,7 +119,6 @@ export function applySettingsToEnv(settings: DesktopSettings, options: { overwri
     ZYQUOR_OPENCODE_PATH: settings.opencodePath,
     ZYQUOR_OPENCODE_VARIANT: settings.opencodeVariant,
     ZYQUOR_LLM_PROVIDER: settings.llmProvider,
-    ZYQUOR_OPENROUTER_API_KEY: settings.openrouterApiKey,
     ZYQUOR_GEMINI_API_KEY: settings.geminiApiKey,
     ZYQUOR_CHROME_PATH: settings.chromePath,
     ZYQUOR_BROWSER_CDP_PORT: settings.cdpPort !== undefined ? String(settings.cdpPort) : undefined,

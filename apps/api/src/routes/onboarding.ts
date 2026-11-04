@@ -10,9 +10,6 @@ function hasExplicitGenerationConfig(deps: AppDeps) {
     env.ZYQUOR_COMMAND_CODE_PATH ||
     env.ZYQUOR_CODEX_MODEL ||
     env.ZYQUOR_CODEX_PATH ||
-    env.ZYQUOR_OPENROUTER_API_KEY ||
-    env.ZYQUOR_OPENROUTER_MODEL ||
-    env.ZYQUOR_OPENROUTER_BASE_URL ||
     env.ZYQUOR_GEMINI_API_KEY ||
     env.ZYQUOR_GEMINI_MODEL ||
     env.ZYQUOR_GEMINI_BASE_URL ||

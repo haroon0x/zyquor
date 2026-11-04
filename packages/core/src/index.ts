@@ -19,15 +19,7 @@ export const TWEET_TYPES = [
   "feed_observation"
 ] as const;
 
-export const LEGACY_TWEET_TYPES = [
-  "news_context",
-  "lesson",
-  "tool",
-  "article_summary",
-  "hiring"
-] as const;
-
-export const ALL_TWEET_TYPES = [...TWEET_TYPES, ...LEGACY_TWEET_TYPES] as const;
+export const ALL_TWEET_TYPES = TWEET_TYPES;
 
 export const SOURCE_TYPES = [
   "manual",
@@ -50,7 +42,6 @@ export const SOURCE_TYPES = [
 export const LLM_PROVIDERS = [
   "command-code",
   "opencode",
-  "openrouter",
   "gemini",
   "ollama"
 ] as const;
@@ -630,7 +621,7 @@ function containsUrl(text: string) {
 }
 
 function sourceNeedsLink(item: PostHistory) {
-  return item.sourceUrl && (item.tweetType === "useful_info" || item.tweetType === "article_summary" || item.tweetType === "hiring" || item.sourceType === "job");
+  return item.sourceUrl && (item.tweetType === "useful_info" || item.sourceType === "job");
 }
 
 export function analyzePostHistory(

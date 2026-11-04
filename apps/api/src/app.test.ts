@@ -814,7 +814,7 @@ describe("api workflow", () => {
     await app.close();
   });
 
-  it("attaches the source link to an article_summary post instead of a bare-url reply", async () => {
+  it("attaches the source link to a long-form source post instead of a bare-url reply", async () => {
     // Freeze the clock for setup writes so autopost schedules and history
     // stamps land in the past, matching how the gate sees them at request time.
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -837,7 +837,7 @@ describe("api workflow", () => {
       sourceType: "news",
       summary: "Operators get safer recovery defaults.",
       title: "Database failover article",
-      tweetType: "article_summary",
+      tweetType: "useful_info",
       url: "https://example.com/database-failover"
     });
     const draft = await repository.createDraft({
@@ -938,7 +938,7 @@ describe("api workflow", () => {
       sourceTitle: "Developer tools article",
       sourceType: "feed",
       sourceUrl: "https://example.com/developer-tools",
-      tweetType: "article_summary"
+      tweetType: "useful_info"
     });
     await repository.createPostHistory({
       accountId: "account_personal",
@@ -948,7 +948,7 @@ describe("api workflow", () => {
       sourceTitle: "Developer tools article",
       sourceType: "feed",
       sourceUrl: "https://example.com/developer-tools",
-      tweetType: "article_summary"
+      tweetType: "useful_info"
     });
 
     const response = await app.inject({
@@ -1075,7 +1075,7 @@ describe("api workflow", () => {
         sourceType: "news",
         summary: "AI infrastructure spending is reshaping the market.",
         title: "AI infra shift",
-        tweetType: "news_context",
+        tweetType: "useful_info",
         url: "https://example.com/ai-infra"
       }
     });
@@ -1085,7 +1085,7 @@ describe("api workflow", () => {
     expect(packet).toMatchObject({
       sourceType: "news",
       status: "new",
-      tweetType: "news_context"
+      tweetType: "useful_info"
     });
 
     const draftResponse = await app.inject({
@@ -1134,7 +1134,7 @@ describe("api workflow", () => {
         sourceType: "news",
         summary: "A science story has economy implications.",
         title: "Battery science market impact",
-        tweetType: "news_context",
+        tweetType: "useful_info",
         url: "https://example.com/battery-science"
       }
     });
@@ -1188,7 +1188,7 @@ describe("api workflow", () => {
         sourceType: "news",
         summary: "Source delete summary",
         title: "Source delete",
-        tweetType: "news_context",
+        tweetType: "useful_info",
         url: "https://example.com/source-delete"
       }
     });
@@ -1232,7 +1232,7 @@ describe("api workflow", () => {
           sourceType: "news",
           summary: `${title} summary`,
           title,
-          tweetType: "news_context",
+          tweetType: "useful_info",
           url: `https://example.com/${title.toLowerCase().replace(/\s+/g, "-")}`
         }
       });
@@ -1276,7 +1276,7 @@ describe("api workflow", () => {
         sourceType: "news",
         summary: "Posted source summary",
         title: "Posted source",
-        tweetType: "news_context",
+        tweetType: "useful_info",
         url: "https://example.com/posted-source"
       }
     });
@@ -1330,7 +1330,7 @@ describe("api workflow", () => {
         sourceType: "news",
         summary: "Science and economy source.",
         title: "Science economy source",
-        tweetType: "news_context",
+        tweetType: "useful_info",
         url: "https://example.com/science-economy"
       }
     });
@@ -1367,7 +1367,7 @@ describe("api workflow", () => {
         sourceTitle: "Science economy source",
         sourceType: "news",
         sourceUrl: "https://example.com/science-economy",
-        tweetType: "news_context"
+        tweetType: "useful_info"
       }
     ]);
 
@@ -1499,7 +1499,7 @@ describe("api workflow", () => {
         sourceType: "news",
         maxPacketsPerDay: 10,
         metadata: { region: "global" },
-        tweetTypeMix: { feed_observation: 30, news_context: 70 },
+        tweetTypeMix: { feed_observation: 30, useful_info: 70 },
         scheduleWindowStart: "09:00",
         scheduleWindowEnd: "21:00",
         enabled: true

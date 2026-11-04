@@ -101,7 +101,7 @@ describe("repository workflow", () => {
       sourceType: "news",
       summary: "Source summary",
       title: "Source title",
-      tweetType: "news_context",
+      tweetType: "useful_info",
       url: "https://example.com/source"
     });
     const created = await repository.createDraft({
@@ -271,7 +271,7 @@ describe("repository workflow", () => {
       sourceType: "news",
       summary: "AI funding is shifting from model demos to infrastructure scale.",
       title: "AI infrastructure funding",
-      tweetType: "news_context",
+      tweetType: "useful_info",
       url: "https://example.com/ai"
     });
 
@@ -279,7 +279,7 @@ describe("repository workflow", () => {
       accountId: "account_personal",
       sourceType: "news",
       status: "new",
-      tweetType: "news_context",
+      tweetType: "useful_info",
       url: "https://example.com/ai"
     });
     await expect(repository.getSourcePacket(packet.id)).resolves.toMatchObject({ title: "AI infrastructure funding" });
@@ -297,7 +297,7 @@ describe("repository workflow", () => {
       sourceType: "news",
       summary: "Battery research could affect energy markets.",
       title: "Battery research funding",
-      tweetType: "news_context",
+      tweetType: "useful_info",
       url: "https://example.com/battery"
     });
     const created = await repository.createDraft({

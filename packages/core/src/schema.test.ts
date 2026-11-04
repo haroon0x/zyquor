@@ -140,30 +140,33 @@ describe("domain schemas", () => {
         ideas: ["One", "Two"],
         scheduleSpacingMinutes: 90,
         scheduleStart: "2026-04-25T15:30:00.000Z",
-        tweetType: "hiring"
+        tweetType: "guide"
       })
-    ).toMatchObject({ ideas: ["One", "Two"], tweetType: "hiring" });
+    ).toMatchObject({ ideas: ["One", "Two"], tweetType: "guide" });
   });
 
-  it("accepts hiring source packets and article summary tweet type", () => {
+  it("accepts job source packets and rejected legacy tweet types", () => {
     expect(
       createSourcePacketRequestSchema.parse({
         accountId: "account_personal",
         sourceType: "job",
         summary: "Company is hiring infra engineers.",
         title: "ExampleCo is hiring",
-        tweetType: "hiring",
+        tweetType: "useful_info",
         url: "https://example.com/jobs/infra"
       })
-    ).toMatchObject({ sourceType: "job", tweetType: "hiring" });
+    ).toMatchObject({ sourceType: "job", tweetType: "useful_info" });
 
-    expect(
-      createDraftRequestSchema.parse({
-        accountId: "account_personal",
-        idea: "Read this blog post and summarize why it matters.",
-        tweetType: "article_summary"
-      })
-    ).toMatchObject({ tweetType: "article_summary" });
+    // The five legacy types were retired; they must no longer validate.
+    for (const retired of ["article_summary", "news_context", "lesson", "tool", "hiring"]) {
+      expect(
+        createDraftRequestSchema.safeParse({
+          accountId: "account_personal",
+          idea: "Read this blog post and summarize why it matters.",
+          tweetType: retired
+        }).success
+      ).toBe(false);
+    }
   });
 
 });

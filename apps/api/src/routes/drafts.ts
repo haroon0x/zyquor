@@ -21,6 +21,7 @@ import {
 } from "@zyquor/automation";
 import {
   isCleanTweetText,
+  isInterrogationDodgeReply,
   passesTweetQualityFloor,
   qualityMinimum,
   replyQualityMinimum,
@@ -29,10 +30,6 @@ import {
 import { HttpError } from "../lib/errors.js";
 import { tracePostProcessTweetText } from "../lib/post-process.js";
 import { isPostingMode } from "../lib/posting.js";
-
-function generationTweetType(value: string) {
-  return value === "hiring" ? value : normalizeTweetType(value);
-}
 
 export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void {
   app.get("/drafts/pending", async () => {
@@ -99,7 +96,7 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
       ...(draft.replyTo
         ? { tweetType: "reply" }
         : metadata.tweetType
-          ? { tweetType: generationTweetType(metadata.tweetType as string) }
+          ? { tweetType: normalizeTweetType(metadata.tweetType as string) }
           : {}),
       ...(draft.replyTo
         ? {
@@ -340,6 +337,9 @@ export function registerDraftsRoutes(app: FastifyInstance, deps: AppDeps): void 
       const screenFloor = isReply ? replyQualityMinimum() : qualityMinimum();
       if (approvedText.length > 279) {
         screenReasons.push(`too_long (${approvedText.length} chars > 279)`);
+      }
+      if (isReply && isInterrogationDodgeReply(approvedText)) {
+        screenReasons.push("reply_interrogation_dodge");
       }
       if (!isCleanTweetText(approvedText)) {
         screenReasons.push("unclean text (links, spam markers, or slop phrases)");

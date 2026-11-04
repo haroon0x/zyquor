@@ -1,5 +1,7 @@
 # Architecture Notes
 
+> **Rust migration in progress.** The target architecture is one Cargo workspace: `crates/zyquor-{core,accounts,storage,adapters,generation,automation,browser}` with `apps/api` (axum), `apps/worker`, and `apps/desktop` (Tauri). Package boundaries and runtime rules documented below carry over unchanged. See `docs/rust-migration.md` for the mapping, milestones, and parity requirements.
+
 Zyquor is a local-first X posting assistant. Current system covers manual drafts, source packets, scheduled jobs, autopost jobs, browser prepare/post, automated source ingest, and short-window post-history analysis.
 
 Core flow:
@@ -11,7 +13,7 @@ idea/source -> generation -> review/edit or autopost approval -> durable job -> 
 Topic flow:
 
 ```text
-topic or rough post -> fresh topic search -> source packet -> Command Code candidates -> review/edit or autopost approval
+topic or rough post -> fresh topic search -> source packet -> opencode candidates -> review/edit or autopost approval
 ```
 
 Automated source flow:
@@ -33,16 +35,18 @@ mentions tab or post url -> browser fetch -> reply target -> optional Goldfish m
 - Goldfish memory: before drafting, `@zyquor/adapters` resolves the author and topic against the user's local Goldfish MCP (wiki facts plus recent activity, 10 minute TTL cache with a 60 second negative cache). Matched material renders into the generation prompt inside `<personal-memory>`, capped at 1600 characters. Memory is additive context only and never fails a draft when unavailable (`disabled`, `empty`, `unavailable` reasons). The per-account toggle is the style rule `rules.replyMemory` (default on); a request's `useMemory` field overrides it.
 - Worker auto-draft (`ZYQUOR_MENTIONS_AUTO_DRAFT=1`, `ZYQUOR_MENTIONS_ACCOUNTS`, `ZYQUOR_MENTIONS_INTERVAL_MS`, default 15 minutes) calls scan-and-draft on a timer; it only drafts.
 - Worker auto-approve (stage 2, `ZYQUOR_MENTIONS_AUTO_APPROVE=1`, same accounts/interval; takes precedence over auto-draft when both are set) calls `POST /replies/mentions/scan-and-auto-approve`. The lane drafts fresh mentions with wiki-only memory (activity excerpts from email/meetings are never fetched or injected, `maxMemories: 0`) and may approve the top candidate only when it clears the quality floor (`passesTweetQualityFloor`), within a daily cap `ZYQUOR_MENTIONS_AUTO_APPROVE_DAILY_CAP` (default 3, 0 disables, clamped 0..50) counted from same-local-day approvals of drafts marked `metadata.autoApproved`. Approval mirrors the human route (post-processing, `features`, `autoApproved: true`, `approveDraft` with `mode: "review_required"`), so the output is an ordinary queued post job; actual posting remains gated by the worker/browser flags, daily limits, and quiet hours. Anything else stays in the review queue with a `held` reason (`quality_below_floor`, `daily_cap_reached`, `draft_failed`, `approve_failed`).
-- `scripts/poll-x-mentions.mjs` is a thin cron shim over the same API (`DRY_RUN=1` lists the scan; otherwise it scan-and-drafts and enqueues external links found in mentions for the demo-checker service).
+- `scripts/poll-x-mentions.mjs` is a thin cron shim over the same API (`DRY_RUN=1` lists the scan; otherwise it scan-and-drafts and).
 
 ## Package Boundaries
+
+These boundaries are preserved 1:1 in the Rust workspace as one crate each; the TypeScript package names below map to `zyquor-core`, `zyquor-accounts`, `zyquor-adapters`, `zyquor-automation`, `zyquor-generation`, `zyquor-storage`, and `zyquor-browser`.
 
 - `@zyquor/core`: domain constants, validation schemas, post-history analysis, shared types.
 - `@zyquor/accounts`: account config and dedicated-profile safety checks.
 - `@zyquor/adapters`: live source adapters, aggregation, source health, optional Crawl4AI client.
 - `@zyquor/automation`: source-packet context cleanup, ingest selection, draft-from-source flow.
 - `@zyquor/generation`: provider clients, prompts, parsing, tweet post-processing.
-- `@zyquor/storage`: SQLite/JSON/memory repositories and persistence mappers.
+- `@zyquor/storage`: SQLite repositories and persistence mappers.
 - `@zyquor/browser`: Playwright/CDP compose, prepare, post, and verification flow.
 - `apps/api`: Fastify API and local orchestration.
 - `apps/worker`: background polling for async ingest and due jobs.
@@ -80,8 +84,7 @@ Only `@zyquor/generation` knows provider wire formats. API selects provider from
 
 Supported providers:
 
+- `opencode`: authenticated local opencode CLI (`opencode run -m <model>#<variant>`); default model `opencode/glm-5.3-flash-free` with the high reasoning variant. This is the configured provider.
 - `command-code`: authenticated local Command Code CLI in non-interactive plan mode; default model `gpt-5.6-luna`.
-- `codex`: authenticated Codex CLI in ephemeral, read-only, non-interactive mode; default model `gpt-5.6-luna` with high reasoning.
-- `openrouter`: OpenRouter chat completions.
 - `gemini`: Google Gemini `models/{model}:generateContent`.
 - `ollama`: local `/api/generate`.

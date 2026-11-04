@@ -13,16 +13,15 @@ pnpm smoke && pnpm smoke:http
 ./zyquor          # Chrome CDP + API + web + worker
 ```
 
-## Required changes vs. Windows checkout
+## Setup differences vs. a Windows checkout
 
-- **Root `package.json`**: add `"@zyquor/core": "workspace:*"` and
-  `"@zyquor/storage": "workspace:*"` deps — `scripts/bootstrap.mjs` imports them,
-  and without the links pnpm installs nothing (bootstrap fails with
-  `ERR_MODULE_NOT_FOUND`). Re-run `pnpm install` after.
-- **pnpm 10 ignores build scripts** for `electron`/`esbuild`. Add
-  `"pnpm": {"onlyBuiltDependencies": ["electron", "esbuild"]}` to root
-  `package.json`, then `pnpm rebuild electron esbuild`. Without this,
-  `node_modules/electron/dist` never exists.
+- **Root `package.json`**: the `"@zyquor/core": "workspace:*"` and
+  `"@zyquor/storage": "workspace:*"` deps are already declared — `scripts/bootstrap.mjs`
+  imports them, and without the links pnpm installs nothing (bootstrap fails with
+  `ERR_MODULE_NOT_FOUND`). Re-run `pnpm install` if the links are missing.
+- **pnpm 10 ignores build scripts** for `electron`/`esbuild`. The root
+  `package.json` already sets `"pnpm": {"onlyBuiltDependencies": ["electron", "esbuild"]}`;
+  run `pnpm rebuild electron esbuild` if `node_modules/electron/dist` is missing.
 - **`.env`**: `ZYQUOR_BROWSER_CDP_URL=` (empty from `.env.example`) breaks the
   `./zyquor` launcher — the `??` default doesn't fire on an empty string, so it
   probes the invalid `/json/version` and reports "Chrome CDP did not become ready".
@@ -65,5 +64,5 @@ source-packet auto-approve is allowed once `enablePost` is true.
 ## Healthy start looks like
 
 - Web UI http://127.0.0.1:5173/ · API http://127.0.0.1:3001 · Chrome CDP http://127.0.0.1:9222
-- Generation: `codex` / `gpt-5.6-luna` (CLIs installed natively)
+- Generation: `opencode` / `opencode/glm-5.3-flash-free` (high variant; CLI installed natively)
 - Worker auto-seeds a default news ingest config and drafts source packets.
