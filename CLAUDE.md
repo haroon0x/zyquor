@@ -29,7 +29,7 @@ Draft generation is a single LLM call that writes candidates with all anti-slop 
 
 Tweet types (`TWEET_TYPES` in `packages/core/src/index.ts`): `feed_observation`, `useful_info`, `guide`, `opinion`, `reply`, `narrative_history`. The retired types (`news_context`, `lesson`, `tool`, `hiring`, `article_summary`) are folded into these on database open.
 
-Controlled posting only behind env flags (`ZYQUOR_ENABLE_BROWSER_PREPARE` / `ZYQUOR_ENABLE_BROWSER_POST`; both disabled by default). Multi-account works end to end: accounts can be created, switched, enabled, and deleted in the web UI or via `POST /accounts` / `DELETE /accounts/:id`, each with its own profile and CDP port. Per-account limits and quiet hours are not editable in the web UI yet. Tauri and E2E tests are future work (see Next Steps).
+Controlled posting only behind env flags (`ZYQUOR_ENABLE_BROWSER_PREPARE` / `ZYQUOR_ENABLE_BROWSER_POST`; both disabled by default). Multi-account works end to end: accounts can be created, switched, enabled, and deleted in the web UI or via `POST /accounts` / `DELETE /accounts/:id`, each with its own profile and CDP port. Per-account limits and quiet hours are not editable in the web UI yet. Desktop shell decision is locked: **Tauri v2** (M6). E2E tests are future work (see Next Steps).
 
 ## Architecture
 
@@ -222,10 +222,9 @@ Env: `ZYQUOR_POST_ACCOUNT_ID` (default `account_personal`), `ZYQUOR_POST_LOOP_PE
 
 Finishing the Rust migration (details: `docs/rust-migration.md`):
 
-- M3 remainder: port the provider clients and `refine.ts` into `zyquor-generation`; add Rust unit tests/parity fixtures for `parse.rs` (prompt assembly and quality scoring are covered; parsing is not).
-- M4: `zyquor-browser` (direct CDP prepare/post). Highest risk — Playwright's selectors, actionability waits, and retries must be reimplemented explicitly and tested against a live logged-in profile.
-- M5–M8: `apps/api` + `apps/worker` on axum, `apps/desktop` on Tauri, `apps/web` decision (React vs full Rust UI), scripts port and pnpm retirement.
-- Storage parity gaps (from `docs/rust-migration.md`): add a regression test for the legacy null-`text_hash` branch of `hasPostHistoryTextHash`; align `deleteAccount` behaviour (the Rust version also deletes knowledge entries and ingest configs; the TypeScript one does not) before parity testing account deletion.
+- M4: `zyquor-browser` is ported (chromiumoxide CDP session + `CdpPage` primitives, login detection, feed fetchers, composer, delete flow, launch state, Chrome launcher) but not live-tested against X yet — that needs the human ask before live CDP runs. Next: M5 axum API and worker.
+- M5–M8: `apps/api` + `apps/worker` on axum, `apps/desktop` on Tauri v2 (decided), `apps/web` decision (React vs full Rust UI), scripts port and pnpm retirement.
+- Storage parity gaps (from `docs/rust-migration.md`): align `deleteAccount` behaviour (the Rust version also deletes knowledge entries and ingest configs; the TypeScript one does not) before parity testing account deletion. (The legacy null-`text_hash` regression test is deferred under the test policy.)
 
 Verified gaps not yet in the tree:
 

@@ -5,6 +5,9 @@ members = [
   "crates/zyquor-accounts",
   "crates/zyquor-storage",
   "crates/zyquor-generation",
+  "crates/zyquor-adapters",
+  "crates/zyquor-automation",
+  "crates/zyquor-browser",
 ]
 
 [workspace.package]
@@ -15,14 +18,31 @@ license = "AGPL-3.0-only"
 publish = false
 
 [workspace.dependencies]
+chrono = "0.4"
+chromiumoxide = "0.8"
+fancy-regex = "0.14"
+futures = "0.3"
+indexmap = { version = "2", features = ["serde"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 thiserror = "2"
+tokio = { version = "1", default-features = false, features = [
+  "io-util",
+  "macros",
+  "process",
+  "rt",
+  "time",
+] }
+url = "2"
 
 zyquor-core = { path = "crates/zyquor-core" }
 zyquor-accounts = { path = "crates/zyquor-accounts" }
 zyquor-storage = { path = "crates/zyquor-storage" }
 zyquor-generation = { path = "crates/zyquor-generation" }
+zyquor-adapters = { path = "crates/zyquor-adapters" }
+zyquor-automation = { path = "crates/zyquor-automation" }
+zyquor-browser = { path = "crates/zyquor-browser" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

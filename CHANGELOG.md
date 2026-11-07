@@ -5,6 +5,36 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Rust migration milestone M4: the full `zyquor-browser` crate on
+  chromiumoxide CDP (session + page layer, per-profile Chrome launch with
+  WSL and detached-process handling, per-profile launch state, login
+  detection, all five feed feeders, the composer flow with
+  caller-gated post click and verified permalink, the delete flow,
+  trace-event failure artifacts). Playwright's actionability waits are
+  reimplemented over `Runtime.evaluate` polls; the cross-frame stability
+  check is a documented single-poll wait.
+
+### Added
+
+- Rust migration milestone M3 complete: `zyquor-generation` (provider
+  clients behind a `Fetch` seam + shared CLI spawn/capture runner + refine
+  loop), all 19 `zyquor-adapters` source adapters with the aggregator and
+  health tracking, the Goldfish MCP adapter, and the full
+  `zyquor-automation` ingest engine (packet drafting, tweet-type routing,
+  quality gates, performance aggregation).
+- Deep-module design pass (2026-11-07): one module per concept with a
+  minimal surface (`deps` owns env-derived config, `packet` owns packet
+  derivation, `routing` owns tweet-type decisions, `quality` owns the
+  gates, `performance` owns engagement math, `topic` owns topic identity).
+  `selection.ts` merged into its owners; `pickTweetType` (domain analysis
+  showed it has no production caller) removed rather than ported.
+- Tauri v2 locked in as the M6 desktop-shell decision (previously undecided
+  prose).
+
 ## [0.1.0] - 2026-11-04
 
 Initial public release. Local-first X posting assistant: draft, review, approve,

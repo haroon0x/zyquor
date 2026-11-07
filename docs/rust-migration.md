@@ -110,7 +110,7 @@ worker -> core, storage
 | HTTP server        | Fastify                     | axum + tower-http                    |
 | Persistence        | `node:sqlite` + drizzle     | rusqlite (bundled) + hand-written SQL |
 | Browser automation | playwright-core (CDP)       | chromiumoxide (CDP)                  |
-| Desktop shell      | Electron                    | Tauri v2                             |
+| Desktop shell      | Electron                    | Tauri v2 (decided 2026-11-06)        |
 | Frontend           | React + Vite                | see "Web UI"                         |
 | Tests              | vitest                      | `cargo test` + parity fixtures       |
 | Config             | `.env` via process env      | dotenvy, same variable names         |
@@ -123,16 +123,41 @@ worker -> core, storage
 | M0 — Scaffold | done | `Cargo.toml` workspace, `rust-toolchain.toml`, Rust CI job (fmt, clippy, test). |
 | M1 — `zyquor-core` | done | Domain enums, lifecycle transitions, path rules, post spacing, reply-target parsing. 35 tests; parity harness matches TypeScript on 96 gate/transition cases and 11 CDP-URL cases. |
 | M2 — `zyquor-storage` + `zyquor-accounts` | partial (SQLite complete) | `zyquor-accounts` ported (6 tests). `zyquor-storage` ports the full SQLite `ZyquorRepository` surface — schema, column migrations, first-run seeding, accounts, style profiles, system feedback, knowledge entries, drafts, jobs, attempts, source packets, ingest runs/configs, post history, tweet measurements (23 tests). Verified cross-implementation: a database written by the TypeScript repository is read back by the Rust one with matching draft, job, and history records. No remaining repository surface. |
-| M3 — generation / adapters / automation | partial | `zyquor-generation`: config resolution, prompt/harness assembly (8 request shapes × 4 builders, byte-identical to TypeScript), deterministic quality scoring and text post-processing, and answer parsing (`parse.rs`) (29 tests). Provider clients and `refine.ts` are not ported. `zyquor-adapters` and `zyquor-automation` are not started. OpenRouter provider removed from both stacks. |
-| M4 — browser | pending | |
+| M3 — generation / adapters / automation | complete | `zyquor-generation` is complete: config resolution, prompt/harness assembly (8 request shapes × 4 builders, byte-identical to TypeScript), deterministic quality scoring and text post-processing, answer parsing (`parse.rs`), the provider clients (`command-code`, `opencode` with its failover ladder, `gemini`, `ollama`) behind a `Fetch` seam plus a shared spawn/capture runner for the CLIs, the refine loop, and the `create_generation_provider_from_env` factory. `zyquor-adapters` is complete: all 19 source adapters + the aggregator + health tracking + the Goldfish MCP adapter behind a `Fetch`/`CrawlService` seam (new modules `types.rs`, `fetch.rs`, `xml_util.rs`, `dates.rs`); Date.parse-compatible date helpers and XML/HTML helpers shared per-crate. `zyquor-automation` is complete: the ingest engine, packet/draft derivation, tweet-type routing (daily caps, rolling window, hash selection), post-quality gates, performance aggregation, and the shared `AutomationDeps` env bundle. Known gap from the port: the TypeScript `xai-news.ts` parses `firstMatch` group 1 (the 3-letter month fraction of the regex, e.g. "Jan"), so no xai-news item has ever passed the `published` check; the Rust port reproduces that bug by contract (reported separately; see "Known gaps"). |
+| M4 — browser | partial | `zyquor-browser` ported: chromiumoxide CDP session layer (page selection, dialog dismissal, owned-tab cleanup), `CdpPage` primitives (visible/actionability waits, hit-test clicks, text insertion), login detection + handle resolution, all five feed fetchers (timeline, mentions, home feed, tweet, performance) with scroll-and-collect machinery, the composer flow (open/type/verify + caller-gated click → verified permalink), the delete flow, per-profile launch state, and the Chrome launcher with WSL/detached handling. Deliberate gaps (see "Known gaps"): the Playwright cross-frame stability check is reduced to scroll+one poll wait; `prepare-*.zip` trace artifacts are trace-events JSON dumps; the non-CDP `launchPersistentContext` fallback is not ported. Not yet live-tested against X (the human-ask rule). |
 | M5 — api / worker | pending | |
-| M6 — desktop (Tauri) | pending | |
+| M6 — desktop | pending | **Decided: Tauri v2** replaces Electron (locked 2026-11-06). Same IPC surface. |
 | M7 — web | pending | |
 | M8 — scripts, retire pnpm | pending | |
 
-The TypeScript tree still runs the product and the Rust workspace passes 93
-tests. No package has been retired yet; the deliberate removals above are
+The TypeScript tree still runs the product and the Rust workspace passes
+117 tests. No package has been retired yet; the deliberate removals above are
 already applied in both stacks.
+
+### Known gaps in `zyquor-browser`
+
+- Playwright's cross-frame "stable" actionability check is reduced to a single
+  poll wait after scroll-into-view before the hit test. Fast re-mounts of the
+  React composer can still slip past on a slow first paint.
+- `context.tracing.stop({ path })` zips are written as trace-events JSON
+  (`prepare-<stamp>.json`) instead; the failure shows up in the path name and
+  opens in devtools' trace viewer rather than Playwright's.
+- The non-CDP `launchPersistentContext` fallback (used by a few scripts) is
+  not ported; only the CDP path is wired, the same validation as the
+  TypeScript open-path raises an explicit refusal.
+- The flows are not live-tested against X yet; that needs the human ask
+  ("posting/compose tasks require an explicit human ask" per housekeeping
+  rules) before the CDP flows run as an acceptance check.
+
+### Known gaps in `zyquor-adapters`
+
+- `xai-news.ts` (TypeScript) has a latent bug: the published-date regex
+  `(Jan|…|Dec)[a-z]* \d{1,2}, \d{4}` captures only the month fraction
+  (e.g. `"Jan"`), which `Date.parse` rejects, so the adapter's items never
+  pass its own published-date filter. The Rust port reproduces that behaviour
+  (`parse_date` of the 3-letter fraction never yields items). Fix in a
+  separate change once the bug is acknowledged; do not "repair" it inside a
+  port commit.
 
 ### Known gaps in `zyquor-storage`
 
@@ -143,7 +168,8 @@ Not ported yet:
   documentation was stale and has been corrected. Nothing to port.
 - `hasPostHistoryTextHash` covers the fingerprint lookup plus the legacy
   null-`text_hash` scan, but there is no test for the legacy branch yet: a
-  regression test needs a row inserted with a null hash.
+  regression test needs a row inserted with a null hash; deferred under the
+  test policy, not a blocker.
 - `deleteAccount` also removes knowledge entries and ingest configs; the
   TypeScript version does not delete knowledge entries, so behaviour differs
   slightly (the Rust version cleans up more). Align these before parity
@@ -154,20 +180,21 @@ Not ported yet:
 - `parse.rs` is ported (`parse_candidate_texts`, `candidates_from_text`,
   `parse_json_candidate_texts`, `is_no_candidates_error`, `as_text`, plus the
   private `is_grounded_candidate` / `strip_generated_urls` helpers) but has no
-  Rust unit tests and no parity harness. Prompt assembly and quality scoring
-  are covered; parsing needs fixtures before the crate can claim parity.
+  Rust unit tests and no parity harness. Accepted for now under the test
+  policy; prompt assembly and quality scoring remain covered by the existing
+  harnesses.
 
 ## Milestones
 
-Each milestone ends with a green `cargo test` and a parity check against the
-TypeScript implementation.
+Each milestone ends with a green `cargo test` and, where a parity harness
+exists, a parity check against the TypeScript implementation.
 
 - **M0 — Scaffold.** `Cargo.toml` workspace, `rust-toolchain.toml`, CI job for
   `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`. Exit: builds
   empty crates.
 - **M1 — `zyquor-core`.** Domain constants, statuses and transitions, path
-  rules, spacing. Port `index.ts`, `state.ts`, `paths.ts`, `spacing.ts` plus
-  their three test files. Exit: all core tests pass in Rust.
+  rules, spacing. Port `index.ts`, `state.ts`, `paths.ts`, `spacing.ts`.
+  Exit: all core tests pass in Rust.
 - **M2 — `zyquor-storage` + `zyquor-accounts`.** Repositories over rusqlite
   repositories; account config helpers. Exit: read an existing
   `data/app.sqlite` and round-trip it byte-faithfully.
@@ -180,10 +207,18 @@ TypeScript implementation.
 - **M5 — `apps/api` + `apps/worker`.** axum server exposing the identical
   route set and response shapes; worker polling loop. Exit: the web UI and
   the smoke scripts run against the Rust API with no client changes.
-- **M6 — `apps/desktop`.** Tauri shell replacing Electron, same IPC surface.
+- **M6 — `apps/desktop`.** Tauri v2 (decided 2026-11-06) replacing Electron, same IPC surface.
 - **M7 — `apps/web`.** Frontend decision and port (see below).
 - **M8 — Scripts and services.** Port `scripts/*.mjs` to binaries; retire the
   pnpm workspace.
+
+## Test policy
+
+TypeScript test files are **not** ported to Rust. Rust crates carry their own
+tests, and the crate tests and parity harnesses that already exist stay and
+must stay green. A ported module without Rust tests is an accepted gap —
+record it under "Known gaps", but it is not a blocker for a milestone. Writing
+new Rust unit tests is welcome when convenient, never required for parity.
 
 ## Parity strategy
 

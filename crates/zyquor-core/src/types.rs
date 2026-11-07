@@ -222,3 +222,36 @@ pub const AI_SLOP_PHRASES: &[&str] = &[
     "in order to",
     "in order for",
 ];
+
+/// Post engagement snapshot stored under `metadata.performance`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PostPerformance {
+    pub views: Option<i64>,
+    pub likes: Option<i64>,
+    pub replies: Option<i64>,
+    pub reposts: Option<i64>,
+    pub bookmarks: Option<i64>,
+    pub measured_at: String,
+}
+
+/// `postPerformanceFromMetadata` from `packages/core/src/index.ts`.
+pub fn post_performance_from_metadata(
+    metadata: &serde_json::Map<String, serde_json::Value>,
+) -> Option<PostPerformance> {
+    let value = metadata.get("performance")?;
+    let record = value.as_object()?;
+    let measured_at = record
+        .get("measuredAt")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .filter(|value| !value.is_empty())?;
+    let number = |key: &str| record.get(key).and_then(serde_json::Value::as_i64);
+    Some(PostPerformance {
+        views: number("views"),
+        likes: number("likes"),
+        replies: number("replies"),
+        reposts: number("reposts"),
+        bookmarks: number("bookmarks"),
+        measured_at,
+    })
+}

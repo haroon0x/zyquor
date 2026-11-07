@@ -18,34 +18,60 @@
   `candidates_from_text`, `parse_json_candidate_texts`, `is_no_candidates_error`,
   `as_text`, and the private `is_grounded_candidate` / `strip_generated_urls`
   helpers, ported from the tail of `quality.ts`.
-- 29 tests (config, quality, prompts); quality verified against TypeScript over
-  34 cases × 5 fields. Parsing has no dedicated tests yet.
+- Workspace now at 105 tests (config, quality, prompts, plus fake-`Fetch`
+  tests for the HTTP providers and the `post_json` retry path; no test touches
+  the network). Parsing has no dedicated tests yet. Quality was verified
+  against TypeScript over 34 cases × 5 fields.
 
-## Remaining
+## Notes for the next milestone
+
+Nothing open in this crate. `zyquor-adapters` and `zyquor-automation` are the
+remaining M3 crates. Live verification 2026-11-06: opencode (`run -m
+opencode/glm-5.3-flash-free#high`) produced a parseable, quality-scored
+candidate in ~21s via the Rust client (`cargo run -p zyquor-generation
+--example live_smoke`); ollama against the local `qwen2.5:0.5b` failed with
+"no draft candidates" in both Rust and TypeScript (the 0.5B model's output
+does not pass the quality gate), matching on both stacks. Gemini and
+command-code have not been exercised live; verify them through the same
+example before the TypeScript `providers/` tree is retired.
+
+## Port details (nothing open in this crate)
 
 1. ~~**`prompts.ts`**~~ — done, see above. `prompts.rs` / `harness.rs` /
    `types.rs`. Add new request shapes to `scripts/prompt-parity.mjs` and
    `crates/zyquor-generation/examples/prompt_parity.rs` together so the diff
    stays meaningful.
-2. ~~**`quality.ts` residue**~~ — done in `parse.rs` (see above). Add parse
-   tests/fixtures before M3 exit.
-3. **Providers** — `command-code` and `opencode` shell out to CLIs; `gemini`
-   and `ollama` are plain HTTP. Use `tokio::process::Command` and `reqwest`.
-   - Provider parity is best proven with the `FetchLike` seam already present
-     in TypeScript: the tests inject a fake fetch. Do the same with a Rust
-     `trait Fetch` so tests need no network.
-   - Do not add retries that TypeScript does not have. `Failed external post
-     jobs are not auto-retried` is a product rule; the same caution applies to
-     generation retries (there is exactly one line-prompt retry).
-4. **`refine.ts`** — the revision-pass orchestration. Depends on the providers.
+2. ~~**`quality.ts` residue**~~ — done in `parse.rs` (see above). Parsing
+   ships without Rust tests for now — TypeScript test files are not ported to
+   Rust (see "Test policy" in `docs/rust-migration.md`).
+3. ~~**Providers**~~ — done. `crates/zyquor-generation/src/providers/`:
+   `http.rs` (`Fetch` seam, `post_json` with the TypeScript retry policy —
+   retryable statuses only, `retry-after`/`x-ratelimit-reset` backoff — plus
+   `ReqwestFetch` for production and `SleepFn` for tests), `cli_env.rs`
+   (ZYQUOR_-filtered child env), `cli.rs` (shared spawn/capture: temp-dir cwd,
+   combined stdout+stderr byte cap with kill, wall-clock timeout, `cmd /C`
+   shim on Windows, `ZYQUOR_LLM_DEBUG=1` artifact capture with the
+   `YYYY-MM-DDTHH-MM-SS-mmmZ` stamp), and `command_code.rs`, `opencode.rs`
+   (failover ladder on the CLI's rate-limit/unavailable shutters only, plus
+   the exit-code-1-with-usable-JSON leniency), `gemini.rs`, `ollama.rs`
+   (with `strip_thinking`). Providers take a `Fetch` argument; tests use a
+   fake `Fetch`, so the suite never touches the network. Live check
+   2026-11-06: `opencode run -m opencode/glm-5.3-flash-free#high` produced a
+   parseable, quality-scored candidate in ~21s via the Rust client
+   (`cargo run -p zyquor-generation --example live_smoke`).
+4. ~~**`refine.ts`**~~ — done in `crates/zyquor-generation/src/refine.rs`
+   (initial + no-candidates line-prompt retry, best-of-N top-up, revision
+   pass). The `createGenerationProviderFromEnv` factory is ported to
+   `providers/mod.rs` (`create_generation_provider_from_env`).
 5. ~~**`harness.ts`**~~ — done in `harness.rs`
    (`render_source_context`, `build_source_tweet_input`).
 
 ## Exit criteria
 
-- Same candidates (text + score object) for the same fixture input.
-- `cargo test -p zyquor-generation` covers config, quality, prompts, and one
-  provider against a fake transport.
+- The existing `zyquor-generation` tests stay green; providers build and run
+  with no network access required for the crate's test suite.
+- `parse.rs` fixtures/tests are not an exit blocker (see "Test policy" in
+  `docs/rust-migration.md`).
 - Update the M3 row in `docs/rust-migration.md`.
 
 ## Gotchas

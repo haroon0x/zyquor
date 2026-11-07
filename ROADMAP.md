@@ -15,10 +15,10 @@ each milestone. Nothing has been deleted from the TypeScript side yet.
 | M0: Scaffold | done | Workspace, `rust-toolchain.toml`, Rust CI job (fmt, clippy, test). |
 | M1: `zyquor-core` | done | Domain types, lifecycle transitions, path rules, post spacing, reply-target parsing. Parity harness covers gate/transition and CDP-URL cases. |
 | M2: `zyquor-storage` + `zyquor-accounts` | done (SQLite) | The SQLite repository surface is ported: schema, column migrations, first-run seeding, accounts, drafts, jobs, attempts, source packets, ingest configs, history, measurements. A database written by the TypeScript repository reads back with matching records. The JSON fallback the older docs mentioned never existed. |
-| M3: generation / adapters / automation | partial | `zyquor-generation` has config resolution, deterministic quality scoring, text post-processing, prompt assembly (byte-for-byte parity, checked by `scripts/prompt-parity.mjs`), harness rendering, and output parsing. Provider clients (opencode, command-code, ollama, gemini) and the cut-only refine pass are not ported. `zyquor-adapters` and `zyquor-automation` are not started. |
-| M4: `zyquor-browser` | pending | CDP prepare/post against a dedicated profile. |
+| M3: generation / adapters / automation | done | `zyquor-generation` is complete: config resolution, deterministic quality scoring, text post-processing, prompt assembly (byte-for-byte parity, checked by `scripts/prompt-parity.mjs`), harness rendering, output parsing, the provider clients (opencode with failover ladder, command-code, ollama, gemini) behind a `Fetch` seam / shared CLI runner, the refine pass, and the `create_generation_provider_from_env` factory. `zyquor-adapters` is complete: all 19 source adapters, the aggregator with health tracking, and the Goldfish MCP adapter. `zyquor-automation` is complete: the ingest engine, tweet-type routing, quality gates, performance aggregation, and draft building. Provider behaviour is fake-`Fetch`-tested; live opencode verified 2026-11-06. |
+| M4: `zyquor-browser` | partial | chromiumoxide CDP session + `CdpPage` primitives, login detection, all five feed fetchers, composer (open/type/verify + caller-gated click → verified permalink), delete-post flow, per-profile launch state, Chrome launcher with WSL/detached handling. Gaps: reduced actionability-stability check, trace-event JSON artifacts instead of Playwright `.zip`, not live-tested against X yet (see `docs/rust-migration.md` → Known gaps). |
 | M5: `apps/api` + `apps/worker` | pending | axum server with the same routes and response shapes; worker poll loop. |
-| M6: `apps/desktop` | pending | Tauri shell replacing Electron. |
+| M6: `apps/desktop` | pending | **Decided: Tauri v2** shell replacing Electron (locked 2026-11-06). |
 | M7: `apps/web` | pending | React kept or ported; decision deferred to this milestone. |
 | M8: scripts, retire pnpm | pending | Port `scripts/*.mjs` to binaries. |
 
@@ -26,20 +26,14 @@ each milestone. Nothing has been deleted from the TypeScript side yet.
 
 Ordered by what unblocks the migration first.
 
-1. **M3 remainder**: port the generator provider clients and the refine pass
-   into `crates/zyquor-generation`, then start `zyquor-adapters` and
-   `zyquor-automation`.
-2. **M4 `zyquor-browser`**: direct CDP prepare/post. The waiting and retry
-   semantics Playwright provides today have to be reimplemented explicitly and
-   tested against a live logged-in profile; posting stays behind
-   `ZYQUOR_ENABLE_BROWSER_POST`.
-3. **M5-M8**: axum API and worker, Tauri desktop shell, web UI decision,
+1. **M4 live verification**: prepare/playback against a live logged-in profile on two accounts concurrently; requires the "explicit human ask" per housekeeping rules before live CDP runs. (M4 is ported: chromiumoxide CDP session + `CdpPage` primitives, login detection, feed fetchers, composer, delete flow.)
+2. **M5-M8**: axum API and worker, Tauri desktop shell, web UI decision,
    script port.
-4. **Account editing in the UI**: `PATCH /accounts/:id` accepts handle, limits,
+3. **Account editing in the UI**: `PATCH /accounts/:id` accepts handle, limits,
    and profile fields, and the web UI can create an account; the Accounts panel
    still only toggles `enabled` and deletes. Surface the rest of the editable
    fields.
-5. **Split the large generation and adapters files**: the remaining
+4. **Split the large generation and adapters files**: the remaining
    `packages/generation` and `packages/adapters` modules that mix providers,
    parsing, and pipeline logic.
 

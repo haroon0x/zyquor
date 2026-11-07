@@ -13,10 +13,11 @@ Read this first, then the brief for the milestone you are picking up.
 | M0 scaffold | done |
 | M1 `zyquor-core` | done |
 | M2 `zyquor-accounts` + `zyquor-storage` (SQLite) | SQLite surface complete; no JSON fallback exists |
-| M3 `zyquor-generation` | config, quality, prompts, harness, and parsing ported; provider clients + `refine.ts` not ported |
-| M4 browser, M5 api/worker, M6 desktop, M7 web, M8 scripts | not started |
+| M3 `zyquor-generation` | done — config, quality, prompts, harness, parsing, provider clients, refine loop |
+| M3 `zyquor-adapters` | done — 19 source adapters, aggregator + health tracking, Goldfish MCP, Fetch/CrawlService seam |
+| M3 `zyquor-automation` | done — ingest engine, packet/draft builders, routing, quality gates, performance aggregation || M4 browser, M5 api/worker, M6 desktop, M7 web, M8 scripts | not started |
 
-93 Rust tests pass. The TypeScript tree still runs the product; no package has been retired.
+117 Rust tests pass. The TypeScript tree still runs the product; no package has been retired.
 
 ## Ground rules
 
@@ -28,6 +29,7 @@ Read this first, then the brief for the milestone you are picking up.
    - a cross-database check for storage work.
 4. **Record gaps.** When you stop mid-crate, add the gap to the "Known gaps" section of `docs/rust-migration.md`.
 5. **Toolchain**: stable Rust via rustup (`~/.cargo/env` sourced from `~/.bashrc`/`~/.profile`). No unsafe code — the workspace denies it (`unsafe_code = "forbid"`), and `clippy::unwrap_used`/`expect_used`/`panic` are denied in library code (tests are exempt via a file-level `#![allow(...)]`).
+6. **TypeScript test files are not ported to Rust.** Crate tests and the parity harnesses that already exist stay and must stay green. Missing Rust tests for a ported module are recorded as known gaps, not milestone blockers (see "Test policy" in `docs/rust-migration.md`).
 
 ## Verification
 
