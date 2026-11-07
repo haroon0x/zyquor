@@ -2218,7 +2218,7 @@ name = "zyquor-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "rand 0.9.5",
+ "rand 0.10.3",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -2258,7 +2258,7 @@ name = "zyquor-worker"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "rand 0.9.5",
+ "rand 0.10.3",
  "reqwest",
  "serde",
  "serde_json",
