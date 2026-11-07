@@ -17,7 +17,7 @@ each milestone. Nothing has been deleted from the TypeScript side yet.
 | M2: `zyquor-storage` + `zyquor-accounts` | done (SQLite) | The SQLite repository surface is ported: schema, column migrations, first-run seeding, accounts, drafts, jobs, attempts, source packets, ingest configs, history, measurements. A database written by the TypeScript repository reads back with matching records. The JSON fallback the older docs mentioned never existed. |
 | M3: generation / adapters / automation | done | `zyquor-generation` is complete: config resolution, deterministic quality scoring, text post-processing, prompt assembly (byte-for-byte parity, checked by `scripts/prompt-parity.mjs`), harness rendering, output parsing, the provider clients (opencode with failover ladder, command-code, ollama, gemini) behind a `Fetch` seam / shared CLI runner, the refine pass, and the `create_generation_provider_from_env` factory. `zyquor-adapters` is complete: all 19 source adapters, the aggregator with health tracking, and the Goldfish MCP adapter. `zyquor-automation` is complete: the ingest engine, tweet-type routing, quality gates, performance aggregation, and draft building. Provider behaviour is fake-`Fetch`-tested; live opencode verified 2026-11-06. |
 | M4: `zyquor-browser` | partial | chromiumoxide CDP session + `CdpPage` primitives, login detection, all five feed fetchers, composer (open/type/verify + caller-gated click → verified permalink), delete-post flow, per-profile launch state, Chrome launcher with WSL/detached handling. Gaps: reduced actionability-stability check, trace-event JSON artifacts instead of Playwright `.zip`, not live-tested against X yet (see `docs/rust-migration.md` → Known gaps). |
-| M5: `apps/api` + `apps/worker` | pending | axum server with the same routes and response shapes; worker poll loop. |
+| M5: `apps/api` + `apps/worker` | done | `zyquor-api` (axum) ports all 17 TS route modules incl. jobs prepare/post/retry, ingest, drafts, replies/mentions, settings, performance; `zyquor-worker` ports the poll loop 1:1. Live smoke on 2026-11-07: health/status/worker/performance/history/onboarding/generation correct, worker heartbeat → ingest async → recover-stale end-to-end (no 415). Storage gained the route queries it needed. Gaps: desktop-only `system/*` control routes unregistered, `desktopSettings` process-level, generation provider not hot-swappable (see `docs/rust-migration.md` → Known gaps). |
 | M6: `apps/desktop` | pending | **Decided: Tauri v2** shell replacing Electron (locked 2026-11-06). |
 | M7: `apps/web` | pending | React kept or ported; decision deferred to this milestone. |
 | M8: scripts, retire pnpm | pending | Port `scripts/*.mjs` to binaries. |
@@ -27,8 +27,8 @@ each milestone. Nothing has been deleted from the TypeScript side yet.
 Ordered by what unblocks the migration first.
 
 1. **M4 live verification**: prepare/playback against a live logged-in profile on two accounts concurrently; requires the "explicit human ask" per housekeeping rules before live CDP runs. (M4 is ported: chromiumoxide CDP session + `CdpPage` primitives, login detection, feed fetchers, composer, delete flow.)
-2. **M5-M8**: axum API and worker, Tauri desktop shell, web UI decision,
-   script port.
+2. **M6-M8**: Tauri desktop shell, web UI decision,
+   script port. (M5 axum API + worker done 2026-11-07: `apps/api` and `apps/worker` ported, live-smoked with TS shape parity.)
 3. **Account editing in the UI**: `PATCH /accounts/:id` accepts handle, limits,
    and profile fields, and the web UI can create an account; the Accounts panel
    still only toggles `enabled` and deletes. Surface the rest of the editable

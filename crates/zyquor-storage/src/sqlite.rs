@@ -1897,6 +1897,214 @@ impl SqliteRepository {
         Ok(config)
     }
 
+    pub fn delete_job(&self, job_id: &str) -> Result<PostJob> {
+        self.transaction(|| {
+            let job: Option<PostJob> = self
+                .conn
+                .query_row(
+                    "SELECT * FROM post_jobs WHERE id = ?",
+                    [job_id],
+                    job_from_row,
+                )
+                .optional()?;
+            let job = job.ok_or_else(|| StorageError::NotFound(job_id.to_string()))?;
+            if job.status == zyquor_core::types::PostJobStatus::Running {
+                return Err(StorageError::Invalid(
+                    "Cannot delete a running job".to_string(),
+                ));
+            }
+            self.conn
+                .execute("DELETE FROM post_attempts WHERE job_id = ?", [job_id])?;
+            self.conn
+                .execute("DELETE FROM post_jobs WHERE id = ?", [job_id])?;
+            Ok(job)
+        })
+    }
+
+    pub fn list_jobs_by_draft_id(&self, draft_id: &str) -> Result<Vec<PostJob>> {
+        let mut statement = self.conn.prepare(
+            "SELECT * FROM post_jobs WHERE draft_id = ? ORDER BY created_at ASC, rowid ASC",
+        )?;
+        let rows = statement.query_map([draft_id], job_from_row)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub fn list_pending_drafts(&self) -> Result<Vec<Draft>> {
+        let mut statement = self
+            .conn
+            .prepare("SELECT * FROM drafts WHERE status = 'created' ORDER BY created_at ASC")?;
+        let rows = statement.query_map([], draft_from_row)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub fn list_quality_gate_failed_drafts(&self) -> Result<Vec<Draft>> {
+        let mut statement = self.conn.prepare(
+            "SELECT * FROM drafts
+             WHERE status IN ('created', 'generated', 'selected')
+               AND json_type(metadata_json, '$.qualityGate') = 'object'
+             ORDER BY created_at ASC",
+        )?;
+        let rows = statement.query_map([], draft_from_row)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub fn get_draft_by_source_packet_id(
+        &self,
+        source_packet_id: &str,
+    ) -> Result<Option<DraftWithCandidates>> {
+        let draft_id: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT draft_id FROM draft_candidates
+                 WHERE json_extract(score_json, '$.sourcePacketId') = ?
+                 ORDER BY created_at ASC LIMIT 1",
+                [source_packet_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(draft_id) = draft_id {
+            return self.get_draft(&draft_id);
+        }
+
+        let draft_id: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT id FROM drafts
+                 WHERE json_extract(metadata_json, '$.sourcePacketId') = ?
+                 ORDER BY created_at ASC LIMIT 1",
+                [source_packet_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        match draft_id {
+            Some(draft_id) => self.get_draft(&draft_id),
+            None => Ok(None),
+        }
+    }
+
+    pub fn get_post_history(&self, id: &str) -> Result<Option<PostHistory>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT * FROM post_history WHERE id = ?",
+                [id],
+                history_from_row,
+            )
+            .optional()?)
+    }
+
+    pub fn count_post_history_by_draft_id(&self, draft_id: &str) -> Result<i64> {
+        Ok(self.conn.query_row(
+            "SELECT COUNT(*) FROM post_history WHERE draft_id = ?",
+            [draft_id],
+            |row| row.get(0),
+        )?)
+    }
+
+    pub fn count_post_history_by_source_packet(
+        &self,
+        account_id: &str,
+        source_packet_id: &str,
+    ) -> Result<i64> {
+        Ok(self.conn.query_row(
+            "SELECT COUNT(*) FROM post_history WHERE account_id = ? AND source_packet_id = ?",
+            (account_id, source_packet_id),
+            |row| row.get(0),
+        )?)
+    }
+
+    pub fn has_post_history_source_url(&self, account_id: &str, source_url: &str) -> Result<bool> {
+        let hit: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT 1 FROM post_history WHERE account_id = ? AND source_url = ? LIMIT 1",
+                (account_id, source_url),
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(hit.is_some())
+    }
+
+    pub fn update_candidate_score(
+        &self,
+        candidate_id: &str,
+        score: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<DraftCandidate> {
+        let candidate: Option<DraftCandidate> = self
+            .conn
+            .query_row(
+                "SELECT * FROM draft_candidates WHERE id = ?",
+                [candidate_id],
+                candidate_from_row,
+            )
+            .optional()?;
+        if candidate.is_none() {
+            return Err(StorageError::NotFound(candidate_id.to_string()));
+        }
+        self.conn.execute(
+            "UPDATE draft_candidates SET score_json = ? WHERE id = ?",
+            (
+                serde_json::to_string(score).unwrap_or_else(|_| "{}".to_string()),
+                candidate_id,
+            ),
+        )?;
+        Ok(self.conn.query_row(
+            "SELECT * FROM draft_candidates WHERE id = ?",
+            [candidate_id],
+            candidate_from_row,
+        )?)
+    }
+
+    pub fn update_post_history_metadata(
+        &self,
+        id: &str,
+        metadata: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Option<PostHistory>> {
+        self.conn.execute(
+            "UPDATE post_history SET metadata_json = ? WHERE id = ?",
+            (
+                serde_json::to_string(metadata).unwrap_or_else(|_| "{}".to_string()),
+                id,
+            ),
+        )?;
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT * FROM post_history WHERE id = ?",
+                [id],
+                history_from_row,
+            )
+            .optional()?)
+    }
+
+    pub fn has_drafts(&self) -> Result<bool> {
+        let hit: Option<i64> = self
+            .conn
+            .query_row("SELECT 1 FROM drafts LIMIT 1", [], |row| row.get(0))
+            .optional()?;
+        Ok(hit.is_some())
+    }
+
+    pub fn has_post_jobs(&self) -> Result<bool> {
+        let hit: Option<i64> = self
+            .conn
+            .query_row("SELECT 1 FROM post_jobs LIMIT 1", [], |row| row.get(0))
+            .optional()?;
+        Ok(hit.is_some())
+    }
+
     fn candidates_for_draft(&self, draft_id: &str) -> Result<Vec<DraftCandidate>> {
         let mut statement = self.conn.prepare(
             "SELECT * FROM draft_candidates WHERE draft_id = ? ORDER BY created_at ASC, rowid ASC",

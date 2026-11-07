@@ -15,9 +15,11 @@ Read this first, then the brief for the milestone you are picking up.
 | M2 `zyquor-accounts` + `zyquor-storage` (SQLite) | SQLite surface complete; no JSON fallback exists |
 | M3 `zyquor-generation` | done — config, quality, prompts, harness, parsing, provider clients, refine loop |
 | M3 `zyquor-adapters` | done — 19 source adapters, aggregator + health tracking, Goldfish MCP, Fetch/CrawlService seam |
-| M3 `zyquor-automation` | done — ingest engine, packet/draft builders, routing, quality gates, performance aggregation || M4 browser, M5 api/worker, M6 desktop, M7 web, M8 scripts | not started |
+| M3 `zyquor-automation` | done — ingest engine, packet/draft builders, routing, quality gates, performance aggregation |
+| M4 `zyquor-browser` | ported (chromiumoxide CDP); not live-tested against X yet (human-ask rule) |
+| M5 `apps/api` + `apps/worker` | done 2026-11-07 — axum API (all 17 route modules incl. jobs/ingest/drafts/replies) + worker poll loop, live-smoked with TS shape parity |
 
-117 Rust tests pass. The TypeScript tree still runs the product; no package has been retired.
+122 Rust tests pass. The TypeScript tree still runs the product; no package has been retired.
 
 ## Ground rules
 

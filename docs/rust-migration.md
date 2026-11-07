@@ -125,14 +125,43 @@ worker -> core, storage
 | M2 — `zyquor-storage` + `zyquor-accounts` | partial (SQLite complete) | `zyquor-accounts` ported (6 tests). `zyquor-storage` ports the full SQLite `ZyquorRepository` surface — schema, column migrations, first-run seeding, accounts, style profiles, system feedback, knowledge entries, drafts, jobs, attempts, source packets, ingest runs/configs, post history, tweet measurements (23 tests). Verified cross-implementation: a database written by the TypeScript repository is read back by the Rust one with matching draft, job, and history records. No remaining repository surface. |
 | M3 — generation / adapters / automation | complete | `zyquor-generation` is complete: config resolution, prompt/harness assembly (8 request shapes × 4 builders, byte-identical to TypeScript), deterministic quality scoring and text post-processing, answer parsing (`parse.rs`), the provider clients (`command-code`, `opencode` with its failover ladder, `gemini`, `ollama`) behind a `Fetch` seam plus a shared spawn/capture runner for the CLIs, the refine loop, and the `create_generation_provider_from_env` factory. `zyquor-adapters` is complete: all 19 source adapters + the aggregator + health tracking + the Goldfish MCP adapter behind a `Fetch`/`CrawlService` seam (new modules `types.rs`, `fetch.rs`, `xml_util.rs`, `dates.rs`); Date.parse-compatible date helpers and XML/HTML helpers shared per-crate. `zyquor-automation` is complete: the ingest engine, packet/draft derivation, tweet-type routing (daily caps, rolling window, hash selection), post-quality gates, performance aggregation, and the shared `AutomationDeps` env bundle. Known gap from the port: the TypeScript `xai-news.ts` parses `firstMatch` group 1 (the 3-letter month fraction of the regex, e.g. "Jan"), so no xai-news item has ever passed the `published` check; the Rust port reproduces that bug by contract (reported separately; see "Known gaps"). |
 | M4 — browser | partial | `zyquor-browser` ported: chromiumoxide CDP session layer (page selection, dialog dismissal, owned-tab cleanup), `CdpPage` primitives (visible/actionability waits, hit-test clicks, text insertion), login detection + handle resolution, all five feed fetchers (timeline, mentions, home feed, tweet, performance) with scroll-and-collect machinery, the composer flow (open/type/verify + caller-gated click → verified permalink), the delete flow, per-profile launch state, and the Chrome launcher with WSL/detached handling. Deliberate gaps (see "Known gaps"): the Playwright cross-frame stability check is reduced to scroll+one poll wait; `prepare-*.zip` trace artifacts are trace-events JSON dumps; the non-CDP `launchPersistentContext` fallback is not ported. Not yet live-tested against X (the human-ask rule). |
-| M5 — api / worker | pending | |
+| M5 — api / worker | complete | `zyquor-api` (axum 0.8 + tower-http 0.6) ports all 17 TS route modules (accounts, system, batches, browser, drafts, generation, history, ingest, jobs incl. prepare/post/retry, knowledge, onboarding, performance, replies incl. mentions scans, settings, source-packets, style-profiles, system-feedback, worker) plus the `lib/*` helpers (`browser`, `daily-limit`, `media`, `post-process`, `post-browser-job`, `post-history-snapshot`, `stale-jobs`, `retry-job`, `history`, `tweet-performance`, `feedback-notebook`). `zyquor-worker` ports the TS poll loop 1:1 (approved jobs by account with quiet hours/spacing backfill, ingest, performance, mentions lanes, heartbeats, worker lock). Storage gained the handful of repository queries the routes need (`delete_job`, `list_jobs_by_draft_id`, pending/quality-gate draft lists, post-history counts, etc.). Smoke-tested live against a seeded account: health/status/worker/performance/history/onboarding/generation all respond with TS shapes, and the worker drives heartbeat → ingest async → recover-stale end-to-end (the TS daily-cap/post flows stay behind `ZYQUOR_ENABLE_BROWSER_PREPARE/POST`, and live CDP against X still needs the human ask per housekeeping rules). Test count: 122. |
 | M6 — desktop | pending | **Decided: Tauri v2** replaces Electron (locked 2026-11-06). Same IPC surface. |
 | M7 — web | pending | |
 | M8 — scripts, retire pnpm | pending | |
 
 The TypeScript tree still runs the product and the Rust workspace passes
-117 tests. No package has been retired yet; the deliberate removals above are
+122 tests. No package has been retired yet; the deliberate removals above are
 already applied in both stacks.
+
+### Known gaps in `zyquor-api` / `zyquor-worker`
+
+- The TS `desktopSettings`/`desktopControl` injections have no Rust
+  counterpart yet: `POST /system/posting`'s `autoApproveSourcePackets` reads
+  the settings-store value (`false` when unset, matching the TS desktop-absent
+  `=== true` check), `/system/logs|worker/pause|chrome/close|stop-all|quit|
+  restart` are not registered (they live behind `deps.desktopControl`, which
+  the desktop app owns), and `GET /settings`/`PATCH /settings` keep values in
+  a process-level store (browser-flag side effects are wired to the real
+  `BrowserDeps`). The `PATCH /generation` route validates and persists the
+  saved config but cannot swap the live `Arc<dyn DraftGenerationProvider>`
+  in place (it is immutable in `AppState`); restart applies the change.
+- Ingest/packet-draft run on a second SQLite connection (opened from
+  `AppState::db_path`) so the shared proxy mutex is never held across a
+  network-bound generation/ingest. WAL (`PRAGMA journal_mode = WAL`) is
+  already on, so the two connections interleave safely.
+- The TS `startWorker({ checkStartup })` test-injection dep and
+  `fetchActiveAccount` (GET /browser/active consumer) are not ported:
+  `check_worker_startup` is public, and the single-account rule was removed
+  per AGENTS.md, making `fetchActiveAccount` dead code in TS.
+- `zyquor-api` keeps the TS dep wiring by reusing `zyquor-worker`'s
+  `zyquor_core::spacing::next_autopost_scheduled_for` and the Rust storage
+  proxy; validation errors use the shared `{"error": "Invalid request",
+  "issues": []}` shape rather than zod's per-field messages (same status and
+  shape family).
+- Accounts are processed sequentially in the worker (TS used `Promise.all`
+  across accounts); per-account ordering, quiet hours, due/mode filtering,
+  backfill, post gates, and busy-account break are preserved.
 
 ### Known gaps in `zyquor-browser`
 

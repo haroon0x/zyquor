@@ -8,6 +8,8 @@ members = [
   "crates/zyquor-adapters",
   "crates/zyquor-automation",
   "crates/zyquor-browser",
+  "apps/api",
+  "apps/worker",
 ]
 
 [workspace.package]
@@ -18,6 +20,7 @@ license = "AGPL-3.0-only"
 publish = false
 
 [workspace.dependencies]
+axum = "0.8"
 chrono = "0.4"
 chromiumoxide = "0.8"
 fancy-regex = "0.14"
@@ -32,8 +35,11 @@ tokio = { version = "1", default-features = false, features = [
   "macros",
   "process",
   "rt",
+  "signal",
   "time",
 ] }
+tower-http = { version = "0.6", features = ["cors"] }
+tower = "0.5"
 url = "2"
 
 zyquor-core = { path = "crates/zyquor-core" }
@@ -43,6 +49,8 @@ zyquor-generation = { path = "crates/zyquor-generation" }
 zyquor-adapters = { path = "crates/zyquor-adapters" }
 zyquor-automation = { path = "crates/zyquor-automation" }
 zyquor-browser = { path = "crates/zyquor-browser" }
+zyquor-api = { path = "apps/api" }
+zyquor-worker = { path = "apps/worker" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -234,7 +234,6 @@ pub struct PostPerformance {
     pub measured_at: String,
 }
 
-/// `postPerformanceFromMetadata` from `packages/core/src/index.ts`.
 pub fn post_performance_from_metadata(
     metadata: &serde_json::Map<String, serde_json::Value>,
 ) -> Option<PostPerformance> {

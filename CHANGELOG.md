@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Rust migration milestone M5: `apps/api` (axum server porting all 17
+  TypeScript route modules — accounts, system, batches, browser, drafts
+  (incl. generate/research/evaluate), generation, history,
+  ingest (sync/async), jobs (incl. prepare/post/verify-then-retry),
+  knowledge, onboarding, performance (incl. tweet-performance refresh),
+  replies (incl. mentions scans), settings, source-packets, style-profiles,
+  system-feedback, worker) plus the `lib/*` helpers it needs, and
+  `apps/worker` (the poll loop first-flighted against the Rust API:
+  heartbeat, ingest, recover-stale, approved-job runs, performance and
+  mentions lanes, worker lock). Live smoke verified `/health`,
+  `/system/status`, `/worker/status`, `/performance` (+ refresh),
+  `/history/analysis`, `/onboarding/status`, `/generation` returning the
+  same JSON shapes as the TypeScript API. M5 gaps: desktop-only
+  `system/*` control routes stay with the desktop app (no Rust port —
+  no `desktopControl` injection), the ingest/packet-draft flows run on a
+  second SQLite connection so the proxy mutex never stalls, and the
+  live generation provider is not hot-swappable (`PATCH /generation`
+  persists + validates; restart applies). 122 Rust tests pass.
+
+### Added
+
 - Rust migration milestone M4: the full `zyquor-browser` crate on
   chromiumoxide CDP (session + page layer, per-profile Chrome launch with
   WSL and detached-process handling, per-profile launch state, login

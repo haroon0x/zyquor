@@ -222,8 +222,9 @@ Env: `ZYQUOR_POST_ACCOUNT_ID` (default `account_personal`), `ZYQUOR_POST_LOOP_PE
 
 Finishing the Rust migration (details: `docs/rust-migration.md`):
 
-- M4: `zyquor-browser` is ported (chromiumoxide CDP session + `CdpPage` primitives, login detection, feed fetchers, composer, delete flow, launch state, Chrome launcher) but not live-tested against X yet — that needs the human ask before live CDP runs. Next: M5 axum API and worker.
-- M5–M8: `apps/api` + `apps/worker` on axum, `apps/desktop` on Tauri v2 (decided), `apps/web` decision (React vs full Rust UI), scripts port and pnpm retirement.
+- M4: `zyquor-browser` is ported (chromiumoxide CDP session + `CdpPage` primitives, login detection, feed fetchers, composer, delete flow, launch state, Chrome launcher) but not live-tested against X yet — that needs the human ask before live CDP runs.
+- M5: `apps/api` + `apps/worker` ported 2026-11-07 (axum API with all 17 TS route modules incl. jobs prepare/post/retry, ingest, drafts, replies/mentions; worker poll loop 1:1). Live-smoked against a seeded account: `/health`, `/system/status`, `/worker/status`, `/performance`, `/history/analysis`, `/onboarding/status`, `/generation` all return TS-shaped JSON, and the worker drives heartbeat → ingest async → recover-stale end-to-end (including a fix where `POST /jobs/recover-stale` 415'd on an empty body, and ingest now runs on a second DB connection so the proxy mutex never stalls). Next: M6 Tauri desktop shell.
+- M6–M8: `apps/desktop` on Tauri v2 (decided), `apps/web` decision (React vs full Rust UI), scripts port and pnpm retirement.
 - Storage parity gaps (from `docs/rust-migration.md`): align `deleteAccount` behaviour (the Rust version also deletes knowledge entries and ingest configs; the TypeScript one does not) before parity testing account deletion. (The legacy null-`text_hash` regression test is deferred under the test policy.)
 
 Verified gaps not yet in the tree:
