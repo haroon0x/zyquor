@@ -50,16 +50,19 @@ The LLM boundary is enforced in code: generation packages only return text. Sche
 
 ## Quick start
 
-Requirements: **Node 24**, **pnpm 10**, **Chrome** (or the bundled Playwright Chromium), and an X account you are willing to post from.
+Requirements: **Rust 1.85+ (stable)**, **Node.js + pnpm 10** (only for the web UI build), **Chrome**, and an X account you are willing to post from. Everything else is cargo.
 
 ```bash
 git clone https://github.com/haroon0x/zyquor.git
 cd zyquor
-pnpm install
 cp .env.example .env
-pnpm bootstrap         # creates the data root and the first profile directory
-pnpm dev:api           # API on http://127.0.0.1:3001 (see ports below)
-pnpm dev:web           # UI on http://127.0.0.1:5173
+cargo run -p zyquor-cli -- start     # API + worker + web dev server
+# or, once:
+cargo run -p zyquor-cli -- api       # API only on http://127.0.0.1:3001 (see ports below)
+cargo run -p zyquor-cli -- worker    # worker only
+cargo run -p zyquor-cli -- web       # web dev server only (Vite)
+pnpm --filter @zyquor/web build      # web renderer build (standalone; only for the UI bundle)
+cargo tauri dev                      # desktop app (apps/desktop, Tauri v2)
 ```
 
 Then open <http://127.0.0.1:5173>.
@@ -67,15 +70,14 @@ Then open <http://127.0.0.1:5173>.
 Port 3000 is often taken by other local apps, so the API falls back to **3001** when `ZYQUOR_API_PORT` is unset. When you use 3001, start the web UI with a matching proxy target:
 
 ```bash
-ZYQUOR_API_URL=http://127.0.0.1:3001 pnpm --filter @zyquor/web dev
+ZYQUOR_API_URL=http://127.0.0.1:3001 cargo run -p zyquor-cli -- web
 ```
 
-Or start everything with one command (Chrome, API, UI, worker):
+Or start everything on the desktop app (Chrome, API, UI, worker, tray):
 
 ```bash
-./zyquor
-./zyquor check
-./zyquor post <jobId>
+cargo tauri dev
+cargo run -p zyquor-desktop -- --headless-smoke   # boot + smoke-check /accounts + /worker/status, no window
 ```
 
 ### Generation provider
@@ -96,12 +98,12 @@ No provider is bundled and no mock provider exists in production paths: tests in
 Posting only ever uses a profile under `profiles/`:
 
 ```bash
-pnpm profile:x:manual   # opens normal Chrome with the dedicated profile, no automation
+cargo run -p zyquor-cli -- open-profile --manual   # opens Chrome with the dedicated profile, no automation
 # log in to X once in that window, then close it
-pnpm profile:x:check    # verifies the session
+cargo run -p zyquor-cli -- check-login             # verifies the session
 ```
 
-`pnpm profile:x:cdp` launches the same profile with remote debugging, which is what the worker connects to. `ZYQUOR_BROWSER_HEADLESS=1` runs it without a visible window.
+`cargo run -p zyquor-cli -- open-profile` launches the same dedicated Chrome with remote debugging, which is what the worker connects to. `ZYQUOR_BROWSER_HEADLESS=1` runs it without a visible window.
 
 **Never point Zyquor at your everyday Chrome profile.** Account config only accepts paths under `profiles/`, and that check is deliberate.
 
@@ -124,7 +126,7 @@ These are product rules, not suggestions, and pull requests that weaken them are
 - The LLM writes candidate text only; it never browses, schedules, ranks, or posts.
 - The final post action is explicit, gated by env flags, logged, and recorded with attempt artifacts.
 - Failed external post jobs are **not auto-retried**: a failed browser action may still have reached X.
-- Browser automation stays isolated in `packages/browser` (TypeScript) and `crates/zyquor-browser` (Rust).
+- Browser automation stays isolated in `crates/zyquor-browser` (Rust).
 
 Read [SECURITY.md](SECURITY.md) before filing anything that involves cookies, tokens, or profile data.
 
@@ -132,28 +134,20 @@ Read [SECURITY.md](SECURITY.md) before filing anything that involves cookies, to
 
 ```text
 apps/
-  api/        Fastify API (drafts, jobs, replies, sources, system control)
-  web/        Vite + React UI
-  worker/     background loop for due jobs and ingest
-  desktop/    Electron tray app (Windows), runs API + worker in-process
-packages/
-  core/       domain types, Zod schemas, lifecycle transitions, spacing
-  accounts/   account config and profile safety
-  storage/    SQLite repositories (node:sqlite)
-  adapters/   source adapters, aggregation, health, optional Crawl4AI
-  automation/ ingest selection, source packets, source-post quality gate
-  generation/ providers, prompts, quality scoring, parsing
-  browser/    Playwright/CDP prepare, post, and verification
+  api/          Rust (axum) API — drafts, jobs, replies, sources, system control
+  worker/       Rust background loop for due jobs and ingest
+  desktop/      Tauri v2 tray app — runs API + worker in-process
+  web/          Vite + React UI (kept per M7 decision; see docs/rust-migration.md)
+  cli/          operational CLIs (zyquor loops, smoke-generation, profile open)
 crates/
-  zyquor-core, zyquor-accounts, zyquor-storage, zyquor-generation
+  zyquor-{core,accounts,storage,generation,adapters,automation,browser}   # domain crates
 docs/         architecture, development, migration plan, setup guides
-scripts/      operational CLIs (loops, parity harnesses, smoke tests)
 skills/       portable agent skill for driving the HTTP API
 ```
 
 ## Rust migration
 
-Zyquor is moving to one Cargo workspace: `crates/zyquor-{core,accounts,storage,adapters,generation,automation,browser}` plus `apps/{api,worker,desktop,web}`. The TypeScript tree stays runnable until each Rust crate passes a parity harness that compares golden fixtures against the TypeScript output. See [docs/rust-migration.md](docs/rust-migration.md) for the milestone plan, parity strategy, and deliberate removals.
+Complete 2026-11-08: one Cargo workspace. `crates/zyquor-{core,accounts,storage,adapters,generation,automation,browser}` plus `apps/{api,worker,desktop,cli}`, plus the React web UI (`apps/web`, kept per the M7 decision — it lives inside the Tauri webview and is the only non-Rust artifact). See [docs/rust-migration.md](docs/rust-migration.md) for the milestone plan, parity strategy, and deliberate removals.
 
 ```bash
 cargo fmt --all --check
@@ -161,20 +155,18 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-Ported so far: domain types and lifecycle, account/profile rules, the full SQLite repository surface (verified by reading databases written by the TypeScript implementation), generation config, quality scoring, prompt assembly, and candidate parsing. Providers, refine orchestration, browser, API, worker, desktop, and scripts are still TypeScript.
+All TypeScript backend code has been ported and the pnpm workspace retired (only the React renderer remains, built with pnpm/Vite).
 
 ## Development
 
 ```bash
-pnpm build       # build every package
-pnpm check       # build + typecheck
-pnpm test        # vitest across the workspace
-pnpm smoke       # end-to-end smoke against the API
-pnpm smoke:http  # HTTP route smoke
-pnpm dev:api
-pnpm dev:web
-pnpm dev:worker
-pnpm dev:desktop # Electron app (Windows-native; do not launch it from WSL)
+cargo run -p zyquor-cli -- start     # API + worker + web dev
+cargo run -p zyquor-cli -- api       # API only
+cargo run -p zyquor-cli -- worker    # worker only
+cargo run -p zyquor-cli -- web       # web dev server only
+cargo run -p zyquor-cli -- smoke-generation   # live generation probe
+cargo tauri dev                       # desktop app (Windows-native; do not launch it from WSL)
+cargo test --workspace                # Rust tests
 ```
 
 Detailed notes live in [docs/development.md](docs/development.md) and [docs/architecture.md](docs/architecture.md). Contribution rules and the safety checklist are in [CONTRIBUTING.md](CONTRIBUTING.md).

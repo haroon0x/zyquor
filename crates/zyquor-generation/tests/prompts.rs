@@ -1,8 +1,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! Prompt assembly tests. Behavioural parity is proven by
-//! `scripts/prompt-parity.mjs` against `examples/prompt_parity.rs`; these cover
-//! the invariants that must hold on their own.
+//! Prompt assembly tests. Byte-level parity against the TypeScript
+//! implementation was verified in M3 (76311 bytes identical via the retired
+//! `scripts/prompt-parity.mjs` + `examples/prompt_parity.rs` diff); these
+//! cover the invariants that must hold on their own.
 
 use zyquor_generation::harness::{
     SourceTweetInput, build_source_tweet_input, render_source_context,

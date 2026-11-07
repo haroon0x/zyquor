@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Rust migration milestone M8: `apps/cli` — the `zyquor` binary ports all 15
+  operational subcommands (start/api/worker/web, post-loop, reply-loop,
+  overseer, open-profile + --manual, check-login, backfill-timeline,
+  poll-mentions, seed-account, lessons, tweet-eval, smoke-generation) with
+  hand-rolled argv parsing (no new deps). Retired: `scripts/*.mjs`,
+  `packages/*`, root `package.json`/`pnpm-workspace.yaml`/`pnpm-lock.yaml`,
+  the TS sources under `apps/api/src/*.ts`, `apps/worker/src/*.ts` and
+  `apps/desktop/src/*.ts` (incl. the Electron sources), plus Electron
+  packaging files under `apps/desktop/` (`electron-builder.yml`/`azure.cjs`,
+  `scripts/`, tsconfigs). Kept: `apps/web` (React renderer — M7 decision),
+  `apps/desktop/scripts/make-icons.mjs` (static icon asset generator; run
+  once with `node` before `cargo tauri build`). Live CDP smoke 2026-11-08:
+  `cargo run -p zyquor-cli -- open-profile` launched Chrome 147 with CDP
+  protocol 1.3 on 9222 against the dedicated profile; `check-login`
+  degrades to `{loggedIn: false}` without an X session.
+  `cargo test --workspace`: 172 Rust tests pass.
+
+### Added
+
 - Rust migration milestone M5: `apps/api` (axum server porting all 17
   TypeScript route modules — accounts, system, batches, browser, drafts
   (incl. generate/research/evaluate), generation, history,

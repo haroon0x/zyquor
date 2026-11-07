@@ -25,7 +25,7 @@ Three creation lanes: `single` (one idea → candidates → approve), `batch` (m
 
 Automated lane: deterministic source ingestion → compact source packet → one generated draft → approved autopost job. The LLM never browses, scrapes, schedules, ranks, or decides whether to post.
 
-Draft generation is a single LLM call that writes candidates with all anti-slop guidance (voice, punctuation, style contract, banned phrases, source boundary) carried in the system + user prompt, retried once with a simpler line prompt only when the output cannot be parsed. `scoreTweetQuality` in `packages/generation/src/quality.ts` is a deterministic floor (`ZYQUOR_QUALITY_MIN`, default 7) against recaps and slop, not a ranker. There is no separate LLM judge in the pipeline. Measure prompt/pipeline changes with `node scripts/tweet-eval.mjs`.
+Draft generation is a single LLM call that writes candidates with all anti-slop guidance (voice, punctuation, style contract, banned phrases, source boundary) carried in the system + user prompt, retried once with a simpler line prompt only when the output cannot be parsed. `score_tweet_quality` in `crates/zyquor-generation/src/quality.rs` is a deterministic floor (`ZYQUOR_QUALITY_MIN`, default 7) against recaps and slop, not a ranker. There is no separate LLM judge in the pipeline. Measure prompt/pipeline changes with `cargo run -p zyquor-cli -- tweet-eval`.
 
 Tweet types (`TWEET_TYPES` in `packages/core/src/index.ts`): `feed_observation`, `useful_info`, `guide`, `opinion`, `reply`, `narrative_history`. The retired types (`news_context`, `lesson`, `tool`, `hiring`, `article_summary`) are folded into these on database open.
 
@@ -130,31 +130,31 @@ Mode from UI inputs: schedule set → `scheduled`; no schedule + Yolo → `autop
 ## Current Runtime
 
 ```bash
-./zyquor
-./zyquor check
-./zyquor post <jobId>
-# Electron desktop app (Windows)
-pnpm dev:desktop
-pnpm smoke:desktop
-pnpm dist:desktop
+cargo run -p zyquor-cli -- start          # API + worker + web dev
+cargo run -p zyquor-cli -- check-login    # verify the dedicated-profile X session
+cargo run -p zyquor-cli -- post-loop --once  # one original post, if under cap
+# Tauri desktop app (Windows)
+cargo tauri dev                            # apps/desktop (same IPC surface as Electron)
+cargo run -p zyquor-desktop -- --headless-smoke   # boot + /accounts + /worker/status, no window
+cargo tauri build                          # tauri.conf.json bundle
 ```
 
 - Chrome CDP: the posting Chrome binds its debugging port to loopback only. From another host/namespace, use a portproxy or a direct CDP URL that is actually reachable (e.g. a `netsh portproxy` rule forwarding host port → loopback port). Dedicated profile under `profiles/<handle>`; headless via `ZYQUOR_BROWSER_HEADLESS=1`.
 - API: `http://127.0.0.1:3001` locally (port 3000 is usually taken; with `ZYQUOR_API_PORT` unset the server falls back to 3001 on conflict — set it explicitly). Web: `http://127.0.0.1:5173/`. Worker polls due jobs every 5s.
-- Electron desktop app: `apps/desktop/` — Electron 37, tray-resident, runs API/worker in-process. Data root via `ZYQUOR_DATA_ROOT` (defaults to Electron `userData`). Settings kept as `settings.json` instead of `.env`; API keys encrypted at rest with Electron `safeStorage` when available. Logs to `<dataRoot>/logs/main.log` (rotates to a single `main.log.1` at 5 MB). Entry points: `src/main.ts`, `src/preload.ts`, `src/chrome.ts` (CDP launch), `src/settings.ts`, `src/log.ts`.
-- Desktop settings worth knowing: `headless` maps to `ZYQUOR_BROWSER_HEADLESS` (default off), `cdpPort` maps to `ZYQUOR_BROWSER_CDP_URL`. Per-account ports resolve through `perProfileCdpUrl` from `@zyquor/core` — the same helper the API uses. Do not reimplement that mapping anywhere else.
-- Desktop window: `contextIsolation`, `sandbox`, and `setWindowOpenHandler` are on; `will-navigate` sends external links to the system browser. Never remove those handlers; without them a link in the UI opens a bare Electron window with no address bar.
+- Tauri desktop app: `apps/desktop/` — Tauri v2, tray-resident, runs API/worker in-process. Data root via `ZYQUOR_DATA_ROOT` (defaults to the Tauri app data dir). Settings kept as `settings.json` instead of `.env`; API keys are NOT encrypted at rest in the Rust port (the Electron `safeStorage` encryption has no Tauri equivalent yet — `settings.rs` warns once on save; legacy `enc:v1:` values are parsed transparently). Logs to `<dataRoot>/logs/main.log` (rotates to a single `main.log.1` at 5 MB). Entry points: `src/main.rs`, `src/controls.rs`, `src/chrome.rs` (CDP launch), `src/settings.rs`, `src/log.rs`.
+- Desktop settings worth knowing: `headless` maps to `ZYQUOR_BROWSER_HEADLESS` (default off), `cdpPort` maps to `ZYQUOR_BROWSER_CDP_URL`. Per-account ports resolve through `per_profile_cdp_url` from `zyquor_core::paths` — the same helper the API uses. Do not reimplement that mapping anywhere else.
+- Desktop window: the Tauri `on_navigation` guard mirrors the Electron `setWindowOpenHandler`/`will-navigate` pairing (external http(s) → system browser, everything else denied). Never remove those guards; without them a link in the UI opens a bare webview with no address bar.
 
-Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (disabled by default), `ZYQUOR_LLM_PROVIDER=command-code|opencode|gemini|ollama|auto`. `ZYQUOR_REVISION_PASS=1` adds a cut-only second-pass revision (opencode only): removes vagueness and unsupported claims from the first-pass drafts, never adds material, cannot lower a candidate; off by default. Source smoke: `pnpm smoke:adapters`. Product Hunt is optional without `ZYQUOR_PRODUCTHUNT_API_TOKEN`.
+Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (disabled by default), `ZYQUOR_LLM_PROVIDER=command-code|opencode|gemini|ollama|auto`. `ZYQUOR_REVISION_PASS=1` adds a cut-only second-pass revision (opencode only): removes vagueness and unsupported claims from the first-pass drafts, never adds material, cannot lower a candidate; off by default. Source adapter tests: `cargo test -p zyquor-adapters`. Product Hunt is optional without `ZYQUOR_PRODUCTHUNT_API_TOKEN`.
 
 ### Generation Provider Resolution
 
 - Provider resolution order: saved `data/generation.json` > shell env > `.env` (dotenv skips already-set vars; saved config wins over both).
-- `opencode` is the configured provider and the desktop default (`apps/desktop/src/settings.ts`); it drives the opencode CLI (`opencode run -m <model>#<variant>`).
-- Default model: `opencode/glm-5.3-flash-free`, variant `high` (`DEFAULT_OPENCODE_MODEL` in `packages/generation/src/config.ts`). The opencode ladder is exactly three models (`OPENCODE_MODELS`): `opencode/glm-5.3-flash-free`, `opencode-go/glm-5.3-flash`, `opencode/deepseek-v4.1-flash`. Other tags are rejected; rotation outside this ladder is banned and triggers only on rate-limit/unavailable/funds errors — transient network drops never rotate.
+- `opencode` is the configured provider and the desktop default (`apps/desktop/src/main.rs` merges the default settings); it drives the opencode CLI (`opencode run -m <model>#<variant>`).
+- Default model: `opencode/glm-5.3-flash-free`, variant `high` (`DEFAULT_OPENCODE_MODEL` in `crates/zyquor-generation/src/config.rs`). The opencode ladder is exactly three models (`OPENCODE_MODELS`): `opencode/glm-5.3-flash-free`, `opencode-go/glm-5.3-flash`, `opencode/deepseek-v4.1-flash`. Other tags are rejected; rotation outside this ladder is banned and triggers only on rate-limit/unavailable/funds errors — transient network drops never rotate.
 - The free tier cap is shared across all `opencode/*` free models; when exhausted, every lane fails with `Free usage limit reached` — an account quota, not a code fault. Paid models need funds on your account. `command-code` (model `gpt-5.6-luna`) also works but needs paid credits. `gemini` needs `ZYQUOR_GEMINI_API_KEY`; `ollama` is local (default `gemma4:e4b`); `auto` prefers Gemini, else Ollama. CLI paths: `ZYQUOR_COMMAND_CODE_PATH` / `ZYQUOR_OPENCODE_PATH`; model and variant: `ZYQUOR_OPENCODE_MODEL` / `ZYQUOR_OPENCODE_VARIANT`.
 - A Codex provider was written and removed (Codex unavailable); Freebuff was evaluated and rejected (TUI, no non-interactive mode); do not re-add either. OpenRouter was removed as a generation provider; `packages/adapters/src/model-releases.ts` still calls OpenRouter's public models endpoint for source ingestion — that is not generation.
-- The opencode CLI sometimes exits 1 with `ECONNRESET` after a long run while complete candidates JSON is already on stdout; the provider accepts stdout when it parses as candidates, otherwise fails normally. `packages/generation/src/opencode-provider.test.ts` covers the rescue and truncated-JSON cases.
+- The opencode CLI sometimes exits 1 with `ECONNRESET` after a long run while complete candidates JSON is already on stdout; the provider accepts stdout when it parses as candidates, otherwise fails normally. The rescue and truncated-JSON cases are covered in the opencode provider tests in `crates/zyquor-generation`.
 
 ### X Render Failures Are Not Logouts
 
@@ -177,54 +177,54 @@ Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (di
 
 ### Browser Job Failure Modes
 
-- Chrome raises a `beforeunload` dialog when a page navigates or closes with unsent composer text. Playwright's internal auto-dismiss races Chrome and throws `No dialog is showing` from an unhandled promise. `openPersistentContext` installs dialog dismissers on every page, and `apps/api/src/server.ts` logs unhandled rejections instead of exiting.
-- `resolvePostedPermalink` matches the posted reply by the account handle and the submitted text; without that, a reply stores the parent tweet URL as its permalink, because the page stays on the parent thread after a reply posts.
+- Chrome raises a `beforeunload` dialog when a page navigates or closes with unsent composer text. Playwright's internal auto-dismiss races Chrome and throws `No dialog is showing` from an unhandled promise. The Rust `zyquor-browser` session dismisses dialogs synchronously on every page it touches, and the API logs unhandled panics instead of exiting.
 - A failed post can leave the composer holding the text. Clear it before the next attempt (`Control+A`, `Backspace`) or the next navigation triggers that dialog.
 
 ### Posts-Only Reply Loop
 
-`scripts/reply-loop.mjs` is the unattended posts-only lane. It does not touch mentions. It discovers targets from `GET /replies/feed` first (accounts you follow), then falls back to X search through the logged-in Chrome when the feed is thin, already seen, or rejected. It drafts best-of-N through `POST /replies/from-url`, applies a deterministic slop screen, then approves with `screened:true` and posts through the normal gated job path. Every rejection is appended to `apps/api/data/reply-loop.jsonl` with a reason, which is the input for tightening prompts or filters. Screen reasons, and why each exists:
+`zyquor reply-loop` (`apps/cli/src/reply_loop.rs`) is the unattended posts-only lane. It does not touch mentions. It discovers targets from `GET /replies/feed` first (accounts you follow), then falls back to X search through the logged-in Chrome when the feed is thin, already seen, or rejected. It drafts best-of-N through `POST /replies/from-url`, applies a deterministic slop screen, then approves with `screened:true` and posts through the normal gated job path. Every rejection is appended to `apps/api/data/reply-loop.jsonl` with a reason, which is the input for tightening prompts or filters. Screen reasons, and why each exists:
 
 - `invented_number`: a digit in the reply that does not appear in the target. `invented_experience`: claims of having used, run, shipped, or deployed the thing (first-person opinion like `my pick is` is allowed; fabricated usage is not).
 - `lowercase_opener`: the account voice is sentence case, so an all-lowercase opener reads like a different person. `invented_point`: `Point 2` when the target is not a numbered list.
 - Formula contrasts, advice openers, and the usual slop words. Quality floor, which must match `replyQualityMinimum` in `@zyquor/generation` (5); the post scorer was calibrated on 220–480 character posts and a one-line reply rarely reaches the post floor while still being clean.
 
 ```bash
-node scripts/reply-loop.mjs --once --dry   # discover, draft, report; no approval
-node scripts/reply-loop.mjs --once         # one cycle, may post
-node scripts/reply-loop.mjs                # every 30 min, max 1 post per cycle
+cargo run -p zyquor-cli -- reply-loop --once --dry   # discover, draft, report; no approval
+cargo run -p zyquor-cli -- reply-loop --once         # one cycle, may post
+cargo run -p zyquor-cli -- reply-loop                # every 30 min, max 1 post per cycle
 ```
 
 Env: `ZYQUOR_REPLY_LOOP_QUERIES`, `ZYQUOR_REPLY_LOOP_INTERVAL_MS` (default 30 min), `ZYQUOR_REPLY_LOOP_MAX_POSTS` (default 1), `ZYQUOR_REPLY_LOOP_MAX_PER_DAY` (default 20, rolling 24h from `/performance`), `ZYQUOR_REPLY_LOOP_MIN_QUALITY` (default 5), `ZYQUOR_REPLY_LOOP_CANDIDATES` (default 4), `ZYQUOR_REPLY_LOOP_RETRY_HOURS` (default 6). Starts a posting lane — run only on an explicit ask. Failed drafts are remembered for `ZYQUOR_REPLY_LOOP_RETRY_HOURS`, not forever; posted and screen-rejected targets stay permanent.
 
-Demand-style openers ("explain X", "make me X", "can you X") are rejected for outgoing agent replies in all approval sites (`isInterrogationDodgeReply` in `packages/generation/src/quality.ts`): the `screened:true` approval screen, the mentions auto-approve gate, `scripts/overseer.mjs`, and the reply-loop screen.
+Demand-style openers ("explain X", "make me X", "can you X") are rejected for outgoing agent replies in all approval sites (`is_interrogation_dodge_reply` in `crates/zyquor-generation/src/quality.rs`): the `screened:true` approval screen, the mentions auto-approve gate, `zyquor overseer`, and the reply-loop screen.
 
 ### Original Post Loop
 
-`scripts/post-loop.mjs` is the standalone post lane, separate from replies. It walks a rotating topic bank in least-recently-used order (`TOPIC_BANK` near the top of the file, safe to edit), creates a draft through `POST /drafts`, generates candidates through `POST /drafts/:id/generate`, screens them, then selects, approves with `screened:true`, and posts through `POST /jobs/:id/post`. It posts about 5 originals a day inside a 09:00 to 22:00 account-local window, with a full interval between originals so a late start cannot burn the day's quota in one burst. The cap and spacing come from `GET /performance` history, not local counters, so a restart cannot exceed the limit. Only rows with `tweetType !== "reply"` count as originals. Decisions and rejections go to `apps/api/data/post-loop.jsonl`; rotation state and the recent-text de-dupe list live in `apps/api/data/post-loop-state.json`.
+`zyquor post-loop` (`apps/cli/src/post_loop.rs`) is the standalone post lane, separate from replies. It walks a rotating topic bank in least-recently-used order (`TOPIC_BANK` near the top of the file, safe to edit), creates a draft through `POST /drafts`, generates candidates through `POST /drafts/:id/generate`, screens them, then selects, approves with `screened:true`, and posts through `POST /jobs/:id/post`. It posts about 5 originals a day inside a 09:00 to 22:00 account-local window, with a full interval between originals so a late start cannot burn the day's quota in one burst. The cap and spacing come from `GET /performance` history, not local counters, so a restart cannot exceed the limit. Only rows with `tweetType !== "reply"` count as originals. Decisions and rejections go to `apps/api/data/post-loop.jsonl`; rotation state and the recent-text de-dupe list live in `apps/api/data/post-loop-state.json`.
 
 Screen reasons: `too_short` (under 180 chars), `too_long` (over 620), `lowercase_opener`, `question_bait`, `hashtag_or_mention`, `has_link`, `dash`, `slop_word`, `formula_contrast`, `invented_experience`, `invented_stat`, `repeat`.
 
 ```bash
-node scripts/post-loop.mjs --once --dry    # draft and report; no approval
-node scripts/post-loop.mjs --once          # post now if under the daily cap
-node scripts/post-loop.mjs                 # run forever
-node scripts/post-loop.mjs --once --force  # ignore the daily cap
+cargo run -p zyquor-cli -- post-loop --once --dry    # draft and report; no approval
+cargo run -p zyquor-cli -- post-loop --once          # post now if under the daily cap
+cargo run -p zyquor-cli -- post-loop                 # run forever
+cargo run -p zyquor-cli -- post-loop --once --force  # ignore the daily cap
 ```
 
 Env: `ZYQUOR_POST_ACCOUNT_ID` (default `account_personal`), `ZYQUOR_POST_LOOP_PER_DAY` (default 5), `ZYQUOR_POST_LOOP_START_HOUR` (default 9), `ZYQUOR_POST_LOOP_END_HOUR` (default 22), `ZYQUOR_POST_LOOP_UTC_OFFSET_MIN` (default 330, i.e. UTC+5:30), `ZYQUOR_POST_LOOP_MIN_QUALITY` (default 7), `ZYQUOR_POST_LOOP_CANDIDATES` (default 4), `ZYQUOR_POST_LOOP_MIN_GAP_MIN` (default 20). Also starts a posting lane.
 
 ## Common Commands
 
-`pnpm bootstrap` · `pnpm smoke` · `pnpm dev:api` · `pnpm dev:web` · `pnpm dev:worker` · `pnpm check` · `pnpm test` · `pnpm build`. If `pnpm` is missing, install it globally via npm (`npm install -g pnpm`).
+`cargo run -p zyquor-cli -- start` · `cargo run -p zyquor-cli -- api` · `cargo run -p zyquor-cli -- worker` · `cargo run -p zyquor-cli -- web` · `cargo fmt --all --check` · `cargo clippy --workspace --all-targets -- -D warnings` · `cargo test --workspace` · `cargo tauri build` (desktop), `pnpm --filter @zyquor/web build` (web renderer only).
 
 ## Next Steps
 
 Finishing the Rust migration (details: `docs/rust-migration.md`):
 
 - M4: `zyquor-browser` is ported (chromiumoxide CDP session + `CdpPage` primitives, login detection, feed fetchers, composer, delete flow, launch state, Chrome launcher) but not live-tested against X yet — that needs the human ask before live CDP runs.
-- M5: `apps/api` + `apps/worker` ported 2026-11-07 (axum API with all 17 TS route modules incl. jobs prepare/post/retry, ingest, drafts, replies/mentions; worker poll loop 1:1). Live-smoked against a seeded account: `/health`, `/system/status`, `/worker/status`, `/performance`, `/history/analysis`, `/onboarding/status`, `/generation` all return TS-shaped JSON, and the worker drives heartbeat → ingest async → recover-stale end-to-end (including a fix where `POST /jobs/recover-stale` 415'd on an empty body, and ingest now runs on a second DB connection so the proxy mutex never stalls). Next: M6 Tauri desktop shell.
-- M6–M8: `apps/desktop` on Tauri v2 (decided), `apps/web` decision (React vs full Rust UI), scripts port and pnpm retirement.
+- M5: `apps/api` + `apps/worker` ported 2026-11-07 (axum API with all 17 TS route modules incl. jobs prepare/post/retry, ingest, drafts, replies/mentions; worker poll loop 1:1). Live-smoked against a seeded account: `/health`, `/system/status`, `/worker/status`, `/performance`, `/history/analysis`, `/onboarding/status`, `/generation` all return TS-shaped JSON, and the worker drives heartbeat → ingest async → recover-stale end-to-end (including a fix where `POST /jobs/recover-stale` 415'd on an empty body, and ingest now runs on a second DB connection so the proxy mutex never stalls).
+- M6: Tauri v2 desktop shell (`apps/desktop`, `zyquor-desktop`) with the same IPC surface as Electron — settings/log/chrome/controls modules, API on port 0 + worker bring-up, tray, window, headless smoke passing. M7: keep React (`apps/web`) — verified against the Rust stack, decision recorded in `docs/rust-migration.md`.
+- M8: `apps/cli` (`zyquor`) ports all 15 operational subcommands; `scripts/`, `packages/`, and the TS Electron sources are deleted. Live CDP smoke: Chrome launched via `zyquor open-profile` (CDP protocol 1.3 on 9222), `zyquor check-login` degrades gracefully without an X session. A full X login/post round-trip still requires your manual X login and explicit ask per housekeeping rules.
 - Storage parity gaps (from `docs/rust-migration.md`): align `deleteAccount` behaviour (the Rust version also deletes knowledge entries and ingest configs; the TypeScript one does not) before parity testing account deletion. (The legacy null-`text_hash` regression test is deferred under the test policy.)
 
 Verified gaps not yet in the tree:

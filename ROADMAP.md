@@ -26,15 +26,13 @@ each milestone. Nothing has been deleted from the TypeScript side yet.
 
 Ordered by what unblocks the migration first.
 
-1. **M4 live verification**: prepare/playback against a live logged-in profile on two accounts concurrently; requires the "explicit human ask" per housekeeping rules before live CDP runs. (M4 is ported: chromiumoxide CDP session + `CdpPage` primitives, login detection, feed fetchers, composer, delete flow.)
-2. **M6-M8**: Tauri desktop shell, web UI decision,
-   script port. (M5 axum API + worker done 2026-11-07: `apps/api` and `apps/worker` ported, live-smoked with TS shape parity.)
-3. **Account editing in the UI**: `PATCH /accounts/:id` accepts handle, limits,
+1. **M4 live verification**: prepare/playback against a live logged-in profile on two accounts concurrently; requires the "explicit human ask" per housekeeping rules before live CDP runs. (M4 is ported: chromiumoxide CDP session + `CdpPage` primitives, login detection, feed fetchers, composer, delete flow. CDP launch/login-detection paths are live-smoked via `zyquor open-profile` and `zyquor check-login` on 2026-11-08; a full X login/post round-trip is still blocked on your manual X login.)
+2. **Account editing in the UI**: `PATCH /accounts/:id` accepts handle, limits,
    and profile fields, and the web UI can create an account; the Accounts panel
    still only toggles `enabled` and deletes. Surface the rest of the editable
    fields.
-4. **Split the large generation and adapters files**: the remaining
-   `packages/generation` and `packages/adapters` modules that mix providers,
+3. **Split the large generation and adapters files**: the remaining
+   `crates/zyquor-generation` and `crates/zyquor-adapters` modules that mix providers,
    parsing, and pipeline logic.
 
 ## Landed from the same list
@@ -44,7 +42,7 @@ tree now:
 
 | Item | Where |
 | ---- | ----- |
-| Account creation flow | `POST /accounts` / `DELETE /accounts/:id` in `apps/api/src/routes/accounts.ts`, profile-path validation via `assertDedicatedProfileDir`, and an "Add account" form in the web header. |
+| Account creation flow | `POST /accounts` / `DELETE /accounts/:id` in `apps/api/src/routes/accounts.rs`, profile-path validation via `assert_dedicated_profile_dir`, and an "Add account" form in the web header. |
 | Schedule clearing via `PATCH /jobs/:id` | The route accepts `scheduledFor: null`, and the jobs panel has a clear-schedule action. |
 | Shuffled post-all | `POST /jobs/post-ready` shuffles due `approved`/`prepared` jobs before posting them sequentially. |
 | Surface quality-gate failures in the UI | `GET /drafts/quality-gate-failures` plus the "Quality gate rejections" panel in the compose view. |
