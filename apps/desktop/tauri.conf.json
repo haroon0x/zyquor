@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Zyquor",
+  "version": "0.1.0",
+  "identifier": "com.zyquor.app",
+  "build": {
+    "beforeDevCommand": null,
+    "beforeBuildCommand": null,
+    "devUrl": null,
+    "frontendDist": "../web/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Zyquor",
+        "width": 1024,
+        "height": 768
+      }
+    ]
+  },
+  "bundle": {
+    "targets": "all",
+    "icon": ["build/icon.png"],
+    "resources": ["build/icon.png"]
+  }
+}

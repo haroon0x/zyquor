@@ -24,6 +24,11 @@ pub struct BuildAppOptions {
     pub browser_typing_delay_ms: Option<u64>,
     pub close_after_prepare: Option<bool>,
     pub close_after_post: Option<bool>,
+    /// Desktop-settings env snapshot (key → value), consulted as env fallback
+    /// after the real process env — mirrors the TS `applySettingsToEnv`
+    /// (which only sets env vars absent in `process.env`). `None` keeps the
+    /// pure `std::env` behavior of the standalone server.
+    pub settings_env: Option<std::collections::HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -123,13 +128,22 @@ impl AppState {
     ) -> Result<Self, String> {
         let repository_handle = Arc::new(std::sync::Mutex::new(repository));
 
-        let env = crate::lib_deps::merged_generation_env(&|key: &str| std::env::var(key).ok());
+        // Desktop settings snapshot is consulted after the real process env
+        // (TS `applySettingsToEnv` only fills absent keys).
+        let lookup = |key: &str| {
+            std::env::var(key).ok().or_else(|| {
+                options
+                    .settings_env
+                    .as_ref()
+                    .and_then(|map| map.get(key).cloned())
+            })
+        };
+        let env = crate::lib_deps::merged_generation_env(&lookup);
         let generation_provider: Arc<dyn DraftGenerationProvider> = Arc::new(
             create_generation_provider_from_env(&env, ReqwestFetch::new())
                 .map_err(|error| error.to_string())?,
         );
-        let automation_deps =
-            zyquor_automation::AutomationDeps::from_env(&|key: &str| std::env::var(key).ok());
+        let automation_deps = zyquor_automation::AutomationDeps::from_env(&lookup);
 
         let source_adapters = default_source_adapters(&repository_handle);
 

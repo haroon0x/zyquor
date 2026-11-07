@@ -126,9 +126,9 @@ worker -> core, storage
 | M3 — generation / adapters / automation | complete | `zyquor-generation` is complete: config resolution, prompt/harness assembly (8 request shapes × 4 builders, byte-identical to TypeScript), deterministic quality scoring and text post-processing, answer parsing (`parse.rs`), the provider clients (`command-code`, `opencode` with its failover ladder, `gemini`, `ollama`) behind a `Fetch` seam plus a shared spawn/capture runner for the CLIs, the refine loop, and the `create_generation_provider_from_env` factory. `zyquor-adapters` is complete: all 19 source adapters + the aggregator + health tracking + the Goldfish MCP adapter behind a `Fetch`/`CrawlService` seam (new modules `types.rs`, `fetch.rs`, `xml_util.rs`, `dates.rs`); Date.parse-compatible date helpers and XML/HTML helpers shared per-crate. `zyquor-automation` is complete: the ingest engine, packet/draft derivation, tweet-type routing (daily caps, rolling window, hash selection), post-quality gates, performance aggregation, and the shared `AutomationDeps` env bundle. Known gap from the port: the TypeScript `xai-news.ts` parses `firstMatch` group 1 (the 3-letter month fraction of the regex, e.g. "Jan"), so no xai-news item has ever passed the `published` check; the Rust port reproduces that bug by contract (reported separately; see "Known gaps"). |
 | M4 — browser | partial | `zyquor-browser` ported: chromiumoxide CDP session layer (page selection, dialog dismissal, owned-tab cleanup), `CdpPage` primitives (visible/actionability waits, hit-test clicks, text insertion), login detection + handle resolution, all five feed fetchers (timeline, mentions, home feed, tweet, performance) with scroll-and-collect machinery, the composer flow (open/type/verify + caller-gated click → verified permalink), the delete flow, per-profile launch state, and the Chrome launcher with WSL/detached handling. Deliberate gaps (see "Known gaps"): the Playwright cross-frame stability check is reduced to scroll+one poll wait; `prepare-*.zip` trace artifacts are trace-events JSON dumps; the non-CDP `launchPersistentContext` fallback is not ported. Not yet live-tested against X (the human-ask rule). |
 | M5 — api / worker | complete | `zyquor-api` (axum 0.8 + tower-http 0.6) ports all 17 TS route modules (accounts, system, batches, browser, drafts, generation, history, ingest, jobs incl. prepare/post/retry, knowledge, onboarding, performance, replies incl. mentions scans, settings, source-packets, style-profiles, system-feedback, worker) plus the `lib/*` helpers (`browser`, `daily-limit`, `media`, `post-process`, `post-browser-job`, `post-history-snapshot`, `stale-jobs`, `retry-job`, `history`, `tweet-performance`, `feedback-notebook`). `zyquor-worker` ports the TS poll loop 1:1 (approved jobs by account with quiet hours/spacing backfill, ingest, performance, mentions lanes, heartbeats, worker lock). Storage gained the handful of repository queries the routes need (`delete_job`, `list_jobs_by_draft_id`, pending/quality-gate draft lists, post-history counts, etc.). Smoke-tested live against a seeded account: health/status/worker/performance/history/onboarding/generation all respond with TS shapes, and the worker drives heartbeat → ingest async → recover-stale end-to-end (the TS daily-cap/post flows stay behind `ZYQUOR_ENABLE_BROWSER_PREPARE/POST`, and live CDP against X still needs the human ask per housekeeping rules). Test count: 122. |
-| M6 — desktop | pending | **Decided: Tauri v2** replaces Electron (locked 2026-11-06). Same IPC surface. |
-| M7 — web | pending | |
-| M8 — scripts, retire pnpm | pending | |
+| M6 — desktop | complete (Tauri v2 shell) | `zyquor-desktop` (Tauri v2, `apps/desktop/`) replaces Electron: `settings.rs` (settings.json + env map, plaintext-keys gap recorded), `log.rs` (buffered 5 MiB rotation logger), `chrome.rs` (per-profile CDP launch/close state), `controls.rs` (desktopControl/status/logTail/quit/restart/pause chrome-close, tray tooltip, shutdown sequence), `main.rs` (API on port 0 + worker bring-up, single-instance, autostart, window with `window.zyquor` init script, 60 s failed-job tooltip poll, headless-smoke). Headless smoke exits 0 without Chrome (`OK: /accounts → 200`, `OK: /worker/status → 200`). Update channel stubbed (Tauri updater needs signing keys); `startWithWindows` via autostart plugin; safeStorage keys are plaintext (`enc:v1:` legacy values still parsed); `--headless-smoke` skips the single-instance lock. Test count: 158. |
+| M7 — web | complete (decision) | **Keep React** (see "Web UI" below): the UI is web content inside the Tauri webview, its only desktop surface `window.zyquor` is preserved. Verified: `pnpm --filter @zyquor/web build` (tsc + vite, 289 kB JS + 32 kB CSS) produces the dist the Tauri shell consumes; both API and UI were exercised against the Rust stack in M5/M6.
+| M8 — scripts, retire pnpm | in progress | Port `scripts/*.mjs` to the `zyquor` CLI (`apps/cli`, hand-rolled argv parser, no new deps). Retirement order in `tasks/m8-scripts.md` (port: zyquor.mjs, post-loop, reply-loop, overseer, backfill-timeline, poll-mentions, open-profile ×3, check-login, seed-account, lessons, tweet-eval, smoke-generation; retire: smoke ×4, test-adapters, tweet-harness, verify-spacing, prepack-zyq, bootstrap, load-env, prompt-parity if fixture-covered). pnpm workspace retires only after every script's Rust equivalent passes verification. |
 
 The TypeScript tree still runs the product and the Rust workspace passes
 122 tests. No package has been retired yet; the deliberate removals above are
@@ -236,10 +236,10 @@ exists, a parity check against the TypeScript implementation.
 - **M5 — `apps/api` + `apps/worker`.** axum server exposing the identical
   route set and response shapes; worker polling loop. Exit: the web UI and
   the smoke scripts run against the Rust API with no client changes.
-- **M6 — `apps/desktop`.** Tauri v2 (decided 2026-11-06) replacing Electron, same IPC surface.
-- **M7 — `apps/web`.** Frontend decision and port (see below).
+- **M6 — `apps/desktop`.** Tauri v2 (decided 2026-11-06) replacing Electron, same IPC surface. **Done 2026-11-08** (`zyquor-desktop`, headless-smoke exit 0).
+- **M7 — `apps/web`.** Frontend decision: **keep React** (see "Web UI" below). **Done 2026-11-08.**
 - **M8 — Scripts and services.** Port `scripts/*.mjs` to binaries; retire the
-  pnpm workspace.
+  pnpm workspace. In progress 2026-11-08.
 
 ## Test policy
 
@@ -270,15 +270,18 @@ crate passes the parity harness.
 
 ## Web UI
 
-`apps/web` is React + Vite (~4k lines). Two options, decided at M7:
-
-- **Keep the React UI as-is** and have it talk to the Rust API. Fastest, and
-  leaves one non-Rust component in the repo.
-- **Port to Leptos or Yew** for a fully Rust stack. Larger effort, and the UI
-  code is the least costly to keep as-is.
-
-The migration plan of record is to keep React through M6, then decide at M7
-based on how much UI-specific logic has already moved into the Rust API.
+`apps/web` is React + Vite (~4k lines). **Decision at M7 (2026-11-08): keep
+the React UI as-is.** The UI is web content served inside the Tauri webview
+(`frontendDist` → `apps/web/dist`, wired in M6) and, in dev, via the Vite
+dev server against the Rust API — it is not a desktop concern, the only
+desktop-facing surface is `window.zyquor = { apiBaseUrl, appVersion, updates }`
+(injected by Tauri), which survives by design. Porting ~4k lines of TSX to a
+Rust native UI (Leptos/Yew) would rewrite the product's design system for
+zero user value, and the UI's worth is its code, not its language. The
+migration exit criterion — *"the web UI runs against the Rust API with no
+client changes"* — is met: `pnpm --filter @zyquor/web build` produces the
+dist the Tauri shell loads, and both sides were verified against the Rust
+API in M5/M6.
 
 ## Browser automation note
 

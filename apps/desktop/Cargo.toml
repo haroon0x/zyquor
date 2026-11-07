@@ -1,0 +1,32 @@
+[package]
+name = "zyquor-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum.workspace = true
+chrono.workspace = true
+reqwest.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+tokio.workspace = true
+zyquor-accounts.workspace = true
+zyquor-api.workspace = true
+zyquor-browser.workspace = true
+zyquor-core.workspace = true
+zyquor-storage.workspace = true
+zyquor-worker.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[lints]
+workspace = true

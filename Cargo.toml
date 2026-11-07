@@ -10,6 +10,8 @@ members = [
   "crates/zyquor-browser",
   "apps/api",
   "apps/worker",
+  "apps/desktop",
+  "apps/cli",
 ]
 
 [workspace.package]
