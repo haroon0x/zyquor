@@ -109,19 +109,35 @@ pub async fn delete_post(
         .map_err(|error| browser_delete_error(error, None))?;
     let _ = page.goto(&permalink, 45_000).await;
 
+    // Poll for the article: X's SPA can sit on a loading spinner past the
+    // initial load event (observed live: screenshot with a spinner after the
+    // page-load event), so a single check + 2 reloads is too fragile. Poll
+    // the DOM check like the feed's `wait_for_metrics_ready` does instead.
     let mut resolved = tweet_article_visible(&page, &tweet_id).await;
+    if !resolved && page_shows_nonexistent_tweet(&page).await {
+        return Ok(DeletePostResult {
+            status: "deleted".to_string(),
+            post_url: permalink,
+            already_deleted: true,
+        });
+    }
     if !resolved {
-        if page_shows_nonexistent_tweet(&page).await {
-            return Ok(DeletePostResult {
-                status: "deleted".to_string(),
-                post_url: permalink,
-                already_deleted: true,
-            });
-        }
-        for _attempt in 0..2 {
+        let deadline = chrono::Utc::now().timestamp_millis() + 40_000;
+        while chrono::Utc::now().timestamp_millis() < deadline {
+            tokio::time::sleep(std::time::Duration::from_millis(1_500)).await;
+            resolved = tweet_article_visible(&page, &tweet_id).await;
             if resolved {
                 break;
             }
+            if page_shows_nonexistent_tweet(&page).await {
+                return Ok(DeletePostResult {
+                    status: "deleted".to_string(),
+                    post_url: permalink,
+                    already_deleted: true,
+                });
+            }
+        }
+        if !resolved {
             let _ = page.reload(30_000).await;
             resolved = tweet_article_visible(&page, &tweet_id).await;
             if page_shows_nonexistent_tweet(&page).await {

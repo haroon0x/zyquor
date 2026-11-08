@@ -25,9 +25,17 @@ impl Session {
     /// Connect to the Chrome answering at `cdp_url`. No auto-launch: the
     /// launcher owns spawning; callers `ensure_browser_cdp` first.
     pub async fn connect(cdp_url: &str) -> Result<Self, String> {
-        let (browser, _handler) = chromiumoxide::browser::Browser::connect(cdp_url)
+        let (browser, handler) = chromiumoxide::browser::Browser::connect(cdp_url)
             .await
             .map_err(|error| error.to_string())?;
+        // chromiumoxide's Handler drives the whole event loop; it must be
+        // polled to completion in a spawned task (not dropped) or the
+        // connection dies immediately.
+        tokio::spawn(async move {
+            use futures::StreamExt;
+            let mut handler = handler;
+            while handler.next().await.is_some() {}
+        });
         Ok(Self {
             browser: Arc::new(browser),
             owned: Arc::new(std::sync::Mutex::new(Vec::new())),
@@ -56,7 +64,7 @@ impl Session {
 
     /// The first open page, or a new tab (TS `context.pages()[0] ?? context.newPage()`).
     pub async fn first_page_or_new(&self) -> Result<chromiumoxide::Page, String> {
-        let pages = self.pages().await?;
+        let pages = self.pages_settled().await?;
         if let Some(page) = pages.into_iter().next() {
             return Ok(page);
         }
@@ -71,9 +79,29 @@ impl Session {
             .map_err(|error| error.to_string())
     }
 
+    /// Like [`Self::pages`], but polls for a moment: right after
+    /// [`Self::connect`] chromiumoxide discovers its targets
+    /// asynchronously, so an immediate read can legitimately see zero
+    /// pages (observed: the target cache fills in over the next
+    /// hundreds of ms). Polling until at least one page appears (or the
+    /// budget runs out) removes the flake without hiding real emptiness.
+    pub async fn pages_settled(&self) -> Result<Vec<chromiumoxide::Page>, String> {
+        let deadline = chrono::Utc::now().timestamp_millis() + 5_000;
+        loop {
+            let pages = self.pages().await?;
+            if !pages.is_empty() {
+                return Ok(pages);
+            }
+            if chrono::Utc::now().timestamp_millis() >= deadline {
+                return Ok(pages);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+    }
+
     /// `existingXPage` — prefer the compose tab, else the first X tab.
     pub async fn existing_x_page(&self) -> Result<Option<chromiumoxide::Page>, String> {
-        let pages = self.pages().await?;
+        let pages = self.pages_settled().await?;
         let mut x_pages: Vec<chromiumoxide::Page> = Vec::new();
         for page in pages {
             let url = page_url(&page).await;
@@ -131,7 +159,7 @@ pub async fn page_url(page: &chromiumoxide::Page) -> String {
 
 /// Close duplicate X tabs, keeping the compose tab (`closeDuplicateXPages`).
 pub async fn close_duplicate_x_pages(session: &Session) -> Result<(), String> {
-    let pages = session.pages().await?;
+    let pages = session.pages_settled().await?;
     let mut x_pages: Vec<chromiumoxide::Page> = Vec::new();
     for page in pages {
         let url = page_url(&page).await;
