@@ -1451,6 +1451,58 @@ label {
   gap: 6px;
 }
 
+.account-edit-form {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px 10px;
+  align-items: end;
+}
+
+.account-edit-form label {
+  display: grid;
+  gap: 4px;
+}
+
+.account-edit-form label > span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.account-edit-form input,
+.account-edit-form select {
+  width: 100%;
+  height: 30px;
+  font-size: 12px;
+}
+
+.account-edit-form .form-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--warn);
+  font-size: 11px;
+}
+
+.account-edit-actions {
+  display: flex;
+  gap: 6px;
+  align-self: end;
+}
+
+@media (max-width: 640px) {
+  .account-settings-row,
+  .account-settings-actions,
+  .account-edit-form {
+    grid-template-columns: 1fr;
+  }
+
+  .account-edit-form {
+    flex-direction: column;
+  }
+}
+
 .history-panel {
   width: 100%;
 }
