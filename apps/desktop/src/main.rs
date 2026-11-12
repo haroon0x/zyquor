@@ -23,7 +23,7 @@ use tauri_plugin_opener::OpenerExt;
 use zyquor_api::{AppState, BuildAppOptions};
 use zyquor_worker::{WorkerHandle, WorkerOptions};
 
-use controls::{ApiServerHandle, AppRuntime, DesktopControl, DesktopStatus};
+use controls::{ApiDesktopControl, ApiServerHandle, AppRuntime, DesktopControl, DesktopStatus};
 use log::{flush_log_sync, init_file_log, log_line};
 use settings::{
     DesktopSettings, apply_desktop_env_defaults, apply_settings_to_env, load_settings,
@@ -563,6 +563,7 @@ fn run_headless_smoke() -> i32 {
                 return false;
             }
         };
+        let control_slot = api_state.clone();
         let backend = match spawn_backend(api_state, std_listener, worker_options(&api_url)) {
             Ok(backend) => backend,
             Err(error) => {
@@ -571,31 +572,6 @@ fn run_headless_smoke() -> i32 {
             }
         };
         log_line("info", "worker started");
-        tokio::time::sleep(Duration::from_millis(SETTLE_MS)).await;
-
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(5))
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
-        let mut all_ok = true;
-        for path in ["/accounts", "/worker/status"] {
-            let url = format!("{api_url}{path}");
-            match client.get(&url).send().await {
-                Ok(response) => {
-                    let status = response.status().as_u16();
-                    if status == 200 {
-                        println!("OK: {path} → 200");
-                    } else {
-                        eprintln!("FAIL: {path} returned {status}");
-                        all_ok = false;
-                    }
-                }
-                Err(error) => {
-                    eprintln!("FAIL: {path} fetch error: {error}");
-                    all_ok = false;
-                }
-            }
-        }
 
         let started_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let app_runtime = AppRuntime {
@@ -606,6 +582,47 @@ fn run_headless_smoke() -> i32 {
             data_root: data_root.clone(),
             api: Arc::new(backend.api),
         };
+        control_slot.set_desktop_control(Arc::new(ApiDesktopControl::new(app_runtime.clone())));
+
+        tokio::time::sleep(Duration::from_millis(SETTLE_MS)).await;
+
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+        let mut all_ok = true;
+        for path in [
+            "/accounts",
+            "/worker/status",
+            "/system/status",
+            "/system/logs?lines=5",
+        ] {
+            let url = format!("{api_url}{path}");
+            match client.get(&url).send().await {
+                Ok(response) => {
+                    let status = response.status().as_u16();
+                    if status != 200 {
+                        eprintln!("FAIL: {path} returned {status}");
+                        all_ok = false;
+                        continue;
+                    }
+                    let body = response.text().await.unwrap_or_default();
+                    // `/system/status` must carry the injected desktop block;
+                    // a null `desktop` means the control plane was not wired.
+                    if path == "/system/status" && !body.contains("\"desktop\":{") {
+                        eprintln!("FAIL: {path} has no desktop block: {body}");
+                        all_ok = false;
+                        continue;
+                    }
+                    println!("OK: {path} → 200");
+                }
+                Err(error) => {
+                    eprintln!("FAIL: {path} fetch error: {error}");
+                    all_ok = false;
+                }
+            }
+        }
+
         DesktopControl::shutdown_sequence(&app_runtime).await;
         all_ok
     });
@@ -657,6 +674,10 @@ fn run_setup(
     let repository = zyquor_storage::SqliteRepository::open(&db_path)?;
     let api_state = AppState::new(repository, db_path.clone(), &options)
         .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+    // Cloned before the server thread takes ownership: the desktop-control
+    // slot is shared by every clone, so injecting it after the worker/API
+    // start is visible to the router immediately.
+    let control_slot = api_state.clone();
     let api_url = format!("http://127.0.0.1:{api_port}");
     let backend = spawn_backend(api_state, std_listener, worker_options(&api_url))
         .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
@@ -671,6 +692,7 @@ fn run_setup(
         data_root: data_root.clone(),
         api: Arc::new(backend.api),
     };
+    control_slot.set_desktop_control(Arc::new(ApiDesktopControl::new(runtime.clone())));
     let runtime_for_tasks = runtime.clone();
     app.manage(runtime);
 
@@ -801,6 +823,7 @@ fn run_setup(
 }
 
 fn main() {
+    zyquor_core::dotenv::load();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let headless = args.iter().any(|arg| arg == "--headless-smoke");
     let hidden = args.iter().any(|arg| arg == "--hidden");
@@ -937,9 +960,9 @@ fn main() {
             }
             MENU_STOP_EVERYTHING => {
                 let runtime = (*app.state::<AppRuntime>()).clone();
-                // The TS route `POST /system/stop-all` does not exist in the
-                // Rust API, so this performs the same actions locally:
-                // pause the worker and close every posting Chrome.
+                // Same actions as `POST /system/stop-all`; the tray has no
+                // request to answer, so it runs them directly (pause the
+                // worker and close every posting Chrome).
                 tauri::async_runtime::spawn(async move {
                     runtime.worker_handle.set_paused(true);
                     DesktopControl::close_chrome(&runtime, &controls::base_cdp_url()).await;

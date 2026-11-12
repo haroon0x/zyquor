@@ -13,19 +13,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  web:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/web
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+        with:
+          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - run: pnpm check
-      - run: pnpm test
+      - run: pnpm run check
+      - run: pnpm run test
+      - run: pnpm run build
 
   rust:
     runs-on: ubuntu-latest
@@ -40,71 +47,37 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
-  dist-desktop-win:
+  desktop-win:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') }}
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+        with:
+          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm --filter @zyquor/web build
-      - name: Select Windows signing mode
-        id: windows_signing
-        shell: pwsh
-        env:
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ vars.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-          AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ vars.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
-          AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: Build the React renderer (Tauri frontendDist)
+        working-directory: apps/web
         run: |
-          $values = @(
-            $env:AZURE_TENANT_ID
-            $env:AZURE_CLIENT_ID
-            $env:AZURE_CLIENT_SECRET
-            $env:AZURE_TRUSTED_SIGNING_ENDPOINT
-            $env:AZURE_TRUSTED_SIGNING_ACCOUNT_NAME
-            $env:AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME
-          )
-          $enabled = $true
-          foreach ($value in $values) {
-            if ([string]::IsNullOrWhiteSpace($value)) {
-              $enabled = $false
-              break
-            }
-          }
-          "enabled=$($enabled.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
-          if ($enabled) {
-            Write-Host "Azure Trusted Signing is enabled."
-          } else {
-            Write-Host "Azure Trusted Signing is not fully configured; building unsigned."
-          }
-      - name: Build signed Windows distribution
-        if: ${{ steps.windows_signing.outputs.enabled == 'true' }}
-        run: pnpm --filter @zyquor/desktop dist:win:signed
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ vars.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-          AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ vars.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
-          AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME }}
-      - name: Build unsigned Windows distribution
-        if: ${{ steps.windows_signing.outputs.enabled != 'true' }}
-        run: pnpm --filter @zyquor/desktop dist:win
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          pnpm install --frozen-lockfile
+          pnpm run build
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install the Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+      # Code signing is not wired for Tauri yet (docs/code-signing.md is
+      # still the Electron procedure), so the installers are unsigned.
+      - name: Build the desktop bundles
+        run: cargo tauri build
       - uses: actions/upload-artifact@v4
         with:
-          name: zyquor-setup-x64
-          path: apps/desktop/release/*.exe
+          name: zyquor-windows
+          path: |
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/msi/*.msi
+          if-no-files-found: error

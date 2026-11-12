@@ -9,12 +9,12 @@ Zyquor is the user's local-first posting and reply engine for X (Twitter). Each 
 
 ## Runtime
 
-- API: Fastify, default port 3000. On this machine (WSL) the API runs on port 3001 because 3000 is taken by an unrelated app. Start it with:
-  `ZYQUOR_API_PORT=3001 pnpm --filter @zyquor/api dev` (from the repo root).
+- API: Rust axum server, default port 3000 (falls back to 3001 when that port is taken). Start it with:
+  `ZYQUOR_API_PORT=3001 cargo run -p zyquor-cli -- api` (from the repo root).
   Probe health on both ports before deciding on a base URL.
-- Web UI: `ZYQUOR_API_URL=http://127.0.0.1:3001 pnpm --filter @zyquor/web dev`.
+- Web UI: `ZYQUOR_API_URL=http://127.0.0.1:3001 cargo run -p zyquor-cli -- web`.
   The API in this repo is the source of truth for state (SQLite). All data lives locally.
-- Worker: `pnpm --filter @zyquor/worker dev` drives post jobs, ingest, and performance. It needs desktop settings for browser posting (handled by the desktop app or `GET /settings`).
+- Worker: `cargo run -p zyquor-cli -- worker` drives post jobs, ingest, and performance. It needs desktop settings for browser posting (handled by the desktop app or `GET /settings`).
 - Posting Chrome: point `ZYQUOR_BROWSER_CDP_URL` at the reachable CDP endpoint of your dedicated posting profile (for example `http://127.0.0.1:9222`), and run it headless with `ZYQUOR_BROWSER_HEADLESS=1` if you do not want a window. On a host that cannot reach Chrome's loopback port, use a portproxy or another reachable URL.
 - Mentions auto-draft (optional, off by default): the worker calls the same scan-and-draft endpoint on a timer when `ZYQUOR_MENTIONS_AUTO_DRAFT=1` and `ZYQUOR_MENTIONS_ACCOUNTS=<account_id>` are set. `ZYQUOR_MENTIONS_INTERVAL_MS` overrides the cadence (default 15 min). Auto-draft only creates drafts for the review queue; it never posts.
 - Mentions auto-approve (optional, stage 2, off by default): when `ZYQUOR_MENTIONS_AUTO_APPROVE=1` the worker calls the capped lane endpoint instead (precedence over auto-draft if both are set). The lane drafts with wiki-only memory and may approve at most `ZYQUOR_MENTIONS_AUTO_APPROVE_DAILY_CAP` (default 3, 0 disables) qualifying top candidates per account per local day into ordinary `review_required` post jobs; everything else stays in the review queue. The lane never posts.

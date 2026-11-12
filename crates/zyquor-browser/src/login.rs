@@ -67,7 +67,7 @@ pub async fn assert_not_login_page(page: &CdpPage) -> Result<(), String> {
 }
 
 fn login_not_logged_in_message() -> String {
-    "X profile is not logged in. Run `pnpm profile:x:manual`, log into X, close that browser, then retry."
+    "X profile is not logged in. Run `zyquor open-profile --manual`, log into X, close that browser, then retry."
         .to_string()
 }
 

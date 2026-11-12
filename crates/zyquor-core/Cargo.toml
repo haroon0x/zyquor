@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+dotenvy.workspace = true
 rand = "0.9"
 serde.workspace = true
 serde_json.workspace = true

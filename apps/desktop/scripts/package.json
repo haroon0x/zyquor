@@ -1,0 +1,13 @@
+{
+  "name": "@zyquor/desktop-icons",
+  "private": true,
+  "type": "module",
+  "description": "Regenerates the Tauri app icons from build/icon.svg. Run only when the artwork changes; the generated PNG/ICO files are committed.",
+  "scripts": {
+    "generate": "node make-icons.mjs"
+  },
+  "devDependencies": {
+    "png-to-ico": "^2.1.8",
+    "sharp": "^0.33.5"
+  }
+}

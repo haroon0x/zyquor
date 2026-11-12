@@ -36,6 +36,7 @@ async fn listen(app_router: Router) -> Result<(), Box<dyn std::error::Error>> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    zyquor_core::dotenv::load();
     let enable_browser_prepare = env("ZYQUOR_ENABLE_BROWSER_PREPARE").as_deref() == Some("1");
     let enable_browser_post = env("ZYQUOR_ENABLE_BROWSER_POST").as_deref() == Some("1");
     let browser_channel = env("ZYQUOR_BROWSER_CHANNEL");

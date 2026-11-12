@@ -1,90 +1,117 @@
 # Architecture Notes
 
-> **Rust migration in progress.** The target architecture is one Cargo workspace: `crates/zyquor-{core,accounts,storage,adapters,generation,automation,browser}` with `apps/api` (axum), `apps/worker`, and `apps/desktop` (Tauri). Package boundaries and runtime rules documented below carry over unchanged. See `docs/rust-migration.md` for the mapping, milestones, and parity requirements.
-
-Zyquor is a local-first X posting assistant. Current system covers manual drafts, source packets, scheduled jobs, autopost jobs, browser prepare/post, automated source ingest, and short-window post-history analysis.
+Zyquor is a local-first X posting assistant built as one Cargo workspace. The whole runtime is Rust; the only TypeScript left is the React renderer in `apps/web`.
 
 Core flow:
 
 ```text
-idea/source -> generation -> review/edit or autopost approval -> durable job -> browser prepare/post -> post history
+idea/source -> draft candidates -> select/edit -> approve -> durable job
+            -> worker -> browser prepare/post -> post history
 ```
 
-Topic flow:
+Automated source lane:
 
 ```text
-topic or rough post -> fresh topic search -> source packet -> opencode candidates -> review/edit or autopost approval
+ingest config -> source adapter -> source packet -> automation
+              -> one generated draft -> approved autopost job
 ```
 
-Automated source flow:
+Reply lane:
 
 ```text
-ingest config -> source adapter -> source packet -> one final generated draft -> approved autopost job -> worker/API post path
+feed / mention / post URL -> reply draft -> review or capped auto-approval
+                          -> ordinary post job
 ```
 
-## Reply Flow (replies-first)
+The LLM only writes candidate text. Scheduling, ranking, browser automation, and the final post decision live outside `zyquor-generation` and are separately gated.
 
-Reply drafting is its own lane; every reply lands in the review queue.
+## Crate Graph
 
 ```text
-mentions tab or post url -> browser fetch -> reply target -> optional Goldfish memory -> one candidate draft -> human approval (or the capped lane approval) -> post job
+zyquor-core                     no internal dependencies
+  -> zyquor-accounts            core
+  -> zyquor-generation          core
+  -> zyquor-adapters            core
+  -> zyquor-browser             core
+  -> zyquor-storage             core, accounts
+
+zyquor-automation               core, adapters, generation, storage
+
+apps/api                        all seven crates
+apps/worker                     core (HTTP client to the API; no database access)
+apps/desktop                    api, worker, browser, storage, accounts, core
+apps/cli                        all seven crates, api, worker
+apps/web                        React/Vite renderer; not a Cargo member
 ```
 
-- `GET /replies/mentions` scans the account's X notifications/mentions tab (48 hour window, promoted posts dropped, dedupe by status URL) and annotates each mention with `drafted` and `posted` flags.
-- `POST /replies/mentions/scan-and-draft` (all fresh mentions, capped at 10 drafts per call), `POST /replies/mentions/draft` (chosen URLs), and `POST /replies/from-url` (a single tweet URL) all create reply drafts through the standard draft pipeline. Dedupe is done against existing drafts and post history, normalizing `twitter.com` and `x.com` links, so skipped items return a reason (`drafted`, `posted`, `unavailable`, `promoted`) instead of duplicates.
-- Goldfish memory: before drafting, `@zyquor/adapters` resolves the author and topic against the user's local Goldfish MCP (wiki facts plus recent activity, 10 minute TTL cache with a 60 second negative cache). Matched material renders into the generation prompt inside `<personal-memory>`, capped at 1600 characters. Memory is additive context only and never fails a draft when unavailable (`disabled`, `empty`, `unavailable` reasons). The per-account toggle is the style rule `rules.replyMemory` (default on); a request's `useMemory` field overrides it.
-- Worker auto-draft (`ZYQUOR_MENTIONS_AUTO_DRAFT=1`, `ZYQUOR_MENTIONS_ACCOUNTS`, `ZYQUOR_MENTIONS_INTERVAL_MS`, default 15 minutes) calls scan-and-draft on a timer; it only drafts.
-- Worker auto-approve (stage 2, `ZYQUOR_MENTIONS_AUTO_APPROVE=1`, same accounts/interval; takes precedence over auto-draft when both are set) calls `POST /replies/mentions/scan-and-auto-approve`. The lane drafts fresh mentions with wiki-only memory (activity excerpts from email/meetings are never fetched or injected, `maxMemories: 0`) and may approve the top candidate only when it clears the quality floor (`passesTweetQualityFloor`), within a daily cap `ZYQUOR_MENTIONS_AUTO_APPROVE_DAILY_CAP` (default 3, 0 disables, clamped 0..50) counted from same-local-day approvals of drafts marked `metadata.autoApproved`. Approval mirrors the human route (post-processing, `features`, `autoApproved: true`, `approveDraft` with `mode: "review_required"`), so the output is an ordinary queued post job; actual posting remains gated by the worker/browser flags, daily limits, and quiet hours. Anything else stays in the review queue with a `held` reason (`quality_below_floor`, `daily_cap_reached`, `draft_failed`, `approve_failed`).
-- `scripts/poll-x-mentions.mjs` is a thin cron shim over the same API (`DRY_RUN=1` lists the scan; otherwise it scan-and-drafts and).
+Dependency direction is deliberate: domain crates never depend on an app crate, and `apps/api` is the composition root. `zyquor-browser` depends only on `zyquor-core`; `zyquor-generation` never depends on storage, browser, or UI; `zyquor-storage` never talks HTTP or launches a browser.
 
-## Package Boundaries
+## Boundaries
 
-These boundaries are preserved 1:1 in the Rust workspace as one crate each; the TypeScript package names below map to `zyquor-core`, `zyquor-accounts`, `zyquor-adapters`, `zyquor-automation`, `zyquor-generation`, `zyquor-storage`, and `zyquor-browser`.
+- `zyquor-core`: domain enums and wire values, lifecycle transitions, path and per-profile CDP rules, post spacing, reply-target parsing. No I/O beyond environment/path helpers.
+- `zyquor-accounts`: account records and dedicated-profile safety checks. Rejects everyday Chrome profile paths; profiles must stay under `profiles/`.
+- `zyquor-storage`: the only persistence layer. SQLite schema, migrations, repositories, and model mapping via rusqlite.
+- `zyquor-generation`: provider selection and clients, prompt assembly, answer parsing, the refine loop, deterministic post-processing and quality scoring. It returns text only.
+- `zyquor-adapters`: network source adapters behind a `Fetch`/`CrawlService` seam, the aggregator with per-source health, and the Goldfish memory adapter.
+- `zyquor-automation`: ingest orchestration, source packets, packet-to-draft derivation, tweet-type routing, quality gates, and performance aggregation. It composes adapters, generation, and storage.
+- `zyquor-browser`: direct Chrome DevTools Protocol automation through `chromiumoxide`: session/page primitives, login detection, feed fetchers, composer, delete flow, launch state, and the Chrome launcher.
+- `apps/api`: axum 0.8 HTTP surface and orchestration. It builds the generation provider, source adapters, repository proxy, and browser dependencies.
+- `apps/worker`: the polling loop. It drives the API over HTTP and never opens the database directly.
+- `apps/desktop`: Tauri v2 shell. It starts the API and worker in-process, owns the window/tray/settings/log/Chrome lifecycle, and injects the desktop control plane.
+- `apps/cli`: the `zyquor` operational binary: dev runner, profiles/login checks, posting loops, audits, backfills, seeding, evaluation, generation smoke.
+- `apps/web`: React + Vite UI. In the desktop app it runs inside the Tauri webview with `window.zyquor.apiBaseUrl`; in standalone dev it calls `/api`, which Vite proxies to the API.
 
-- `@zyquor/core`: domain constants, validation schemas, post-history analysis, shared types.
-- `@zyquor/accounts`: account config and dedicated-profile safety checks.
-- `@zyquor/adapters`: live source adapters, aggregation, source health, optional Crawl4AI client.
-- `@zyquor/automation`: source-packet context cleanup, ingest selection, draft-from-source flow.
-- `@zyquor/generation`: provider clients, prompts, parsing, tweet post-processing.
-- `@zyquor/storage`: SQLite repositories and persistence mappers.
-- `@zyquor/browser`: Playwright/CDP compose, prepare, post, and verification flow.
-- `apps/api`: Fastify API and local orchestration.
-- `apps/worker`: background polling for async ingest and due jobs.
-- `apps/web`: local operational UI.
+## Data Flow
 
-## Runtime Rules
+1. **Draft.** `POST /drafts` or a batch creates a draft. `POST /drafts/:id/generate` asks `zyquor-generation` for candidates; source-packet routes derive the idea from a packet under `zyquor-automation`. Candidates carry provider, model, rank, and deterministic quality score.
+2. **Selection and approval.** `POST /drafts/:id/select` records the chosen text and edit. `POST /drafts/:id/approve` applies the posting mode and optional schedule and creates the durable job. Approval writes the normalized text fingerprint and rejects duplicate approved text for the same account. Agents send `screened: true`, which rejects unclean, over-length, or below-floor text with 409.
+3. **Job.** Job statuses follow `created -> approved -> queued -> running -> prepared|posted|failed`. `prepared` can still run or post; `failed` is re-armed only through the verify-then-retry path. Attempt rows record every browser run.
+4. **Worker.** The worker polls every 5 seconds. It recovers stale `running` jobs, lists approved jobs by account, applies quiet hours, schedule time, and spacing, then calls prepare for `prepare_only`/`scheduled` jobs and post for `autopost` when the post flag is on. The API enforces the account's daily limit before the browser runs. The worker also drives pending draft generation, new source packets, ingest, performance refresh, heartbeats, and the optional mention lanes.
+5. **Browser.** The API resolves the account's profile and per-profile CDP URL, checks that X is logged in as the expected handle, then runs the composer flow. Prepare types and verifies text without submitting. Post performs the explicit click and verifies the resulting permalink. Failures store attempt status, error, screenshot, and trace artifacts.
+6. **History.** A successful post writes a history row with source metadata, so posted text is traceable back to draft, source packet, source URL, and tweet type. Measurements feed `/history/analysis` and `/performance`.
 
-- Browser posting is controlled by `ZYQUOR_ENABLE_BROWSER_POST=1`.
-- Real browser prepare is controlled by `ZYQUOR_ENABLE_BROWSER_PREPARE=1`.
-- Dedicated profile paths must stay under `profiles/`.
-- Failed external post jobs are not auto-retried; a failed click may still have reached X.
-- Source packets can produce up to two posts per account.
-- Post history stores source metadata so posted text can be traced back to packet/source/tweet type.
-- Aggregated source health cools down upstreams that fail or return no items repeatedly.
-- Automated ingest and topic search reject undated sources and sources older than 48 hours.
-- Mention auto-draft only creates reply drafts; the review queue remains the gate and nothing auto-posts from it.
-- Agents drive Zyquor through the HTTP API only (see `skills/zyquor/SKILL.md`): posting and approving require an explicit user ask in that session.
+`POST /jobs/post-next` and `POST /jobs/post-ready` are explicit API paths for draining approved jobs without the worker. They use the same gated browser post path.
 
-## Source Health
+## Automated Ingest and Source Health
 
-The aggregated news adapter tracks per-upstream:
+Ingest configs select adapters, a daily packet target, an optional schedule window, and a tweet-type mix. `zyquor-automation` pulls items through `zyquor-adapters`, rejects undated items and items older than 48 hours, derives a compact source packet, and generates one draft. Auto-approval still creates an ordinary autopost job; the worker and browser flags decide whether it can run.
 
-- last success time
-- last failure time
-- last item count
-- last error
-- consecutive failures
-- cooldown expiration
+The aggregator tracks per-upstream last success/failure, item count, error, consecutive failures, and cooldown expiry. Repeated empty or failing runs put that upstream in a short cooldown, keeping ingest cycles focused on sources currently returning data.
 
-After repeated empty/failing runs, that upstream is skipped briefly. This affects execution by keeping ingest cycles focused on sources currently returning data.
+A source packet can reach at most two posted history rows per account. Browser posting is never retried automatically after a failure because the click may already have reached X.
+
+## Reply Lane
+
+`GET /replies/feed`, `GET /replies/mentions`, and `POST /replies/from-url` discover targets and create reply drafts through the same draft pipeline. Mentions are limited to a 48-hour window, promoted posts are dropped, and scan-and-draft is capped per call. Dedupe normalizes `x.com` and `twitter.com` links and checks both existing drafts and post history.
+
+Goldfish memory is resolved before drafting (wiki facts and recent activity through the local MCP adapter, with a 10-minute cache and 60-second negative cache). Rendered memory is capped at 1600 characters inside `<personal-memory>` and is additive only: failure to fetch it never fails a draft. The per-account style rule `rules.replyMemory` controls it; a request can override it with `useMemory`.
+
+The worker's mention lanes are opt-in. Auto-draft only creates drafts for review. Auto-approve may approve at most `ZYQUOR_MENTIONS_AUTO_APPROVE_DAILY_CAP` qualifying top candidates per account per local day, and only above the quality floor; the result is an ordinary `review_required` job. The post path still enforces the browser post flag and daily limit. Neither lane posts by itself.
 
 ## Generation Boundary
 
-Only `@zyquor/generation` knows provider wire formats. API selects provider from environment or saved config. UI reads and updates `/generation`; browser code never calls LLM APIs.
+Only `zyquor-generation` knows provider wire formats. `apps/api` resolves the config and constructs the provider; draft, reply, source-packet, and smoke paths call the provider interface. Browser code never calls an LLM, and generation never browses.
 
 Supported providers:
 
-- `opencode`: authenticated local opencode CLI (`opencode run -m <model>#<variant>`); default model `opencode/glm-5.3-flash-free` with the high reasoning variant. This is the configured provider.
-- `command-code`: authenticated local Command Code CLI in non-interactive plan mode; default model `gpt-5.6-luna`.
-- `gemini`: Google Gemini `models/{model}:generateContent`.
-- `ollama`: local `/api/generate`.
+| Provider | Transport | Default |
+| --- | --- | --- |
+| `opencode` | authenticated local CLI, `opencode run -m <model>#<variant>` | `opencode/glm-5.3-flash-free`, variant `high` |
+| `command-code` | authenticated local CLI, plan/print mode | `gpt-5.6-luna` |
+| `gemini` | HTTPS `models/{model}:generateContent` | `gemini-3.6-flash` |
+| `ollama` | local HTTP `/api/chat` | `gemma4:e4b` at `http://127.0.0.1:11434` |
+
+`ZYQUOR_LLM_PROVIDER` may be unset or `auto`, in which case Gemini is chosen when `ZYQUOR_GEMINI_API_KEY` is set and Ollama otherwise. The opencode ladder is limited to the approved three models; failover triggers only on the CLI's quota, unavailable-model, or funds shutters.
+
+Config resolution: saved `data/generation.json` (written by `PATCH /generation`) > process environment > desktop settings snapshot. `.env` is loaded into the process environment at startup by `zyquor_core::dotenv` (existing variables win). The saved file wins over both; restart the process to apply a change to the live provider.
+
+Generation asks for candidates with a full prompt per attempt, with bounded best-of-N top-ups when the model returns fewer candidates than requested; a parse failure gets one simpler line-prompt retry. Voice, style, banned phrases, source boundary, and reply context travel in the system and user prompts. `score_tweet_quality` is a deterministic floor, not a ranker; there is no LLM judge in the production path. `ZYQUOR_QUALITY_MIN` defaults to 7 for posts and `ZYQUOR_REPLY_QUALITY_MIN` to 5 for replies. The optional `ZYQUOR_REVISION_PASS` adds a cut-only second pass for opencode. `zyquor tweet-eval` is a development evaluation tool with its own judge, not part of the posting pipeline.
+
+## Persistence and Runtime Rules
+
+- Persistence is SQLite via rusqlite (`app.sqlite` under the data root). There is no JSON fallback; schema creation and column migrations run on open.
+- Desktop settings live in `settings.json` in the data root. API keys are currently plaintext; legacy `enc:v1:` values are stripped on load. Logs live in `<dataRoot>/logs/main.log` and rotate to `main.log.1` at 5 MB.
+- Browser automation is direct CDP over dedicated Chrome profiles. No stealth, anti-detection, proxy rotation, or CAPTCHA bypass; no automated follows, likes, reposts, DMs, or engagement loops.
+- `ZYQUOR_ENABLE_BROWSER_PREPARE=1` and `ZYQUOR_ENABLE_BROWSER_POST=1` gate prepare and the final click separately. The final post action is explicit and logged.
+- Each account has its own profile, CDP port, daily post limit, quiet hours, and posting mode. Different accounts may run browser jobs concurrently; one account runs at most one browser job at a time.
+- Failed external post jobs are not auto-retried. `POST /jobs/:id/retry` verifies whether the post actually landed before re-arming it, and `POST /jobs/recover-stale` exists for the worker's stale-run recovery.

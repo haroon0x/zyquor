@@ -8,6 +8,7 @@ use zyquor_worker::{
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
+    zyquor_core::dotenv::load();
     load_dot_env();
     if std::env::var("ZYQUOR_RUN_WORKER").ok().as_deref() != Some("1") {
         return;

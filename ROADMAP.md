@@ -1,61 +1,90 @@
 # Roadmap
 
-Where Zyquor stands and what is left. The plan of record for the migration is
-[docs/rust-migration.md](docs/rust-migration.md); this file tracks the product
-side and the honest state of each milestone.
+Where Zyquor stands and what is left. `docs/rust-migration.md` is the migration
+record; this file tracks the product and the honest state of each piece.
 
 ## Where the project is
 
-The TypeScript tree is the running product. The Rust workspace is the migration
-target, ported crate by crate, with parity harnesses as the exit criterion for
-each milestone. Nothing has been deleted from the TypeScript side yet.
+The TypeScript implementation was retired on 2026-11-08. The product is one
+Cargo workspace: `crates/zyquor-*` plus `apps/{api,worker,desktop,cli}`. The
+only non-Rust artifact is the React renderer in `apps/web`, kept by the M7
+decision and served inside the Tauri webview.
 
 | Milestone | State | Notes |
 | --------- | ----- | ----- |
 | M0: Scaffold | done | Workspace, `rust-toolchain.toml`, Rust CI job (fmt, clippy, test). |
-| M1: `zyquor-core` | done | Domain types, lifecycle transitions, path rules, post spacing, reply-target parsing. Parity harness covers gate/transition and CDP-URL cases. |
-| M2: `zyquor-storage` + `zyquor-accounts` | done (SQLite) | The SQLite repository surface is ported: schema, column migrations, first-run seeding, accounts, drafts, jobs, attempts, source packets, ingest configs, history, measurements. A database written by the TypeScript repository reads back with matching records. The JSON fallback the older docs mentioned never existed. |
-| M3: generation / adapters / automation | done | `zyquor-generation` is complete: config resolution, deterministic quality scoring, text post-processing, prompt assembly (byte-for-byte parity, checked by `scripts/prompt-parity.mjs`), harness rendering, output parsing, the provider clients (opencode with failover ladder, command-code, ollama, gemini) behind a `Fetch` seam / shared CLI runner, the refine pass, and the `create_generation_provider_from_env` factory. `zyquor-adapters` is complete: all 19 source adapters, the aggregator with health tracking, and the Goldfish MCP adapter. `zyquor-automation` is complete: the ingest engine, tweet-type routing, quality gates, performance aggregation, and draft building. Provider behaviour is fake-`Fetch`-tested; live opencode verified 2026-11-06. |
-| M4: `zyquor-browser` | partial | chromiumoxide CDP session + `CdpPage` primitives, login detection, all five feed fetchers, composer (open/type/verify + caller-gated click → verified permalink), delete-post flow, per-profile launch state, Chrome launcher with WSL/detached handling. Gaps: reduced actionability-stability check, trace-event JSON artifacts instead of Playwright `.zip`, not live-tested against X yet (see `docs/rust-migration.md` → Known gaps). |
-| M5: `apps/api` + `apps/worker` | done | `zyquor-api` (axum) ports all 17 TS route modules incl. jobs prepare/post/retry, ingest, drafts, replies/mentions, settings, performance; `zyquor-worker` ports the poll loop 1:1. Live smoke on 2026-11-07: health/status/worker/performance/history/onboarding/generation correct, worker heartbeat → ingest async → recover-stale end-to-end (no 415). Storage gained the route queries it needed. Gaps: desktop-only `system/*` control routes unregistered, `desktopSettings` process-level, generation provider not hot-swappable (see `docs/rust-migration.md` → Known gaps). |
-| M6: `apps/desktop` | pending | **Decided: Tauri v2** shell replacing Electron (locked 2026-11-06). |
-| M7: `apps/web` | pending | React kept or ported; decision deferred to this milestone. |
-| M8: scripts, retire pnpm | pending | Port `scripts/*.mjs` to binaries. |
+| M1: `zyquor-core` | done | Domain types, lifecycle transitions, path rules, post spacing, reply-target parsing. |
+| M2: `zyquor-storage` + `zyquor-accounts` | done | Full SQLite repository surface over rusqlite (schema, migrations, seeding, accounts, drafts, jobs, attempts, packets, ingest, history, measurements). A database written by the TypeScript repository reads back with matching records. |
+| M3: generation / adapters / automation | done | Provider clients (opencode with its failover ladder, command-code, ollama, gemini), prompt assembly (byte-for-byte parity captured before the TS tree was deleted), quality scoring, all 19 source adapters, the ingest engine. |
+| M4: `zyquor-browser` | done (live X acceptance pending) | chromiumoxide CDP session, login detection, five feed fetchers, composer + caller-gated post click, delete flow, per-profile launch state, Chrome launcher. CDP launch/protocol/login-detection smoke passed 2026-11-08. A full compose/post round-trip still needs a logged-in X session and an explicit ask. |
+| M5: `apps/api` + `apps/worker` | done | axum API over every TS route module, worker poll loop 1:1, live-smoked against a seeded account. The desktop control plane is now wired too (see below). |
+| M6: `apps/desktop` | done | Tauri v2 shell: settings/log/chrome/controls, API on an ephemeral port + in-process worker, tray, window guards, headless smoke. |
+| M7: `apps/web` | done | Keep React. `pnpm --dir apps/web build` produces the dist the Tauri shell loads. |
+| M8: scripts, retire pnpm | done | `apps/cli` (`zyquor`) ports all 15 operational subcommands; `scripts/`, `packages/`, the pnpm workspace, and the TS Electron sources are deleted. |
 
-## Next up
+## Landed 2026-11-12
 
-Ordered by what unblocks the migration first.
+- **Desktop control plane over HTTP.** The Tauri shell injects
+  `zyquor_api::DesktopControlPlane` into `AppState`, so the web UI's System
+  panel works again end to end: `GET /system/logs`,
+  `POST /system/worker/pause`, `POST /system/chrome/close`,
+  `POST /system/stop-all`, `POST /system/quit`, `POST /system/restart`, plus
+  the `desktop` block and `worker.paused` in `GET /system/status`. Response
+  shapes and defaults are ported from the retired `system.ts`; the standalone
+  API still answers 404 for the desktop-only routes, as the TS API did without
+  `deps.desktopControl`. Covered by `apps/api/tests/desktop_control.rs` and
+  the extended `--headless-smoke`.
+- **`/system/posting` respects the settings store.** `enablePrepare`,
+  `enablePost`, and `autoApproveSourcePackets` round-trip through the process
+  settings store instead of returning a hardcoded `false`.
+- **CI matches the tree.** The dead pnpm `test` job became the web-renderer
+  job (`apps/web`), and `dist-desktop-win` became `desktop-win` (`cargo tauri
+  build`, unsigned). A release tag no longer runs Electron packaging scripts
+  that no longer exist.
+- **`.env` loads again.** Every Rust entry point calls
+  `zyquor_core::dotenv::load()`; the port had silently dropped the TS
+  `dotenv` import, so `cp .env.example .env` did nothing. Process
+  environment still wins.
+- **`zyquor start` / `zyquor web` work.** They ran `pnpm --filter @zyquor/web
+  dev` from a root pnpm workspace that no longer exists; they now run Vite
+  from `apps/web`.
+- **Clean checkout builds the desktop bundle.** The Tauri icons were
+  gitignored and generated by an undeclared script; they are committed now
+  (regeneration lives in `apps/desktop/scripts/` with its own manifest).
+- **Docs tell the truth.** `ROADMAP`, `CLAUDE`, `AGENTS`, `README`,
+  `docs/architecture`, `docs/development`, `docs/rust-migration`, and the
+  shipped `skills/zyquor` skill no longer describe the retired TypeScript
+  tree.
 
-1. **M4 live verification**: prepare/playback against a live logged-in profile on two accounts concurrently; requires the "explicit human ask" per housekeeping rules before live CDP runs. (M4 is ported: chromiumoxide CDP session + `CdpPage` primitives, login detection, feed fetchers, composer, delete flow. CDP launch/login-detection paths are live-smoked via `zyquor open-profile` and `zyquor check-login` on 2026-11-08; a full X login/post round-trip is still blocked on your manual X login.)
-2. **Account editing in the UI**: `PATCH /accounts/:id` accepts handle, limits,
-   and profile fields, and the web UI can create an account; the Accounts panel
-   still only toggles `enabled` and deletes. Surface the rest of the editable
-   fields.
-3. **Split the large generation and adapters files**: the remaining
-   `crates/zyquor-generation` and `crates/zyquor-adapters` modules that mix providers,
-   parsing, and pipeline logic.
+## What is left
 
-## Landed from the same list
+Ordered by what unblocks the product.
 
-`CLAUDE.md` keeps a running "Remaining" list. These items from it are in the
-tree now:
-
-| Item | Where |
-| ---- | ----- |
-| Account creation flow | `POST /accounts` / `DELETE /accounts/:id` in `apps/api/src/routes/accounts.rs`, profile-path validation via `assert_dedicated_profile_dir`, and an "Add account" form in the web header. |
-| Schedule clearing via `PATCH /jobs/:id` | The route accepts `scheduledFor: null`, and the jobs panel has a clear-schedule action. |
-| Shuffled post-all | `POST /jobs/post-ready` shuffles due `approved`/`prepared` jobs before posting them sequentially. |
-| Surface quality-gate failures in the UI | `GET /drafts/quality-gate-failures` plus the "Quality gate rejections" panel in the compose view. |
-| App icon and Windows code signing | Icon generated from `apps/desktop/build/icon.svg` for the window, tray, and installer; Azure Trusted Signing in the `dist-desktop-win` CI job, documented in [docs/code-signing.md](docs/code-signing.md). What is left is cutting a signed release tag. |
-| OS keychain for API keys | Electron `safeStorage` encrypts `geminiApiKey` in `settings.json` (with a plaintext fallback when encryption is unavailable); the generator CLIs keep their own credentials. |
-| Auto-update | `electron-updater` wired to the GitHub publish provider, with download and install-on-quit enabled. Needs a published release to exercise. |
+1. **Live X acceptance run (M4 exit).** Launch the dedicated profile, log in
+   manually, then exercise prepare → compose → post through the normal gated
+   path. Needs your X login and an explicit ask per the housekeeping rules.
+2. **Tauri code signing.** `docs/code-signing.md` still describes the Electron
+   + Azure Trusted Signing pipeline; Tauri builds are unsigned until it is
+   rewritten (and the `desktop-win` job gets the certificate wiring).
+3. **Hot-swap the generation provider.** `PATCH /generation` validates and
+   persists the saved config, but the live provider is immutable in
+   `AppState`; a restart applies it.
+4. **Persist desktop settings from the API.** `/system/posting` and
+   `PATCH /settings` write to a process-level store; the Tauri shell owns
+   `settings.json`. Surviving a restart means injecting a settings surface the
+   same way the control plane is injected.
+5. **`autoApproveSourcePackets` lane.** The toggle round-trips, but no Rust
+   worker lane consumes it yet. Either port the TS auto-approve lane or remove
+   the UI control.
+6. **Storage parity:** align `deleteAccount` (the Rust version also deletes
+   knowledge entries + ingest configs); add the legacy null-`text_hash`
+   regression test.
+7. **Tests:** `parse.rs` in `zyquor-generation` has no unit tests, and there
+   is still no end-to-end suite.
 
 ## Deferred
 
-- Multi-account UI. Accounts can be created, switched, enabled, and deleted, and
-  each runs its own profile and CDP port; per-account limits, quiet hours, and
-  profile assignment are not editable in the UI yet.
 - Voice input.
-- An end-to-end test suite. Coverage today is unit and API-workflow tests plus
-  the parity harnesses and the smoke scripts (`pnpm smoke`, `pnpm smoke:http`,
-  `pnpm smoke:adapters`, `pnpm smoke:desktop`).
+- Ship a signed Windows release (needs item 2 above).
+- Auto-update: the Tauri updater is stubbed until signing keys exist; the
+  Electron `electron-updater` wiring was retired with the TS sources.

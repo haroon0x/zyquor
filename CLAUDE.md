@@ -4,14 +4,13 @@ Guidance for agents working in this repository. Favor caution, small changes, an
 
 License: AGPL-3.0-only (see `LICENSE`).
 
-## Rust Migration (in progress)
+## Rust Tree
 
-Zyquor is being fully migrated from TypeScript to Rust. `docs/rust-migration.md` is the plan of record: target Cargo workspace layout, crate-by-crate mapping, milestones M0–M8, parity strategy, and risks.
+Zyquor is a Rust Cargo workspace. The TypeScript implementation was retired on 2026-11-08; `docs/rust-migration.md` is the migration record. The only non-Rust code left is the React renderer in `apps/web`.
 
-- Target layout: `crates/zyquor-{core,accounts,storage,adapters,generation,automation,browser}` plus `apps/{api,worker,desktop,web}` in one Cargo workspace.
-- The TypeScript tree remains the running system until each Rust crate passes its parity harness. Nothing is deleted early. Within a crate that has been ported, new work goes into the Rust version, not the TypeScript one.
-- Build and verify with `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
-- The migration must not change behaviour: same HTTP routes and response shapes, same SQLite data, same generation output for the same input, same posting safety rails.
+- Layout: `crates/zyquor-{core,accounts,storage,generation,adapters,automation,browser}`, `apps/api` (axum), `apps/worker`, `apps/desktop` (Tauri v2), `apps/cli` (`zyquor`), `apps/web` (React/Vite).
+- Build and verify with `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`. The renderer builds with `pnpm --dir apps/web build`.
+- Behaviour is pinned to the retired TypeScript implementation: same HTTP routes and response shapes, same SQLite data, same generation output for the same input, same posting safety rails.
 
 ## Project Context
 
@@ -27,37 +26,36 @@ Automated lane: deterministic source ingestion → compact source packet → one
 
 Draft generation is a single LLM call that writes candidates with all anti-slop guidance (voice, punctuation, style contract, banned phrases, source boundary) carried in the system + user prompt, retried once with a simpler line prompt only when the output cannot be parsed. `score_tweet_quality` in `crates/zyquor-generation/src/quality.rs` is a deterministic floor (`ZYQUOR_QUALITY_MIN`, default 7) against recaps and slop, not a ranker. There is no separate LLM judge in the pipeline. Measure prompt/pipeline changes with `cargo run -p zyquor-cli -- tweet-eval`.
 
-Tweet types (`TWEET_TYPES` in `packages/core/src/index.ts`): `feed_observation`, `useful_info`, `guide`, `opinion`, `reply`, `narrative_history`. The retired types (`news_context`, `lesson`, `tool`, `hiring`, `article_summary`) are folded into these on database open.
+Tweet types (`TWEET_TYPES` in `crates/zyquor-core/src/types.rs`): `feed_observation`, `useful_info`, `guide`, `opinion`, `reply`, `narrative_history`. The retired types (`news_context`, `lesson`, `tool`, `hiring`, `article_summary`) are folded into these on database open.
 
-Controlled posting only behind env flags (`ZYQUOR_ENABLE_BROWSER_PREPARE` / `ZYQUOR_ENABLE_BROWSER_POST`; both disabled by default). Multi-account works end to end: accounts can be created, switched, enabled, and deleted in the web UI or via `POST /accounts` / `DELETE /accounts/:id`, each with its own profile and CDP port. Per-account limits and quiet hours are not editable in the web UI yet. Desktop shell decision is locked: **Tauri v2** (M6). E2E tests are future work (see Next Steps).
+Controlled posting only behind env flags (`ZYQUOR_ENABLE_BROWSER_PREPARE` / `ZYQUOR_ENABLE_BROWSER_POST`; both disabled by default). Multi-account works end to end: accounts can be created, switched, enabled, and deleted in the web UI or via `POST /accounts` / `DELETE /accounts/:id`, each with its own profile and CDP port. Per-account limits, quiet hours, and profile assignment are editable in the Accounts panel. Desktop shell: **Tauri v2** (`apps/desktop`). There is no end-to-end test suite yet (see Next Steps).
 
 ## Architecture
 
-> Migration target: `crates/zyquor-*` + `apps/api` (axum) + `apps/worker` + `apps/desktop` (Tauri) in a Cargo workspace. The list below describes the TypeScript tree that is still running.
+- `crates/zyquor-core`: domain types, lifecycle transitions, path rules, spacing. `crates/zyquor-storage`: SQLite repositories (rusqlite). `crates/zyquor-accounts`: account config helpers.
+- `crates/zyquor-generation`: provider clients (opencode/command-code/Ollama/Gemini), prompt assembly, deterministic quality scoring. `crates/zyquor-adapters`: source adapters, aggregation, source health. `crates/zyquor-automation`: ingest and source-packet drafting.
+- `crates/zyquor-browser`: chromiumoxide CDP prepare/post flow. `apps/api`: axum API. `apps/worker`: background worker for due jobs. `apps/desktop`: Tauri v2 shell + tray + in-process API/worker. `apps/cli`: the `zyquor` operational binary. `apps/web`: Vite React UI.
 
-- `apps/web`: Vite React UI. `apps/api`: Fastify API. `apps/worker`: background worker for due jobs. `packages/core`: domain types, Zod schemas. `packages/adapters`: source adapters, aggregation, source health.
-- `packages/automation`: ingest and source-packet drafting. `packages/generation`: command-code/opencode/Ollama/Gemini providers (no mock provider; tests inject providers via buildApp options). `packages/storage`: SQLite repositories. `packages/browser`: Playwright prepare/post flow. `packages/accounts`: account config helpers.
-
-Persistence: SQLite via `node:sqlite`. There is no JSON fallback; SQLite is the only repository implementation.
+Persistence: SQLite via rusqlite. There is no JSON fallback; SQLite is the only repository implementation.
 
 ## Hard Constraints
 
-- Language: Rust is the migration target (see "Rust Migration" above and `docs/rust-migration.md`). TypeScript is legacy and stays only until the corresponding Rust crate reaches parity.
-- Browser automation: Playwright (`playwright-core` over CDP) is the current engine; the Rust target is direct CDP via `chromiumoxide` in `crates/zyquor-browser`.
+- Language: Rust everywhere except the React renderer in `apps/web`.
+- Browser automation: direct CDP via `chromiumoxide` in `crates/zyquor-browser`.
 - Dedicated persistent Chrome profiles per X account under `profiles/`. Never automate the user's everyday Chrome profile.
 - Do not use browser-use as the production engine. Do not automate follows, likes, reposts, DMs, or engagement loops.
 - No stealth, anti-detection, proxy rotation, or CAPTCHA bypass.
-- Browser automation stays isolated in the browser crate (was `packages/browser`, becomes `crates/zyquor-browser`); isolation and the anti-detection bans still apply.
+- Browser automation stays isolated in `crates/zyquor-browser`; isolation and the anti-detection bans still apply.
 - Final post action is explicit and logged. The LLM only writes candidate text; never browses, schedules, ranks, or decides to post.
 - Failed external post jobs are not auto-retried because a failed browser action may still have reached X.
-- Playwright's bundled Chromium (`playwright install chromium`) can fail on very new distros; if yours is affected, install system Chrome and set `ZYQUOR_BROWSER_CHANNEL=chrome`.
+- The posting Chrome can be system Chrome (`ZYQUOR_BROWSER_CHANNEL=chrome`) or another CDP endpoint (`ZYQUOR_BROWSER_CDP_URL`).
 
 ## Working Rules
 
 1. State assumptions before coding if the request is ambiguous.
 2. Keep changes small and tied to the requested goal.
 3. Prefer explicit state machines and typed schemas over loose statuses.
-4. Keep browser automation isolated in `packages/browser` (TypeScript) / `crates/zyquor-browser` (Rust).
+4. Keep browser automation isolated in `crates/zyquor-browser`.
 5. Keep generation outside UI and browser packages.
 6. Keep account profile mapping explicit and inspectable.
 7. Store failure artifacts and attempt state; do not hide browser failures in console logs only.
@@ -121,11 +119,12 @@ Persistence: SQLite via `node:sqlite`. There is no JSON fallback; SQLite is the 
 - `GET /history` · `GET /history/analysis?accountId=&sinceHours=` · `GET /worker/status` · `POST /worker/heartbeat`
 
 ### System (desktop control plane)
-- `GET /system/status`. `POST /system/posting` — toggle prepare/post flags live. `POST /system/ingest/cancel`. `GET /system/logs`. `POST /system/worker/pause`. `POST /system/chrome/close`. `POST /system/stop-all`. `POST /system/quit`, `POST /system/restart` (desktop only)
+- `GET /system/status` — includes the `desktop` block (app version, CDP state, data root, log path, worker pause) when the Tauri shell injected its control plane. `POST /system/posting` — toggle prepare/post flags live. `POST /system/ingest/cancel`.
+- Desktop-only: `GET /system/logs?lines=`, `POST /system/worker/pause`, `POST /system/chrome/close`, `POST /system/stop-all`, `POST /system/quit`, `POST /system/restart`. Without an injected `DesktopControlPlane` these answer 404, matching the TypeScript API that registered them only when `deps.desktopControl` existed. The Tauri shell injects `ApiDesktopControl` (`apps/desktop/src/controls.rs`) after the API and worker start.
 
 ## Web UI State
 
-Mode from UI inputs: schedule set → `scheduled`; no schedule + Yolo → `autopost`; otherwise `prepare_only`. Controls: idea composer (single/batch), tweet type, Yolo autopost toggle, schedule datetime, batch spacing, candidates/editor, prompt/style panel (tone/objective/banned/system), source packets panel, jobs panel, accounts (create/switch/enable/delete; the Accounts panel does not edit limits or quiet hours yet).
+Mode from UI inputs: schedule set → `scheduled`; no schedule + Yolo → `autopost`; otherwise `prepare_only`. Controls: idea composer (single/batch), tweet type, Yolo autopost toggle, schedule datetime, batch spacing, candidates/editor, prompt/style panel (tone/objective/banned/system), source packets panel, jobs panel, accounts (create/switch/enable/delete/edit limits, quiet hours, and profile dir).
 
 ## Current Runtime
 
@@ -134,8 +133,8 @@ cargo run -p zyquor-cli -- start          # API + worker + web dev
 cargo run -p zyquor-cli -- check-login    # verify the dedicated-profile X session
 cargo run -p zyquor-cli -- post-loop --once  # one original post, if under cap
 # Tauri desktop app (Windows)
-cargo tauri dev                            # apps/desktop (same IPC surface as Electron)
-cargo run -p zyquor-desktop -- --headless-smoke   # boot + /accounts + /worker/status, no window
+cargo tauri dev                            # apps/desktop (Tauri v2 shell)
+cargo run -p zyquor-desktop -- --headless-smoke   # boot + /accounts + /worker/status + /system/* , no window
 cargo tauri build                          # tauri.conf.json bundle
 ```
 
@@ -153,7 +152,7 @@ Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (di
 - `opencode` is the configured provider and the desktop default (`apps/desktop/src/main.rs` merges the default settings); it drives the opencode CLI (`opencode run -m <model>#<variant>`).
 - Default model: `opencode/glm-5.3-flash-free`, variant `high` (`DEFAULT_OPENCODE_MODEL` in `crates/zyquor-generation/src/config.rs`). The opencode ladder is exactly three models (`OPENCODE_MODELS`): `opencode/glm-5.3-flash-free`, `opencode-go/glm-5.3-flash`, `opencode/deepseek-v4.1-flash`. Other tags are rejected; rotation outside this ladder is banned and triggers only on rate-limit/unavailable/funds errors — transient network drops never rotate.
 - The free tier cap is shared across all `opencode/*` free models; when exhausted, every lane fails with `Free usage limit reached` — an account quota, not a code fault. Paid models need funds on your account. `command-code` (model `gpt-5.6-luna`) also works but needs paid credits. `gemini` needs `ZYQUOR_GEMINI_API_KEY`; `ollama` is local (default `gemma4:e4b`); `auto` prefers Gemini, else Ollama. CLI paths: `ZYQUOR_COMMAND_CODE_PATH` / `ZYQUOR_OPENCODE_PATH`; model and variant: `ZYQUOR_OPENCODE_MODEL` / `ZYQUOR_OPENCODE_VARIANT`.
-- A Codex provider was written and removed (Codex unavailable); Freebuff was evaluated and rejected (TUI, no non-interactive mode); do not re-add either. OpenRouter was removed as a generation provider; `packages/adapters/src/model-releases.ts` still calls OpenRouter's public models endpoint for source ingestion — that is not generation.
+- A Codex provider was written and removed (Codex unavailable); Freebuff was evaluated and rejected (TUI, no non-interactive mode); do not re-add either. OpenRouter was removed as a generation provider; `crates/zyquor-adapters/src/model_releases.rs` still calls OpenRouter's public models endpoint for source ingestion — that is not generation.
 - The opencode CLI sometimes exits 1 with `ECONNRESET` after a long run while complete candidates JSON is already on stdout; the provider accepts stdout when it parses as candidates, otherwise fails normally. The rescue and truncated-JSON cases are covered in the opencode provider tests in `crates/zyquor-generation`.
 
 ### X Render Failures Are Not Logouts
@@ -165,7 +164,7 @@ Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (di
 
 ### Posting Chrome CDP Ports
 
-- `perProfileCdpUrl` (`packages/core/src/paths.ts`) derives each profile's CDP port from the base URL. Profiles in `ZYQUOR_BROWSER_CDP_BASE_PROFILES` (comma-separated, default `personal-main`) stay on the base port; anything else resolves to a stable hash offset.
+- `per_profile_cdp_url` (`crates/zyquor-core/src/paths.rs`) derives each profile's CDP port from the base URL. Profiles in `ZYQUOR_BROWSER_CDP_BASE_PROFILES` (comma-separated, default `personal-main`) stay on the base port; anything else resolves to a stable hash offset.
 - If only the base port is reachable (e.g. a single forwarded port), a profile that hashes to another offset resolves to a dead port and posting fails with `Chrome CDP is unavailable at <base+offset>`. Add the active profile to `ZYQUOR_BROWSER_CDP_BASE_PROFILES` instead of opening more forwarding rules.
 - Settings `cdpPort` rewrites the base URL, not the offsets. The env list is the supported way to pin a profile to the base port.
 
@@ -177,7 +176,7 @@ Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (di
 
 ### Browser Job Failure Modes
 
-- Chrome raises a `beforeunload` dialog when a page navigates or closes with unsent composer text. Playwright's internal auto-dismiss races Chrome and throws `No dialog is showing` from an unhandled promise. The Rust `zyquor-browser` session dismisses dialogs synchronously on every page it touches, and the API logs unhandled panics instead of exiting.
+- Chrome raises a `beforeunload` dialog when a page navigates or closes with unsent composer text. A naive auto-dismiss can race Chrome and surface `No dialog is showing`. The `zyquor-browser` session dismisses dialogs synchronously on every page it touches, and the API logs unhandled panics instead of exiting.
 - A failed post can leave the composer holding the text. Clear it before the next attempt (`Control+A`, `Backspace`) or the next navigation triggers that dialog.
 
 ### Posts-Only Reply Loop
@@ -186,7 +185,7 @@ Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (di
 
 - `invented_number`: a digit in the reply that does not appear in the target. `invented_experience`: claims of having used, run, shipped, or deployed the thing (first-person opinion like `my pick is` is allowed; fabricated usage is not).
 - `lowercase_opener`: the account voice is sentence case, so an all-lowercase opener reads like a different person. `invented_point`: `Point 2` when the target is not a numbered list.
-- Formula contrasts, advice openers, and the usual slop words. Quality floor, which must match `replyQualityMinimum` in `@zyquor/generation` (5); the post scorer was calibrated on 220–480 character posts and a one-line reply rarely reaches the post floor while still being clean.
+- Formula contrasts, advice openers, and the usual slop words. Quality floor, which must match `reply_quality_minimum` in `crates/zyquor-generation` (5); the post scorer was calibrated on 220–480 character posts and a one-line reply rarely reaches the post floor while still being clean.
 
 ```bash
 cargo run -p zyquor-cli -- reply-loop --once --dry   # discover, draft, report; no approval
@@ -215,24 +214,22 @@ Env: `ZYQUOR_POST_ACCOUNT_ID` (default `account_personal`), `ZYQUOR_POST_LOOP_PE
 
 ## Common Commands
 
-`cargo run -p zyquor-cli -- start` · `cargo run -p zyquor-cli -- api` · `cargo run -p zyquor-cli -- worker` · `cargo run -p zyquor-cli -- web` · `cargo fmt --all --check` · `cargo clippy --workspace --all-targets -- -D warnings` · `cargo test --workspace` · `cargo tauri build` (desktop), `pnpm --filter @zyquor/web build` (web renderer only).
+`cargo run -p zyquor-cli -- start` · `cargo run -p zyquor-cli -- api` · `cargo run -p zyquor-cli -- worker` · `cargo run -p zyquor-cli -- web` · `cargo fmt --all --check` · `cargo clippy --workspace --all-targets -- -D warnings` · `cargo test --workspace` · `cargo tauri build` (desktop), `pnpm --dir apps/web build` (web renderer only).
 
 ## Next Steps
 
-Finishing the Rust migration (details: `docs/rust-migration.md`):
+The migration is done (M0–M8 in `docs/rust-migration.md`). What is genuinely left:
 
-- M4: `zyquor-browser` is ported (chromiumoxide CDP session + `CdpPage` primitives, login detection, feed fetchers, composer, delete flow, launch state, Chrome launcher) but not live-tested against X yet — that needs the human ask before live CDP runs.
-- M5: `apps/api` + `apps/worker` ported 2026-11-07 (axum API with all 17 TS route modules incl. jobs prepare/post/retry, ingest, drafts, replies/mentions; worker poll loop 1:1). Live-smoked against a seeded account: `/health`, `/system/status`, `/worker/status`, `/performance`, `/history/analysis`, `/onboarding/status`, `/generation` all return TS-shaped JSON, and the worker drives heartbeat → ingest async → recover-stale end-to-end (including a fix where `POST /jobs/recover-stale` 415'd on an empty body, and ingest now runs on a second DB connection so the proxy mutex never stalls).
-- M6: Tauri v2 desktop shell (`apps/desktop`, `zyquor-desktop`) with the same IPC surface as Electron — settings/log/chrome/controls modules, API on port 0 + worker bring-up, tray, window, headless smoke passing. M7: keep React (`apps/web`) — verified against the Rust stack, decision recorded in `docs/rust-migration.md`.
-- M8: `apps/cli` (`zyquor`) ports all 15 operational subcommands; `scripts/`, `packages/`, and the TS Electron sources are deleted. Live CDP smoke: Chrome launched via `zyquor open-profile` (CDP protocol 1.3 on 9222), `zyquor check-login` degrades gracefully without an X session. A full X login/post round-trip still requires your manual X login and explicit ask per housekeeping rules.
-- Storage parity gaps (from `docs/rust-migration.md`): align `deleteAccount` behaviour (the Rust version also deletes knowledge entries and ingest configs; the TypeScript one does not) before parity testing account deletion. (The legacy null-`text_hash` regression test is deferred under the test policy.)
+- **Live X acceptance run.** `zyquor-browser` is ported and CDP-smoke-tested (launch, protocol, login detection), but a full prepare/compose/post round-trip against a logged-in X session still requires your manual X login and an explicit ask per housekeeping rules.
+- **Windows packaging/signing.** The Tauri bundle builds unsigned; `docs/code-signing.md` still documents the retired Electron + Azure Trusted Signing pipeline and needs rewriting for Tauri.
+- **`PATCH /generation` hot-swap.** The route validates and persists the saved config, but the live provider is immutable in `AppState`; a restart applies the change.
+- **`autoApproveSourcePackets`.** The System panel toggle now round-trips through the API process store, but it is not persisted to `settings.json` and no Rust worker lane consumes it yet.
+- **Storage parity.** Align `deleteAccount` (the Rust version also deletes knowledge entries + ingest configs) before account-deletion parity testing; the legacy null-`text_hash` branch still has no regression test.
+- **`parse.rs`** in `zyquor-generation` has no unit tests (accepted under the test policy).
+- **No end-to-end test suite**; voice input is deferred.
+- **`xai-news` date regex.** The retired TypeScript adapter never emitted items because it captured the 3-letter month; the Rust port reproduces that by contract. Fix in a separate change.
 
-Verified gaps not yet in the tree:
-
-- Web UI cannot edit per-account limits, quiet hours, or profile assignment; the Accounts panel only toggles `enabled` and deletes (`apps/web/src/components/AccountsPanel.tsx`). `PATCH /accounts/:id` already accepts those fields.
-- No end-to-end test suite; voice input is also deferred (unit and API-workflow tests plus the smoke scripts exist).
-
-Already in the tree and not pending: account creation (`POST /accounts`, "Add account" form), schedule clearing (`PATCH /jobs/:id` accepts `scheduledFor: null`), shuffled `POST /jobs/post-ready`, the quality-gate-failures panel in Compose, app icon + Azure Trusted Signing for Windows releases (`docs/code-signing.md`), `safeStorage`-encrypted API keys, and `electron-updater` auto-update.
+Already in the tree and not pending: account creation/editing (limits, quiet hours, profile dir), schedule clearing, shuffled `POST /jobs/post-ready`, quality-gate-failures panel, Tauri tray/window/settings, the desktop control plane over HTTP (`/system/logs`, `/system/worker/pause`, `/system/chrome/close`, `/system/stop-all`, `/system/quit`, `/system/restart`), and the app icon.
 
 # Delegation Rules
 

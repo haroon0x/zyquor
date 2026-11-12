@@ -5,6 +5,7 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+pub mod dotenv;
 pub mod paths;
 pub mod reply;
 pub mod spacing;

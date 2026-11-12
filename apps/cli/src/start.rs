@@ -150,8 +150,7 @@ async fn run_worker_unchecked() -> Result<i32, String> {
 }
 
 pub async fn run_web() -> Result<i32, String> {
-    let root = cli::repo_root();
-    let web_dir = root.join("apps").join("web");
+    let web_dir = cli::repo_root().join("apps").join("web");
     if !web_dir.is_dir() {
         println!(
             "Web UI not present at {web_dir}",
@@ -161,8 +160,8 @@ pub async fn run_web() -> Result<i32, String> {
     }
     let api_url = cli::api_url_for_zyquor();
     let mut child = match Command::new("pnpm")
-        .args(["--filter", "@zyquor/web", "dev"])
-        .current_dir(&root)
+        .args(["run", "dev"])
+        .current_dir(&web_dir)
         .env("ZYQUOR_API_URL", &api_url)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
@@ -264,8 +263,7 @@ async fn print_status(api_url: &str, cdp_url: &str, dir: &std::path::Path, web_u
     println!("Generation: {provider} {model}");
     println!();
     println!("Use web UI for normal work. Keep this terminal open.");
-    println!("Post manually from UI, or explicit CLI:");
-    println!("  zyquor post <jobId>");
+    println!("Post from the UI, or explicitly: POST /jobs/:id/post");
     println!();
 }
 
@@ -320,10 +318,10 @@ pub async fn run_start() -> Result<i32, String> {
     let mut web_child: Option<Child> = None;
     if !web_already_running {
         if web_present() {
-            let root = cli::repo_root();
+            let web_root = cli::repo_root().join("apps").join("web");
             match Command::new("pnpm")
-                .args(["--filter", "@zyquor/web", "dev"])
-                .current_dir(&root)
+                .args(["run", "dev"])
+                .current_dir(&web_root)
                 .env("ZYQUOR_API_URL", &api_url)
                 .stdin(Stdio::null())
                 .stdout(Stdio::inherit())

@@ -28,5 +28,8 @@ zyquor-core.workspace = true
 zyquor-generation.workspace = true
 zyquor-storage.workspace = true
 
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }
+
 [lints]
 workspace = true

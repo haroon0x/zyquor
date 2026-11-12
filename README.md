@@ -5,7 +5,7 @@
 [![CI](https://github.com/haroon0x/zyquor/actions/workflows/ci.yml/badge.svg)](https://github.com/haroon0x/zyquor/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](LICENSE)
 
-> **Status: v0.1.0.** The TypeScript tree is the running product. The Rust migration is in progress; see [docs/rust-migration.md](docs/rust-migration.md) and [ROADMAP.md](ROADMAP.md) for exactly what is and is not ported.
+> **Status: v0.1.0.** Zyquor is fully Rust: one Cargo workspace plus the React renderer. The TypeScript implementation was retired on 2026-11-08; see [docs/rust-migration.md](docs/rust-migration.md) for the migration record and [ROADMAP.md](ROADMAP.md) for what is left.
 
 ## Why it exists
 
@@ -50,7 +50,7 @@ The LLM boundary is enforced in code: generation packages only return text. Sche
 
 ## Quick start
 
-Requirements: **Rust 1.85+ (stable)**, **Node.js + pnpm 10** (only for the web UI build), **Chrome**, and an X account you are willing to post from. Everything else is cargo.
+Requirements: **Rust 1.85+ (stable)**, **Node.js + pnpm** (only for the web UI build), **Chrome**, and an X account you are willing to post from. Everything else is cargo.
 
 ```bash
 git clone https://github.com/haroon0x/zyquor.git
@@ -61,7 +61,7 @@ cargo run -p zyquor-cli -- start     # API + worker + web dev server
 cargo run -p zyquor-cli -- api       # API only on http://127.0.0.1:3001 (see ports below)
 cargo run -p zyquor-cli -- worker    # worker only
 cargo run -p zyquor-cli -- web       # web dev server only (Vite)
-pnpm --filter @zyquor/web build      # web renderer build (standalone; only for the UI bundle)
+pnpm --dir apps/web build            # web renderer build (standalone; only for the UI bundle)
 cargo tauri dev                      # desktop app (apps/desktop, Tauri v2)
 ```
 
@@ -160,13 +160,14 @@ All TypeScript backend code has been ported and the pnpm workspace retired (only
 ## Development
 
 ```bash
-cargo run -p zyquor-cli -- start     # API + worker + web dev
-cargo run -p zyquor-cli -- api       # API only
-cargo run -p zyquor-cli -- worker    # worker only
-cargo run -p zyquor-cli -- web       # web dev server only
+cargo run -p zyquor-cli -- start              # API + worker + web dev
+cargo run -p zyquor-cli -- api                # API only
+cargo run -p zyquor-cli -- worker             # worker only
+cargo run -p zyquor-cli -- web                # web dev server only
 cargo run -p zyquor-cli -- smoke-generation   # live generation probe
-cargo tauri dev                       # desktop app (Windows-native; do not launch it from WSL)
-cargo test --workspace                # Rust tests
+cargo run -p zyquor-cli -- tweet-eval         # editorial-bar eval on fixed cases
+cargo tauri dev                               # desktop app (Windows-native; do not launch it from WSL)
+cargo test --workspace                        # Rust tests
 ```
 
 Detailed notes live in [docs/development.md](docs/development.md) and [docs/architecture.md](docs/architecture.md). Contribution rules and the safety checklist are in [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -176,20 +177,19 @@ Detailed notes live in [docs/development.md](docs/development.md) and [docs/arch
 Draft candidates are scored by `scoreTweetQuality` (deterministic) and must clear `ZYQUOR_QUALITY_MIN` (default 7) to autopost. Agent-approved drafts pass the server-side screen with `screened: true`, which rejects unclean text, recaps, demand-style reply openers, and sub-floor scores. Measure prompt and pipeline changes with:
 
 ```bash
-pnpm harness:tweets
-node scripts/tweet-eval.mjs
+cargo run -p zyquor-cli -- tweet-eval
 ```
 
 ## Desktop app (Windows)
 
 ```bash
-pnpm dev:desktop        # build and launch
-pnpm smoke:desktop      # headless logic smoke, no GUI
-pnpm dist:desktop:dir   # unpacked Windows build
-pnpm dist:desktop       # NSIS installer
+cargo tauri dev                              # build and launch
+cargo run -p zyquor-desktop -- --headless-smoke   # headless logic smoke, no GUI
+cargo tauri build                            # Windows installer bundles
+pnpm --dir apps/desktop/scripts install && node apps/desktop/scripts/make-icons.mjs  # regenerate icons
 ```
 
-The desktop app runs the API, worker, and UI in one process, keeps the worker alive in the tray, and starts or reconnects the dedicated posting Chrome profile. Data lives in `%APPDATA%/Zyquor` (override with `ZYQUOR_DATA_ROOT`). Settings are edited in the app and stored as `settings.json`. Building the NSIS installer on Linux or WSL requires Wine; the `dist-desktop-win` CI job builds it on Windows.
+The desktop app runs the API, worker, and UI in one process, keeps the worker alive in the tray, and starts or reconnects the dedicated posting Chrome profile. Data lives in `%APPDATA%/Zyquor` (override with `ZYQUOR_DATA_ROOT`). Settings are edited in the app and stored as `settings.json`. Build the Windows bundles on Windows; the `desktop-win` CI job runs on `windows-latest` and currently produces unsigned installers.
 
 ## License
 
@@ -197,4 +197,4 @@ Copyright (C) 2026 haroon0x and contributors.
 
 Zyquor is free software under the **GNU Affero General Public License v3.0 only** ([AGPL-3.0-only](LICENSE)). If you run a modified version of Zyquor as a network service, you must offer its corresponding source to that service's users. See [LICENSE](LICENSE) for the full terms.
 
-Third-party dependencies keep their own licenses; see `pnpm-lock.yaml` and `Cargo.lock` for exact versions.
+Third-party dependencies keep their own licenses; see `apps/web/pnpm-lock.yaml` and `Cargo.lock` for exact versions.

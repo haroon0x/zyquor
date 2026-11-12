@@ -19,6 +19,7 @@ mod start;
 
 #[tokio::main]
 async fn main() {
+    zyquor_core::dotenv::load();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let command = args.first().map(String::as_str).unwrap_or("start");
     let rest: Vec<String> = if args.is_empty() {

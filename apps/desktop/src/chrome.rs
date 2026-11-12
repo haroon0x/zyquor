@@ -42,7 +42,8 @@ pub struct LaunchResult {
 
 /// Outcome of [`close_posting_chrome`]. `reason` is set when
 /// `closed` is `false` (`"not-running"`, `"still-running"`).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CloseResult {
     pub closed: bool,
     pub reason: Option<String>,

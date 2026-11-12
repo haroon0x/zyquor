@@ -1,331 +1,245 @@
 # Development Notes
 
-This repo should stay easy to change as the product grows. Favor explicit contracts over implicit behavior.
+Zyquor is a Rust Cargo workspace. Everything that runs is Rust except the React renderer in `apps/web`. `docs/rust-migration.md` records how the TypeScript tree was retired; `ROADMAP.md` is the current state.
 
-## Rust Migration
+## Prerequisites
 
-The project is being migrated from TypeScript to Rust. `docs/rust-migration.md` holds the plan: crate layout, milestone order (M0–M8), dependency mapping, parity harness, and risks.
+- Rust stable through `rustup`; `rust-toolchain.toml` pins the stable channel plus the `rustfmt` and `clippy` components.
+- Node.js and pnpm, only for building the `apps/web` renderer.
+- Chrome installed. Browser automation is direct CDP through `chromiumoxide`; no browser bundle is downloaded.
+- A generation provider: the authenticated `opencode` CLI by default, or `command-code` (CLI), Gemini (API key), or Ollama (local server). `tweet-eval` additionally needs the `command-code` CLI for its judge pass.
+- The Tauri v2 CLI (`cargo tauri`) for the desktop app. Run the desktop app from native Windows, never from WSL.
+- An X account you are willing to post from, plus a dedicated profile under `profiles/`.
 
-While the migration runs, two toolchains are live:
+## Build and Verify
 
 ```bash
-# Rust (migration target)
-cargo build --workspace
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
-
-# TypeScript (still the running system until parity)
-pnpm check
-pnpm test
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo build --workspace
 ```
 
-Rules:
+Clippy is strict: `unwrap_used`, `expect_used`, and `panic` are denied at workspace level. Only `apps/web` uses pnpm; there is no repo-level TypeScript check or test step.
 
-- Both trees must stay green until a package is retired.
-- New work in a ported crate goes to the Rust version.
-- Do not delete TypeScript code before its Rust replacement passes the parity harness.
-- Toolchain: stable Rust via `rustup`; `rust-toolchain.toml` pins the `stable` channel and the `rustfmt`/`clippy` components.
-
-## Current Build Order
-
-1. Keep `@zyquor/core` contracts stable first.
-2. Keep storage/repository behavior covered before API changes.
-3. Keep API and worker behavior covered before UI changes.
-4. Keep browser posting behind env flags and persisted attempt logs.
-
-## Maintainability Rules
-
-- Keep cross-package imports pointed at public package exports.
-- Add tests for state transitions before expanding lifecycle logic.
-- Keep Playwright selectors isolated in `@zyquor/browser`.
-- Keep generation provider logic outside UI and browser packages.
-- Apply the same layering to the Rust crates: `zyquor-generation` never depends on `zyquor-browser` or the UI.
-- Keep account profile paths visible in account config.
-- Treat browser failures as persisted states, not console-only errors.
-- Approval writes a normalized text fingerprint and rejects duplicate text for the same account.
-- API refuses browser jobs for disabled or `draft_only` accounts.
-- Controlled post click checks the account's daily post limit before browser automation.
-- Draft generation goes through `@zyquor/generation`; UI and browser code never call LLM APIs directly.
-- Source ingestion goes through `@zyquor/adapters` and `@zyquor/automation`; generation never browses.
-
-## Local Data
-
-Runtime data should live under:
-
-```text
-data/
-  app.sqlite
-  artifacts/
-profiles/
-```
-
-SQLite is the only repository implementation in `@zyquor/storage`; the older
-`data/app.json` JSON fallback no longer exists. These paths are ignored because
-they can contain session state and debug artifacts.
-
-## API Routes
-
-Drafts:
-- `POST /drafts` — create an ungrounded draft
-- `POST /drafts/research` — search fresh sources and generate grounded candidates from a topic or rough post
-- `POST /drafts/:id/generate` — generate candidates for an existing draft
-- `GET /drafts/pending` — pending yolo/batch drafts
-- `GET /drafts/quality-gate-failures` — drafts that failed the quality gate
-- `GET /drafts/:id` — get draft with candidates
-- `POST /drafts/:id/evaluate` — re-score the existing candidates
-- `POST /drafts/:id/select` — select candidate, optionally edit text
-- `POST /drafts/:id/approve` — approve with optional mode/scheduledFor → creates job
-- `DELETE /drafts/:id` — delete a draft
-
-Jobs:
-- `GET /jobs?accountId=` — list jobs filtered by account
-- `POST /jobs/:id/prepare` — dry-run or real browser prepare
-- `POST /jobs/:id/post` — explicit post click (requires enable flag)
-- `POST /jobs/:id/retry` — verify the post, then re-arm and retry when absent
-- `PATCH /jobs/:id` — change a job's schedule
-- `POST /jobs/post-ready` — post all ready jobs (approved/prepared, scheduled time reached, shuffled, sequential)
-- `POST /jobs/post-next` — post the next approved autopost job for an account
-- `POST /jobs/recover-stale` — mark stale `running` jobs failed with an attempt log
-- `DELETE /jobs/:id` — delete non-running job
-- `DELETE /jobs?accountId=` — delete all non-running jobs for an account
-- `DELETE /jobs/cleanup` — delete posted/failed jobs
-- `GET /jobs/:id/attempts` — attempt logs for a job
-
-Batch:
-- `POST /draft-batches` — create multiple jobs from one idea/line, optional schedule spacing
-
-Replies:
-- `GET /replies/feed?accountId=` — scan the X home feed for reply targets
-- `POST /replies/from-url` — fetch one post URL and create a reply draft
-- `GET /replies/mentions?accountId=` — fresh (48h) mentions with drafted/posted flags
-- `POST /replies/mentions/draft` — draft replies for chosen mention URLs
-- `POST /replies/mentions/scan-and-draft` — scan and draft fresh undrafted mentions (cap 10)
-- `POST /replies/mentions/scan-and-auto-approve` — capped auto-approve lane (quality floor + daily cap)
-- `GET /replies/drafts?accountId=` — reply drafts awaiting review
-
-Source packets:
-- `GET /source-packets?accountId=` — list packets
-- `POST /source-packets` — create packet
-- `POST /source-packets/:id/draft` — generate draft from packet → marks packet drafted
-- `GET /source-packets/:id/draft` — existing draft for a packet
-- `POST /source-packets/:id/regenerate` — save feedback and redraft with it
-- `POST /source-packets/:id/feedback` — save/clear feedback without redrafting
-- `DELETE /source-packets/:id/draft` — delete the generated draft and reset packet
-- `DELETE /source-packets/:id` — delete packet and non-posted generated draft
-- `DELETE /source-packets?accountId=` — delete all packets for account when safe
-
-Ingest configs (CRUD for automated source ingestion):
-- `GET /ingest-configs?accountId=` — list configs
-- `POST /ingest-configs` — create config
-- `POST /ingest-configs/default-news` — create/reuse default automated news config
-- `PATCH /ingest-configs/:id` — update config
-- `DELETE /ingest-configs/:id` — delete config
-- `GET /ingest-runs?accountId=` — recent ingest runs
-- `POST /ingest-runs/recover-stale` — recover interrupted ingest runs
-- `GET /ingest-sources` — list source adapters and aggregated source health
-- `POST /ingest-run` — run ingest synchronously
-- `POST /ingest-run/async` — queue ingest without blocking worker/API callers
-
-Knowledge:
-- `GET /knowledge?accountId=` — list account knowledge entries
-- `POST /knowledge` — create entry
-- `PATCH /knowledge/:id` — update entry
-- `DELETE /knowledge/:id` — delete entry
-
-System feedback (standing corrections injected into every generation):
-- `GET /system-feedback?accountId=` — list for one account, or all accounts
-- `POST /system-feedback` — add `{accountId, text}`
-- `DELETE /system-feedback/:id` — delete entry
-
-Style profiles:
-- `GET /style-profiles/:id` — get profile
-- `PATCH /style-profiles/:id` — update tone/rules/bannedPhrases/systemPromptExtra
-
-Generation config:
-- `GET /generation` — current provider/model
-- `PATCH /generation` — change provider/model at runtime
-
-Browser:
-- `POST /browser/activate` — launch/verify the account's posting Chrome
-- `GET /browser/active` — accounts with a running posting Chrome
-- `GET /browser/x-session?accountId=` — check X login state
-- `POST /browser/launch-chrome` — desktop-only launcher path
-
-Accounts:
-- `GET /accounts` — list accounts
-- `POST /accounts` — create account
-- `PATCH /accounts/:id` — update account
-- `DELETE /accounts/:id` — delete account
-
-History:
-- `GET /history` — posted tweet history
-- `POST /history/:id/delete` — delete the live X post via the account's posting Chrome (requires browser-post flag), marks the history row deleted
-- `GET /history/analysis?accountId=&sinceHours=` — recent post quality analysis
-- `GET /performance` — history with performance and tweet measurements
-- `POST /performance/refresh` — refresh tweet measurements
-
-Settings and onboarding (desktop settings file only):
-- `GET /settings` — masked desktop settings
-- `PATCH /settings` — update desktop settings
-- `GET /onboarding/status` — first-run status
-
-System (desktop control plane):
-- `GET /system/status` — posting, worker, and config state
-- `POST /system/posting` — toggle prepare/post flags live
-- `POST /system/ingest/cancel` — cancel a running ingest
-- `GET /system/logs` — recent process logs
-- `POST /system/worker/pause` — pause the worker
-- `POST /system/chrome/close` — close posting Chrome
-- `POST /system/stop-all` — pause worker, cancel ingest, disable prepare/post, close Chrome
-- `POST /system/quit` — quit the desktop app
-- `POST /system/restart` — restart the desktop app
-
-Worker:
-- `GET /health` — API liveness plus provider/model
-- `GET /worker/status` — heartbeat, ingest run state, config state
-- `POST /worker/heartbeat` — worker heartbeat
-
-## Smoke Tests
-
-Use these when dependencies or browser access are unavailable:
+## Web Renderer
 
 ```bash
-pnpm smoke
-pnpm smoke:http
-pnpm smoke:adapters
+cd apps/web
+pnpm install
+pnpm build
 ```
 
-`smoke:http` tries to bind a local HTTP server. In restricted sandboxes that reject listeners with `EPERM`, it falls back to the same workflow in-process and reports `networkBlocked`.
+Or from the repo root:
 
-If `pnpm dev:api` or `pnpm dev:web` fails with `listen EPERM`, the sandbox is blocking local servers. Run the same commands in a normal terminal session.
+```bash
+pnpm --dir apps/web install
+pnpm --dir apps/web build
+```
+
+`pnpm build` runs `tsc --noEmit` and `vite build`; output lands in `apps/web/dist`. Tauri loads that directory (`frontendDist: ../web/dist`), so build the renderer before `cargo tauri dev` or `cargo tauri build`. For UI work, `pnpm --dir apps/web dev` serves Vite on <http://127.0.0.1:5173>.
+
+## CLI
+
+The operational binary is `zyquor` (`apps/cli`). It accepts the commands and flags below (plus `--help`); unknown flags print usage and exit non-zero.
+
+```bash
+cargo run -p zyquor-cli -- <command> [flags]
+```
+
+| Command | Purpose |
+| --- | --- |
+| `start` | Launch/reuse the dedicated Chrome over CDP, then run the API and worker in-process and start the Vite dev server from one command. Ctrl-C stops it. |
+| `api` | Run the axum API only. |
+| `worker` | Run the background worker only. Requires `ZYQUOR_RUN_WORKER=1`; takes the worker lock. |
+| `web` | Run the Vite dev server only. |
+| `open-profile [--manual]` | Ensure the CDP Chrome is running, or with `--manual` open a normal Chrome window at the X login page and wait for Enter. |
+| `check-login` | Check the dedicated profile's X session. Prints JSON and exits 0 only when logged in. |
+| `post-loop [--once] [--dry] [--force]` | Original-post lane: rotating topics, draft, screen, approve, post through the gated API path. |
+| `reply-loop [--once] [--dry]` | Reply lane: discover from the home feed then X search, draft best-of-N, screen, approve, post. Does not touch mentions. |
+| `overseer [--once] [--dry] [--interval-ms <ms>]` | Audit queued drafts/jobs, and posted history when the post flag is on, for slop and delete offending items through the API. Interval defaults to 300000 ms. |
+| `backfill-timeline [--dry-run]` | Fetch enabled accounts' timelines over CDP, record measurements and style examples. Appends `data/backfill.jsonl`. |
+| `poll-mentions [--dry]` | Thin API client for mention scanning; `--dry` (or `DRY_RUN=1`) lists mentions without drafting. Never posts. |
+| `seed-account [handle] [display name...]` | Idempotently create the business style profile and account. Defaults to handle `business`. |
+| `lessons [--dry]` | Propose standing corrections from measured posts and append them to the feedback notebook. Read-only on the DB. |
+| `tweet-eval` | Run the fixed five-case generation evaluation with heuristic scoring and a `command-code` judge. Exits non-zero unless every case passes. |
+| `smoke-generation` | Live provider probe: generate candidates for one idea and print JSON. |
+
+`post-loop`, `reply-loop`, and `tweet-eval` call live providers; the loops also start posting lanes. Run them only on an explicit human ask.
 
 ## Local Runbook
 
-Create `.env` from the checked-in template before using real providers:
+One command brings up Chrome, the API, the worker, and the web UI:
 
 ```bash
-cp .env.example .env
+cargo run -p zyquor-cli -- start
 ```
 
-For Gemini, set these values in `.env`, then run the generation smoke:
+Open <http://127.0.0.1:5173>. The dev runner targets `http://127.0.0.1:3001` by default (`ZYQUOR_API_PORT_OVERRIDE` / `ZYQUOR_API_URL_OVERRIDE`). Its in-process worker follows `ZYQUOR_API_URL`, so set it to the same base URL.
+
+To run the pieces separately:
+
+```bash
+cargo run -p zyquor-cli -- api
+ZYQUOR_RUN_WORKER=1 ZYQUOR_API_URL=http://127.0.0.1:3001 cargo run -p zyquor-cli -- worker
+ZYQUOR_API_URL=http://127.0.0.1:3001 pnpm --dir apps/web dev
+```
+
+The standalone API binary (`cargo run -p zyquor-api`) listens on `127.0.0.1:3000` and retries on 3001 when 3000 is busy and `ZYQUOR_API_PORT` is unset. Pin it with `ZYQUOR_API_PORT=3001`. The Vite dev server proxies `/api` to `ZYQUOR_API_URL`, defaulting to `http://127.0.0.1:3000`.
+
+Runtime files:
 
 ```text
-ZYQUOR_LLM_PROVIDER=gemini
-ZYQUOR_GEMINI_API_KEY=your_key_here
-ZYQUOR_GEMINI_MODEL=gemini-2.5-flash
+<dataRoot>/
+  app.sqlite            # the only persistence
+  data/artifacts/       # browser screenshots/traces
+  profiles/<handle>/    # dedicated Chrome profile per account
 ```
+
+`<dataRoot>` is the current directory unless `ZYQUOR_DATA_ROOT` is set. The desktop app defaults it to the Tauri app data directory.
+
+## Desktop (Tauri v2)
+
+Build the renderer first, then run from the repo root on native Windows:
 
 ```bash
-pnpm smoke:generation
+pnpm --dir apps/web build
+cargo tauri dev
+cargo tauri build
 ```
 
-For a fast local Ollama smoke, use a small model:
+The desktop shell runs the API and worker in-process on an ephemeral port, adds the tray/window, and injects its control plane after startup. `tauri.conf.json` lives at `apps/desktop/tauri.conf.json` and consumes `../web/dist`.
+
+Headless boot check on any operating system:
 
 ```bash
-ollama serve
-ollama pull tinyllama
-ZYQUOR_LLM_PROVIDER=ollama ZYQUOR_OLLAMA_MODEL=tinyllama pnpm smoke:generation
+cargo run -p zyquor-desktop -- --headless-smoke
 ```
 
-Run the API and web UI in separate terminals:
+It starts the API and worker without a window, probes `/accounts`, `/worker/status`, `/system/status`, and `/system/logs`, shuts down, and exits 0 on success. Its data root is `${ZYQUOR_DATA_ROOT:-<temp>/zyquor-headless}`.
+
+Desktop details:
+
+- Data root: Tauri app data directory, or `ZYQUOR_DATA_ROOT`.
+- Settings: `settings.json` in the data root.
+- API keys are currently stored as plaintext in `settings.json`; there is no OS secret-store encryption yet. Legacy `enc:v1:` values are stripped on load and still work.
+- Logs: `<dataRoot>/logs/main.log`; rotates to `main.log.1` at 5 MB, checked on write and at startup.
+- The `headless` setting maps to `ZYQUOR_BROWSER_HEADLESS`; `cdpPort` maps to `ZYQUOR_BROWSER_CDP_URL`.
+- Do not run the desktop app inside WSL. Use a native Windows checkout and install the generation CLI there too.
+
+## Browser and Profiles
+
+Every account gets its own Chrome profile at `profiles/<handle>` and its own remote-debugging port. Jobs for different accounts run concurrently; each account still runs at most one browser job at a time.
+
+Log in to a dedicated profile:
 
 ```bash
-pnpm dev:api
-pnpm dev:web
+# Default profile (profiles/personal-main); for an account profile:
+ZYQUOR_X_PROFILE_DIR=profiles/<handle> cargo run -p zyquor-cli -- open-profile --manual
+# Log in to X in the window, then fully close that browser.
+ZYQUOR_X_PROFILE_DIR=profiles/<handle> cargo run -p zyquor-cli -- check-login
 ```
 
-The API defaults to `http://127.0.0.1:3000`. The web UI reads `ZYQUOR_API_URL` and defaults to the same API URL.
+`open-profile` without `--manual` ensures the CDP Chrome is running and leaves it open. `ZYQUOR_BROWSER_HEADLESS=1` launches it with `--headless=new`.
 
-Real X browser prepare prerequisites:
+CDP ports are derived by `per_profile_cdp_url` in `crates/zyquor-core/src/paths.rs`; do not reimplement the mapping. `profiles/personal-main` stays on the base port (default 9222), `willainotice` uses base+1, and other profiles use a stable hash offset. `ZYQUOR_BROWSER_CDP_BASE_PROFILES` pins named profiles to the base port.
 
-- Install Playwright Chromium once with `pnpm --filter @zyquor/browser exec playwright install chromium`. **Note:** Playwright bundled Chromium is unsupported on Ubuntu 26.04+. On such systems, install system Google Chrome and use `ZYQUOR_BROWSER_CHANNEL=chrome`.
-- On Ubuntu 26.04+, install system Chrome:
-  ```bash
-  wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-  sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list'
-  sudo apt update && sudo apt install google-chrome-stable
-  ```
-  Then set in `.env`: `ZYQUOR_BROWSER_CHANNEL=chrome`
-- Use a dedicated account profile under `profiles/`; do not reuse an everyday browser profile.
-- Open the profile with `pnpm profile:x`, then log into X there.
-- If X blocks Playwright-controlled login, use `pnpm profile:x:manual`, log in, then close Chrome.
-- If `.env` sets `ZYQUOR_BROWSER_CDP_URL`, start `pnpm profile:x:cdp` and keep that Chrome running while preparing or posting. Set `ZYQUOR_BROWSER_HEADLESS=1` to run it with `--headless=new` (no window); auto-launch honours the same flag.
-- Verify the persisted login with `pnpm profile:x:check`.
-- In the web UI, use `Check X` in the account strip before preparing a real job.
-- Start with `ZYQUOR_ENABLE_BROWSER_PREPARE=1 ZYQUOR_LLM_PROVIDER=gemini ZYQUOR_GEMINI_API_KEY=... pnpm dev:api`.
-- Set `ZYQUOR_ENABLE_BROWSER_POST=1` only when final public Post click should be enabled.
-- Default `ZYQUOR_BROWSER_CHANNEL=chromium` uses bundled Playwright Chromium. Use `chrome` only if Chrome is installed.
-- Browser pacing defaults to slow actions and typed input. Configure `ZYQUOR_BROWSER_ACTION_DELAY_MS` and `ZYQUOR_BROWSER_TYPING_DELAY_MS`.
+Other browser facts:
 
-## pnpm Setup
+- System Chrome only. Set `ZYQUOR_CHROME_PATH` (or `CHROME_BIN`) when Chrome is not on the default path; `ZYQUOR_BROWSER_CHANNEL=chrome` is the supported channel.
+- `ZYQUOR_BROWSER_CDP_URL` changes the base CDP endpoint.
+- `ZYQUOR_ENABLE_BROWSER_PREPARE=1` enables real prepare; `ZYQUOR_ENABLE_BROWSER_POST=1` enables the final Post click. They are separate gates.
+- Debugging headless means screenshots under `<dataRoot>/data/artifacts`, not looking at a window.
 
-Do not use the Hermes-bundled pnpm. Install globally via npm:
-```bash
-npm install -g pnpm
-ln -sf $(npm root -g)/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm
-```
+## Smoke Checks
 
-## Generation Provider Resolution
-
-- Resolution priority: saved `data/generation.json` > `.env` file > shell `process.env`.
-- Shell env vars take precedence over `.env` — the dotenv loader skips already-set vars.
-- Opencode is the configured provider: `opencode/glm-5.3-flash-free` with the `high` variant. When `ZYQUOR_LLM_PROVIDER` is unset, `auto` resolves to Gemini when `ZYQUOR_GEMINI_API_KEY` is set, otherwise Ollama.
-- The opencode model may be one of `opencode/glm-5.3-flash-free`, `opencode-go/glm-5.3-flash`, or `opencode/deepseek-v4.1-flash`; other tags fall back to the default. `ZYQUOR_OPENCODE_VARIANT` accepts `low`, `high`, or `max`.
-- Command Code remains available with `gpt-5.6-luna`.
-- The selected CLI must be installed and authenticated on the same operating system that runs Zyquor. Set `ZYQUOR_COMMAND_CODE_PATH` or `ZYQUOR_OPENCODE_PATH` when it is not available on `PATH`.
-
-## LLM Providers
-
-Provider selection uses environment variables:
+There are no pnpm smoke scripts anymore. The real smoke entry points are:
 
 ```bash
-ZYQUOR_LLM_PROVIDER=opencode ZYQUOR_OPENCODE_MODEL=opencode/glm-5.3-flash-free ZYQUOR_OPENCODE_VARIANT=high
-ZYQUOR_LLM_PROVIDER=command-code ZYQUOR_COMMAND_CODE_MODEL=gpt-5.6-luna
-ZYQUOR_LLM_PROVIDER=gemini ZYQUOR_GEMINI_API_KEY=... ZYQUOR_GEMINI_MODEL=gemini-2.5-flash
-ZYQUOR_LLM_PROVIDER=ollama ZYQUOR_OLLAMA_BASE_URL=http://127.0.0.1:11434 ZYQUOR_OLLAMA_MODEL=llama3.1
+cargo run -p zyquor-desktop -- --headless-smoke   # API + worker boot, no window
+cargo run -p zyquor-cli -- check-login             # dedicated-profile X session
+cargo run -p zyquor-cli -- smoke-generation        # live provider generation
+cargo run -p zyquor-cli -- tweet-eval              # generation quality eval
+cargo test --workspace                             # unit and API-workflow tests
 ```
 
-`opencode` drives `opencode run -m <model>#<variant>` in a temp directory with the prompt on stdin; rate-limit and unavailable-model errors walk the approved three-model ladder. `command-code` pipes the generation prompt to the authenticated CLI in headless, read-only plan mode. `ollama` calls `/api/generate` with `stream: false` and JSON output. `gemini` calls Gemini `models/{model}:generateContent` with JSON response config.
+`check-login` needs Chrome CDP and an actual logged-in profile. `smoke-generation`, `tweet-eval`, and the loops need a configured provider; `tweet-eval` also shells out to `command-code` for judging, which can fail independently of the provider under test. There is no end-to-end suite.
 
-## Desktop app (Windows)
+## Environment Flags
 
-Zyquor ships as a system-tray Electron desktop app (`apps/desktop`). The API, worker, and web UI run in-process. Starting the app launches or reconnects the dedicated posting Chrome profile.
+Generation config resolves in this order: saved `data/generation.json` > process environment > desktop settings snapshot. The saved file wins over both. Every Rust entry point calls `zyquor_core::dotenv::load()` first, so a `.env` in the repo root (or any parent of the working directory) is loaded without overriding variables you already exported; `cp .env.example .env` works as the README says. `PATCH /generation` writes `data/generation.json`; restart the process to apply it.
 
-### Run from native Windows
+| Variable | Effect |
+| --- | --- |
+| `ZYQUOR_DATA_ROOT` | Runtime data root; falls back to `ZYQUOR_WORKSPACE_ROOT`, then the current directory. |
+| `ZYQUOR_API_PORT` | Standalone API port. Default 3000, with a one-shot 3001 retry when the port is busy and this is unset. |
+| `ZYQUOR_API_URL` | API base used by the CLI loops, worker, and Vite proxy. |
+| `ZYQUOR_API_PORT_OVERRIDE`, `ZYQUOR_API_URL_OVERRIDE` | API target used by `zyquor start`/`api`/`web`; default 3001. |
+| `ZYQUOR_RUN_WORKER` | Must be `1` for `zyquor worker`. `start` runs the worker in-process. |
+| `ZYQUOR_WORKER_POLL_MS` | Worker poll interval; default 5000 ms. |
+| `ZYQUOR_WORKER_INGEST_INTERVAL_MS` | Ingest cadence; default 60000 ms. |
+| `ZYQUOR_WORKER_AUTO_SEED_DEFAULT_INGEST` | `0` disables seeding the default news ingest config. |
+| `ZYQUOR_LLM_PROVIDER` | `opencode` (the desktop default), `command-code`, `gemini`, `ollama`, or `auto`. An unset value also resolves as `auto`: Gemini when `ZYQUOR_GEMINI_API_KEY` is set, otherwise Ollama. |
+| `ZYQUOR_OPENCODE_MODEL`, `ZYQUOR_OPENCODE_VARIANT`, `ZYQUOR_OPENCODE_PATH` | Opencode model (default `opencode/glm-5.3-flash-free`), variant (`low`/`high`/`max`, default `high`), and CLI path. |
+| `ZYQUOR_COMMAND_CODE_MODEL`, `ZYQUOR_COMMAND_CODE_PATH` | Command Code model (default `gpt-5.6-luna`) and CLI path. |
+| `ZYQUOR_GEMINI_API_KEY`, `ZYQUOR_GEMINI_MODEL`, `ZYQUOR_GEMINI_BASE_URL` | Gemini credentials and model (default `gemini-3.6-flash`). |
+| `ZYQUOR_OLLAMA_MODEL`, `ZYQUOR_OLLAMA_BASE_URL` | Ollama model (default `gemma4:e4b`) and endpoint (default `http://127.0.0.1:11434`). |
+| `ZYQUOR_REVISION_PASS` | `1` adds the cut-only second revision pass for opencode; off by default. |
+| `ZYQUOR_QUALITY_MIN`, `ZYQUOR_REPLY_QUALITY_MIN` | Deterministic quality floors; default 7 for posts, 5 for replies. |
+| `ZYQUOR_ENABLE_BROWSER_PREPARE`, `ZYQUOR_ENABLE_BROWSER_POST` | Enable the browser prepare and post lanes (`1`). The standalone API, worker, and CLI treat anything other than `1` as off. |
+| `ZYQUOR_BROWSER_CHANNEL` | `chrome`; system Chrome is the only browser engine (no bundled Chromium). |
+| `ZYQUOR_BROWSER_HEADLESS` | `1` runs Chrome with `--headless=new`. |
+| `ZYQUOR_BROWSER_CDP_URL` | Base CDP endpoint; default `http://127.0.0.1:9222`. |
+| `ZYQUOR_BROWSER_CDP_BASE_PROFILES` | Comma-separated profiles pinned to the base port; default `personal-main`. |
+| `ZYQUOR_CHROME_PATH` / `CHROME_BIN` | Chrome executable override. |
+| `ZYQUOR_X_PROFILE_DIR` | Profile used by `open-profile` and `check-login`; default `profiles/personal-main`. |
+| `ZYQUOR_BROWSER_ACTION_DELAY_MS`, `ZYQUOR_BROWSER_TYPING_DELAY_MS` | Pacing for browser actions and typed input. |
+| `ZYQUOR_MENTIONS_AUTO_DRAFT`, `ZYQUOR_MENTIONS_AUTO_APPROVE`, `ZYQUOR_MENTIONS_ACCOUNTS`, `ZYQUOR_MENTIONS_INTERVAL_MS` | Worker mention lanes. Auto-approve takes precedence; interval defaults to 15 minutes. |
+| `ZYQUOR_MENTIONS_AUTO_APPROVE_DAILY_CAP` | Per-account daily approval cap; default 3, 0 disables, clamped 0..50. |
+| `ZYQUOR_PRODUCTHUNT_API_TOKEN` | Optional Product Hunt source credential. |
+| `ZYQUOR_LLM_DEBUG` | `1` writes the exact prompt and raw model output to artifacts. |
 
-Run Electron from a native Windows PowerShell session. Do not run the Electron process from WSL or from a `\\wsl$` path.
+Loop-specific settings such as `ZYQUOR_POST_LOOP_*` and `ZYQUOR_REPLY_LOOP_*` are read by the loops themselves; the env reads live in `apps/cli/src/post_loop.rs` and `apps/cli/src/reply_loop.rs`.
 
-Use a Windows checkout such as `C:\src\zyquor`. If the source currently lives in WSL, copy it to a Windows path first, then install dependencies there so pnpm installs the Windows Electron binary:
+## HTTP API
 
-```powershell
-robocopy \\wsl$\Ubuntu\home\<user>\dev\projects\zyquor C:\src\zyquor /E /XD .git node_modules dist coverage release
-Set-Location C:\src\zyquor
-pnpm install --frozen-lockfile
-pnpm dev:desktop
-```
+The API binds `127.0.0.1`. These are the routes registered by `apps/api/src/routes/*.rs`:
 
-`pnpm dev:desktop` builds the web UI and desktop process, then opens the Zyquor window. The API and worker start inside the same desktop process, so do not start `dev:api`, `dev:web`, or `dev:worker` in separate terminals for this mode. The app uses `%APPDATA%\Zyquor` for runtime data and keeps running in the Windows system tray when its window closes.
+- **Drafts:** `POST /drafts`, `POST /drafts/research`, `POST /drafts/:id/generate`, `GET /drafts/pending`, `GET /drafts/quality-gate-failures`, `GET|DELETE /drafts/:id`, `POST /drafts/:id/evaluate`, `POST /drafts/:id/select`, `POST /drafts/:id/approve`.
+- **Jobs:** `GET|DELETE /jobs`, `DELETE /jobs/cleanup`, `POST /jobs/post-next`, `POST /jobs/post-ready`, `POST /jobs/recover-stale`, `GET /jobs/:id/attempts`, `POST /jobs/:id/prepare`, `POST /jobs/:id/post`, `POST /jobs/:id/retry`, `PATCH|DELETE /jobs/:id`.
+- **Batch:** `POST /draft-batches`.
+- **Replies:** `GET /replies/feed`, `POST /replies/from-url`, `GET /replies/mentions`, `POST /replies/mentions/draft`, `POST /replies/mentions/scan-and-draft`, `POST /replies/mentions/scan-and-auto-approve`, `GET /replies/drafts`.
+- **Source packets:** `GET|POST|DELETE /source-packets`, `DELETE /source-packets/:id`, `POST|GET|DELETE /source-packets/:id/draft`, `POST /source-packets/:id/regenerate`, `POST /source-packets/:id/feedback`.
+- **Ingest:** `GET /ingest-runs`, `POST /ingest-runs/recover-stale`, `GET|POST /ingest-configs`, `GET /ingest-sources`, `POST /ingest-configs/default-news`, `PATCH|DELETE /ingest-configs/:id`, `POST /ingest-run`, `POST /ingest-run/async`.
+- **Knowledge:** `GET|POST /knowledge`, `PATCH|DELETE /knowledge/:id`.
+- **Feedback:** `GET|POST /system-feedback`, `DELETE /system-feedback/:id`.
+- **Style profiles:** `GET|PATCH /style-profiles/:id`.
+- **Generation:** `GET|PATCH /generation`.
+- **Browser:** `POST /browser/activate`, `GET /browser/active`, `GET /browser/x-session`, `POST /browser/launch-chrome`.
+- **Accounts:** `GET|POST /accounts`, `PATCH|DELETE /accounts/:id`.
+- **History/performance:** `GET /history`, `GET /history/analysis`, `POST /history/:id/delete`, `GET /performance`, `POST /performance/refresh`.
+- **Settings/onboarding:** `GET|PATCH /settings`, `GET /onboarding/status`.
+- **System:** `GET /system/status`, `POST /system/posting`, `POST /system/ingest/cancel`.
+- **Worker:** `GET /health`, `GET /worker/status`, `POST /worker/heartbeat`.
 
-Install and authenticate the selected generation CLI in Windows as well. A CLI installed only inside WSL is not available to the native desktop process. If the CLI is not on the Windows `PATH`, set its full path in the desktop Settings panel.
+Desktop-only system routes: `GET /system/logs`, `POST /system/worker/pause`, `POST /system/chrome/close`, `POST /system/stop-all`, `POST /system/quit`, `POST /system/restart`. They are registered but return 404 unless the Tauri shell has injected its control plane; the standalone API has no desktop controls.
 
-To inspect a running development app and its startup log:
+## Troubleshooting
 
-```powershell
-Get-Process electron
-Get-Content "$env:APPDATA\Zyquor\logs\main.log" -Tail 50
-```
+**Port already in use.** The standalone API retries 3001 only when `ZYQUOR_API_PORT` is unset. Set `ZYQUOR_API_PORT=3001` explicitly, and point the worker/web at it with `ZYQUOR_API_URL=http://127.0.0.1:3001`.
 
-```bash
-pnpm dev:desktop        # build and launch
-pnpm smoke:desktop      # headless logic smoke (no GUI required)
-pnpm dist:desktop       # produce NSIS installer (CI: dist-desktop-win job)
-```
+**Chrome CDP did not become ready.** Run `cargo run -p zyquor-cli -- open-profile` and keep that Chrome window open. Check `ZYQUOR_BROWSER_CDP_URL` and the per-profile port; `check-login` reports the CDP error when it cannot connect.
 
-- **Data root**: `%APPDATA%/Zyquor` on Windows (overridable via `ZYQUOR_DATA_ROOT`).
-- **Settings**: `settings.json` in the data root instead of `.env`. UI panel gated on `window.zyquor`.
-- **Posting Chrome**: starts with the app and remains available as a tray action, using a dedicated Chrome profile with CDP on port 9222. Per-account ports come from `perProfileCdpUrl` in `@zyquor/core`, shared with the API.
-- **Main-process logging**: `logs/main.log` under the data root. Lines are batched and flushed every 100 ms or 256 KB, so logging never blocks the main thread; the file rotates to `main.log.1` at 5 MB, checked on write and at startup.
-- **Shutdown**: each step (worker stop, API close, browser close) has a timeout, and the whole quit path gives up after 10 s so a hung child cannot trap the app.
-- **Windows releases** use the configured app icon and can be signed through Azure Trusted Signing. See [Windows code signing](code-signing.md).
-- **Entry points**: `src/main.ts` (main process), `src/preload.ts` (context bridge), `src/chrome.ts` (CDP launch), `src/settings.ts` (JSON config), `src/log.ts` (file logging).
+**X did not render does not mean logout.** If the login check says `X did not render the authenticated shell ... even though the session is valid`, the credentials check already returned a handle: the session is fine and the page client stopped painting. Relaunch the dedicated profile and retry. If the same profile still will not render, move to a fresh profile and log in once. Never clear x.com cookies or site data for this error; that destroys a valid session.
+
+**Headless bugs.** Take screenshots from `<dataRoot>/data/artifacts`. Keep a headed launch path for comparison when a page fails only in headless mode.
+
+**Composer left holding text.** A failed post can leave unsent text in the composer, which triggers a `beforeunload` dialog on the next navigation. The Rust session dismisses dialogs, but clear the composer (`Ctrl+A`, `Backspace`) before the next attempt. Failed external posts are never auto-retried.
+
+**Worker will not start.** `zyquor worker` requires `ZYQUOR_RUN_WORKER=1` and a free worker lock (`data/zyquor-worker.lock` by default; override with `ZYQUOR_WORKER_LOCK_PATH`). A live PID in the lock file blocks a second worker.
+
+**Generation fails.** Check `GET /generation` and run `cargo run -p zyquor-cli -- smoke-generation`. A free `opencode` usage cap (`Free usage limit reached`) is an account quota, not a code fault; paid models need funds. The opencode CLI can exit 1 with `ECONNRESET` after writing valid candidates, in which case the provider still accepts stdout.
+
+**Desktop app in WSL.** It will not run correctly. Use native Windows, and install/authenticate the generation CLI there as well.
+
+**Data looks missing.** Persistence is SQLite only (`app.sqlite`); there is no JSON fallback. Check the effective `ZYQUOR_DATA_ROOT` and that the process is using the database you expect.

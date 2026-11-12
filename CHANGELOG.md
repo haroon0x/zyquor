@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Desktop control plane over HTTP: the Tauri shell injects a
+  `DesktopControlPlane` into the Rust API, restoring the web UI's System panel
+  (`GET /system/logs`, `POST /system/worker/pause`, `POST /system/chrome/close`,
+  `POST /system/stop-all`, `POST /system/quit`, `POST /system/restart`) and the
+  `desktop` / `worker.paused` fields of `GET /system/status`. Response shapes
+  and defaults follow the retired `system.ts`; the standalone API still answers
+  404 for the desktop-only routes. Covered by `apps/api/tests/desktop_control.rs`
+  and the extended `--headless-smoke`.
+- `POST /system/posting` now round-trips `enablePrepare`, `enablePost`, and
+  `autoApproveSourcePackets` through the settings store instead of returning a
+  hardcoded `false`.
+- `.env` is loaded again: every Rust entry point calls
+  `zyquor_core::dotenv::load()` before reading config (existing process
+  variables still win). The Rust port had dropped the TypeScript `dotenv`
+  import, so a `cp .env.example .env` setup was silently ignored.
+- `zyquor start` / `zyquor web` run the Vite dev server from `apps/web`
+  (`pnpm run dev`) instead of the retired root pnpm workspace filter.
+- The Tauri app icons are committed under `apps/desktop/build/` (they were
+  gitignored, so a clean checkout could not run `cargo tauri build`); the
+  generator at `apps/desktop/scripts/` now declares its own `package.json`.
+- CI: the dead pnpm `test` job is now the `apps/web` renderer job, and
+  `dist-desktop-win` became `desktop-win` (`cargo tauri build`, unsigned).
+- Docs: `ROADMAP.md`, `CLAUDE.md`, `AGENTS.md`, `README.md`, and
+  `docs/rust-migration.md` now describe the Rust tree (the retired TypeScript
+  commands, crates, and milestone states were replaced).
+
 - Rust migration milestone M8: `apps/cli` — the `zyquor` binary ports all 15
   operational subcommands (start/api/worker/web, post-loop, reply-loop,
   overseer, open-profile + --manual, check-login, backfill-timeline,
@@ -26,8 +52,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   degrades to `{loggedIn: false}` without an X session.
   `cargo test --workspace`: 172 Rust tests pass.
 
-### Added
-
 - Rust migration milestone M5: `apps/api` (axum server porting all 17
   TypeScript route modules — accounts, system, batches, browser, drafts
   (incl. generate/research/evaluate), generation, history,
@@ -40,14 +64,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mentions lanes, worker lock). Live smoke verified `/health`,
   `/system/status`, `/worker/status`, `/performance` (+ refresh),
   `/history/analysis`, `/onboarding/status`, `/generation` returning the
-  same JSON shapes as the TypeScript API. M5 gaps: desktop-only
-  `system/*` control routes stay with the desktop app (no Rust port —
-  no `desktopControl` injection), the ingest/packet-draft flows run on a
-  second SQLite connection so the proxy mutex never stalls, and the
-  live generation provider is not hot-swappable (`PATCH /generation`
-  persists + validates; restart applies). 122 Rust tests pass.
-
-### Added
+  same JSON shapes as the TypeScript API. M5 gaps at the time: the
+  desktop-only `system/*` routes needed a control-plane injection (added
+  2026-11-12), the ingest/packet-draft flows run on a second SQLite
+  connection so the proxy mutex never stalls, and the live generation
+  provider is not hot-swappable (`PATCH /generation` persists + validates;
+  restart applies). 122 Rust tests pass.
 
 - Rust migration milestone M4: the full `zyquor-browser` crate on
   chromiumoxide CDP (session + page layer, per-profile Chrome launch with
@@ -57,8 +79,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   trace-event failure artifacts). Playwright's actionability waits are
   reimplemented over `Runtime.evaluate` polls; the cross-frame stability
   check is a documented single-poll wait.
-
-### Added
 
 - Rust migration milestone M3 complete: `zyquor-generation` (provider
   clients behind a `Fetch` seam + shared CLI spawn/capture runner + refine

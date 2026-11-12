@@ -50,6 +50,22 @@ pub(crate) fn feedback_dir() -> Option<String> {
         .map(str::to_string)
 }
 
+/// Read a boolean desktop setting from the process store. `None` matches the
+/// TS `settings.get().<key> === true` check on an unset value.
+pub(crate) fn stored_bool(key: &str) -> Option<bool> {
+    settings_store()
+        .lock()
+        .ok()
+        .and_then(|store| store.get(key).and_then(Value::as_bool))
+}
+
+/// Write one desktop setting (`desktopSettings.update({ [key]: value })`).
+pub(crate) fn set_stored_value(key: &str, value: Value) {
+    if let Ok(mut store) = settings_store().lock() {
+        store.insert(key.to_string(), value);
+    }
+}
+
 fn mask_settings(settings: &Map<String, Value>) -> Map<String, Value> {
     let mut masked = settings.clone();
     if let Some(value) = masked.get("geminiApiKey").and_then(Value::as_str) {

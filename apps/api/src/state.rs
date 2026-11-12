@@ -6,10 +6,33 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::DateTime;
+use futures::future::BoxFuture;
 use zyquor_adapters::SourceAdapter;
 use zyquor_generation::ReqwestFetch;
 use zyquor_generation::providers::{DraftGenerationProvider, create_generation_provider_from_env};
 use zyquor_storage::SqliteRepository;
+
+/// The desktop-only control surface (`deps.desktopControl` in the TypeScript
+/// app). The Tauri shell implements this and injects it into [`AppState`]
+/// after the worker and API are running; the standalone `zyquor api` leaves
+/// the slot empty and the desktop routes answer `404`.
+///
+/// The payloads are already camelCase JSON so the API crate never has to
+/// depend on the desktop crate (the dependency runs the other way around).
+pub trait DesktopControlPlane: Send + Sync {
+    /// `desktopControl.status` — the `desktop` block of `GET /system/status`.
+    fn status(&self) -> BoxFuture<'_, serde_json::Value>;
+    /// Tail of the desktop log file (`main.log`).
+    fn log_tail(&self, lines: usize) -> Vec<String>;
+    fn worker_paused(&self) -> bool;
+    fn set_worker_paused(&self, paused: bool) -> bool;
+    /// `desktopControl.closeChrome` — `{closed, reason?}`.
+    fn close_chrome(&self) -> BoxFuture<'_, serde_json::Value>;
+    /// Schedule a quit and return immediately so the HTTP response can flush.
+    fn request_quit(&self);
+    /// Schedule a restart and return immediately so the HTTP response can flush.
+    fn request_restart(&self);
+}
 
 /// The options `build_app` accepts — the same levers the Fastify build took
 /// (`BuildAppOptions`).
@@ -117,6 +140,9 @@ pub struct AppState {
     pub generation_provider: Arc<dyn DraftGenerationProvider>,
     pub browser: std::sync::Arc<std::sync::Mutex<BrowserDeps>>,
     pub runtime: Arc<std::sync::Mutex<RuntimeState>>,
+    /// Injected by the desktop shell once its runtime exists (the API server
+    /// and worker start before it). `None` in the standalone API.
+    pub desktop_control: Arc<std::sync::Mutex<Option<Arc<dyn DesktopControlPlane>>>>,
     pub api_started_at: DateTime<chrono::Utc>,
 }
 
@@ -164,8 +190,26 @@ impl AppState {
                 close_after_post: options.close_after_post,
             })),
             runtime: Arc::new(std::sync::Mutex::new(RuntimeState::default())),
+            desktop_control: Arc::new(std::sync::Mutex::new(None)),
             api_started_at: chrono::Utc::now(),
         })
+    }
+
+    /// Attach the desktop control surface. Callable after the server has
+    /// started: the slot is shared by every `AppState` clone (clones share the
+    /// `Arc<Mutex<..>>`), so the router sees the control immediately.
+    pub fn set_desktop_control(&self, control: Arc<dyn DesktopControlPlane>) {
+        if let Ok(mut slot) = self.desktop_control.lock() {
+            *slot = Some(control);
+        }
+    }
+
+    /// The injected desktop control, if this process is the desktop app.
+    pub fn desktop_control(&self) -> Option<Arc<dyn DesktopControlPlane>> {
+        self.desktop_control
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
     }
 
     pub fn repository(&self) -> Repository {

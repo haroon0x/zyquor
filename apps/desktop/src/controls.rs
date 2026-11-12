@@ -420,3 +420,80 @@ impl DesktopControl {
         crate::log::flush_log_sync();
     }
 }
+
+/// The [`zyquor_api::DesktopControlPlane`] implementation the Tauri shell
+/// injects into the API state. It lets the web UI's System panel drive the
+/// desktop shell over HTTP (`/system/logs`, `/system/worker/pause`,
+/// `/system/chrome/close`, `/system/stop-all`, `/system/quit`,
+/// `/system/restart`) instead of the Electron IPC bridge.
+pub struct ApiDesktopControl {
+    runtime: AppRuntime,
+}
+
+impl ApiDesktopControl {
+    pub fn new(runtime: AppRuntime) -> Self {
+        Self { runtime }
+    }
+}
+
+impl zyquor_api::DesktopControlPlane for ApiDesktopControl {
+    fn status(&self) -> futures::future::BoxFuture<'_, serde_json::Value> {
+        Box::pin(async move {
+            let status = DesktopControl::chrome_status(&self.runtime, &base_cdp_url()).await;
+            serde_json::to_value(status).unwrap_or(serde_json::Value::Null)
+        })
+    }
+
+    fn log_tail(&self, lines: usize) -> Vec<String> {
+        DesktopControl::log_tail(lines)
+    }
+
+    fn worker_paused(&self) -> bool {
+        self.runtime.worker_handle.is_paused()
+    }
+
+    fn set_worker_paused(&self, paused: bool) -> bool {
+        DesktopControl::set_worker_paused(&self.runtime, paused)
+    }
+
+    fn close_chrome(&self) -> futures::future::BoxFuture<'_, serde_json::Value> {
+        Box::pin(async move {
+            let result = DesktopControl::close_chrome(&self.runtime, &base_cdp_url()).await;
+            serde_json::to_value(result).unwrap_or(serde_json::Value::Null)
+        })
+    }
+
+    fn request_quit(&self) {
+        let runtime = self.runtime.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            let runner = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build();
+            match runner {
+                Ok(runner) => runner.block_on(DesktopControl::quit(&runtime)),
+                Err(error) => {
+                    log_line("error", &format!("quit runtime error: {error}"));
+                    std::process::exit(1);
+                }
+            }
+        });
+    }
+
+    fn request_restart(&self) {
+        let runtime = self.runtime.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            let runner = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build();
+            match runner {
+                Ok(runner) => runner.block_on(DesktopControl::restart(&runtime)),
+                Err(error) => {
+                    log_line("error", &format!("restart runtime error: {error}"));
+                    std::process::exit(1);
+                }
+            }
+        });
+    }
+}
