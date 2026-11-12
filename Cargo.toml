@@ -24,7 +24,7 @@ publish = false
 [workspace.dependencies]
 axum = "0.8"
 chrono = "0.4"
-chromiumoxide = "0.8"
+chromiumoxide = "0.9"
 dotenvy = "0.15"
 fancy-regex = "0.14"
 futures = "0.3"
