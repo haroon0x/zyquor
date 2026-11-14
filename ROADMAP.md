@@ -72,7 +72,9 @@ decision and served inside the Tauri webview.
   standalone API keeps a process-level fallback (documented deviation: TS
   answered 404 for `/settings` without `desktopSettings`).
 - **`autoApproveSourcePackets` is consumed.** The source-packet draft gate now
-  applies the TS rule: `enablePost && (no settings plane ? true : setting)`.
+  applies the TS rule: `enablePost && (no settings plane ? true : setting)`,
+  and the automatic-ingest lane uses the same desktop-settings branch
+  (`enablePost && setting`) when the Tauri plane is injected.
 - **Storage parity.** `deleteAccount` now matches the retired TypeScript table
   list exactly (it does not delete `knowledge_entries`), and the legacy
   null-`text_hash` lookup has a regression test. Consequence, inherited from

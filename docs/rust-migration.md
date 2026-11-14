@@ -165,9 +165,11 @@ running total.
   generation keys hot-swap the same way; `restartRequired` is only true when
   provider creation or the saved-config write fails.
 - `autoApproveSourcePackets` is consumed by the source-packet draft route
-  (`enablePost && (no plane ? true : setting)`), matching `source-packets.ts`.
-  The worker still sends `autoApprove: true` as the TS worker did, so the API
-  gate is the single decision point.
+  (`enablePost && (no plane ? true : setting)`, matching `source-packets.ts`)
+  and by the automatic-ingest lane (TS `ingest.ts`: with a settings plane,
+  `enablePost && setting`; standalone keeps the TS `true` fallback). The worker
+  still sends `autoApprove: true` as the TS worker did, so the API gate is the
+  single decision point.
 - Ingest/packet-draft run on a second SQLite connection (opened from
   `AppState::db_path`) so the shared proxy mutex is never held across a
   network-bound generation/ingest. WAL (`PRAGMA journal_mode = WAL`) is

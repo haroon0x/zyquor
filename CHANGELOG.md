@@ -18,8 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by the Tauri shell (over `settings.json`), so `GET/PATCH /settings`,
   `POST /system/posting`, and the `posting` fields of `GET /system/status`
   survive a restart. The standalone API keeps an in-process fallback.
-- `autoApproveSourcePackets` now gates source-packet auto-approval
-  (`enablePost && setting`), matching the retired `source-packets.ts`.
+- `autoApproveSourcePackets` now gates source-packet auto-approval in both the
+  draft route and the automatic-ingest lane when the desktop settings plane is
+  injected (`enablePost && setting`), matching the retired TS routes; the
+  standalone API keeps the TS `true` fallback.
 - End-to-end HTTP workflow suite (`apps/api/tests/e2e_workflow.rs`, 8 tests)
   covering accounts, draft → select → approve → job, quality gates, source
   packets, ingest configs, system feedback, history, and generation reads,
