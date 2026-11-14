@@ -35,7 +35,7 @@ use serde::Serialize;
 
 use crate::chrome;
 use crate::log::log_line;
-use crate::settings::settings_env_value;
+use crate::settings::{SettingsPlane, settings_env_value};
 
 /// Managed runtime state shared by the Tauri commands.
 #[derive(Clone)]
@@ -46,6 +46,8 @@ pub struct AppRuntime {
     pub db_path: PathBuf,
     pub data_root: PathBuf,
     pub api: Arc<ApiServerHandle>,
+    /// The settings plane injected into the API (`desktopSettings` in TS).
+    pub settings: Arc<SettingsPlane>,
 }
 
 /// Handle to the axum API server task running on the backend thread.

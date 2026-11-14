@@ -59,6 +59,66 @@ pub fn read_saved_generation_env(config_path: Option<&Path>) -> Vec<(String, Str
     out
 }
 
+/// Owned snapshot of the generation environment (`deps.generationEnv` in TS:
+/// the process env merged with the saved generation config). The snapshot is
+/// what `GET /generation` resolves and what `PATCH /generation` /
+/// `PATCH /settings` mutate before rebuilding the provider — never the process
+/// environment again, so a live change stays live.
+// Deliberately not `Debug`: the snapshot holds provider API keys.
+#[derive(Clone, Default)]
+pub struct GenerationEnvironment {
+    values: std::collections::HashMap<String, String>,
+}
+
+impl GenerationEnvironment {
+    pub fn from_map(values: std::collections::HashMap<String, String>) -> Self {
+        Self { values }
+    }
+
+    pub fn get(&self, key: &str) -> Option<String> {
+        self.values.get(key).cloned()
+    }
+
+    /// Set (or delete, with `None`) one env key, like spreading an
+    /// `undefined` value over the TS `generationEnv` object.
+    pub fn set(&mut self, key: &str, value: Option<String>) {
+        match value {
+            Some(value) => {
+                self.values.insert(key.to_string(), value);
+            }
+            None => {
+                self.values.remove(key);
+            }
+        }
+    }
+
+    /// The env lookup the provider factory / config resolver expects.
+    pub fn lookup(&self) -> impl Fn(&str) -> Option<String> + '_ {
+        move |key| self.get(key)
+    }
+}
+
+/// Snapshot the boot generation env the way `app.ts` builds
+/// `{...baseGenerationEnv, ...savedGenerationEnv}`: the real process env, then
+/// the desktop settings snapshot for keys the process env does not set
+/// (the Rust `applySettingsToEnv` equivalent), then the saved config file on
+/// top (spread order: saved wins).
+pub fn boot_generation_environment(
+    settings_env: Option<&std::collections::HashMap<String, String>>,
+    config_path: Option<&Path>,
+) -> GenerationEnvironment {
+    let mut values: std::collections::HashMap<String, String> = std::env::vars().collect();
+    if let Some(settings_env) = settings_env {
+        for (key, value) in settings_env {
+            values.entry(key.clone()).or_insert_with(|| value.clone());
+        }
+    }
+    for (key, value) in read_saved_generation_env(config_path) {
+        values.insert(key, value);
+    }
+    GenerationEnvironment::from_map(values)
+}
+
 /// Write the saved generation config file (provider/model/revisionPass after
 /// resolving through the loaded config).
 pub fn write_saved_generation_env(config_path: &Path, env: EnvLookup<'_>) -> Result<(), String> {
@@ -81,33 +141,8 @@ pub fn write_saved_generation_env(config_path: &Path, env: EnvLookup<'_>) -> Res
     .map_err(|error| error.to_string())
 }
 
-/// The merged environment lookup (base process env + saved-config overrides),
-/// matching the TS `{ ...baseGenerationEnv, ...savedGenerationEnv }` spread.
-pub struct GenerationEnvironment {
-    saved: Vec<(String, String)>,
-}
-
-impl GenerationEnvironment {
-    /// Merge of base env and saved-config overrides — the route handlers
-    /// reach for values through this lookup, never process env directly.
-    pub fn with(base_env: EnvLookup<'_>, saved: Vec<(String, String)>) -> Self {
-        let _ = base_env;
-        Self { saved }
-    }
-
-    fn get(&self, key: &str) -> Option<String> {
-        if let Some((_, value)) = self.saved.iter().find(|(saved_key, _)| saved_key == key) {
-            return Some(value.clone());
-        }
-        std::env::var(key).ok()
-    }
-
-    pub fn lookup(&self) -> impl Fn(&str) -> Option<String> + '_ {
-        move |key| self.get(key)
-    }
-}
-
-/// The merged lookup used to resolve the generation provider.
+/// The merged lookup used to resolve the generation provider from the real
+/// process env + saved config (boot-time helper for routes without state).
 pub fn merged_generation_env(base_env: EnvLookup<'_>) -> impl Fn(&str) -> Option<String> + '_ {
     // `saved config overrides base env`, like TS's spread order.
     let saved = read_saved_generation_env(generation_config_path().as_deref());

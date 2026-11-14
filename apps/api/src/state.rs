@@ -3,14 +3,20 @@
 //! desktop app owns and injects from outside).
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, RwLock};
 
 use chrono::DateTime;
 use futures::future::BoxFuture;
+use serde_json::{Map, Value};
 use zyquor_adapters::SourceAdapter;
-use zyquor_generation::ReqwestFetch;
-use zyquor_generation::providers::{DraftGenerationProvider, create_generation_provider_from_env};
+use zyquor_generation::providers::{
+    DraftFuture, DraftGenerationProvider, create_generation_provider_from_env,
+};
+use zyquor_generation::types::GenerateDraftCandidatesInput;
+use zyquor_generation::{ReqwestFetch, resolve_generation_provider_config};
 use zyquor_storage::SqliteRepository;
+
+use crate::lib_deps::GenerationEnvironment;
 
 /// The desktop-only control surface (`deps.desktopControl` in the TypeScript
 /// app). The Tauri shell implements this and injects it into [`AppState`]
@@ -34,11 +40,142 @@ pub trait DesktopControlPlane: Send + Sync {
     fn request_restart(&self);
 }
 
+/// The desktop-settings persistence surface (`deps.desktopSettings` in the
+/// TypeScript app). The Tauri shell implements this over `settings.json` and
+/// injects it after the API starts, next to the desktop control plane; the
+/// standalone `zyquor api` leaves the slot empty and the settings routes fall
+/// back to a process-level store (documented deviation: TS registers
+/// `/settings` only when `desktopSettings` exists and answers `404` otherwise;
+/// the Rust standalone keeps the routes and their shapes available with the
+/// in-process store, so existing clients keep working).
+pub trait DesktopSettingsPlane: Send + Sync {
+    /// `desktopSettings.get()` — the current settings as camelCase JSON.
+    fn get(&self) -> Map<String, Value>;
+    /// `desktopSettings.update(patch)` — merge + persist, return the result.
+    fn update(&self, patch: Map<String, Value>) -> Map<String, Value>;
+}
+
+/// The live generation slot: the merged env snapshot the provider was built
+/// from plus the provider itself. Both are swapped together by
+/// `PATCH /generation` and `PATCH /settings`, so every clone of [`AppState`]
+/// sees the new provider immediately.
+struct GenerationSlot {
+    env: GenerationEnvironment,
+    provider: Arc<dyn DraftGenerationProvider>,
+    /// `DraftGenerationProvider::name`/`model` return `&str`, so the live
+    /// labels are interned `'static` strings (bounded by the provider/model
+    /// allowlists; a swap reuses an existing interned label).
+    labels: (&'static str, &'static str),
+}
+
+/// The swappable generation provider handed to the routes as an
+/// `Arc<dyn DraftGenerationProvider>`: lock to clone the current provider out,
+/// then await on the clone — no lock is held across an await.
+pub struct LiveGenerationProvider {
+    slot: RwLock<GenerationSlot>,
+}
+
+impl LiveGenerationProvider {
+    fn new(env: GenerationEnvironment, provider: Arc<dyn DraftGenerationProvider>) -> Arc<Self> {
+        let labels = labels_for(provider.as_ref());
+        Arc::new(Self {
+            slot: RwLock::new(GenerationSlot {
+                env,
+                provider,
+                labels,
+            }),
+        })
+    }
+
+    fn read_slot(&self) -> std::sync::RwLockReadGuard<'_, GenerationSlot> {
+        self.slot
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn labels(&self) -> (&'static str, &'static str) {
+        let slot = self.read_slot();
+        slot.labels
+    }
+
+    /// Clone the current provider out from under the lock.
+    pub fn current(&self) -> Arc<dyn DraftGenerationProvider> {
+        self.read_slot().provider.clone()
+    }
+
+    /// The current merged generation env (owned clone; never process env).
+    pub fn environment(&self) -> GenerationEnvironment {
+        self.read_slot().env.clone()
+    }
+
+    /// Swap env + provider together. `PATCH` handlers call this after the new
+    /// provider was created successfully.
+    pub fn swap(&self, env: GenerationEnvironment, provider: Arc<dyn DraftGenerationProvider>) {
+        let labels = labels_for(provider.as_ref());
+        let mut slot = self
+            .slot
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *slot = GenerationSlot {
+            env,
+            provider,
+            labels,
+        };
+    }
+}
+
+impl DraftGenerationProvider for LiveGenerationProvider {
+    fn name(&self) -> &str {
+        self.labels().0
+    }
+
+    fn model(&self) -> &str {
+        self.labels().1
+    }
+
+    fn generate_draft_candidates<'a>(
+        &'a self,
+        input: &'a GenerateDraftCandidatesInput,
+    ) -> DraftFuture<'a> {
+        let provider = self.current();
+        Box::pin(async move { provider.generate_draft_candidates(input).await })
+    }
+}
+
+/// Intern the provider name/model labels so a live swap never grows the leak
+/// set beyond the distinct values seen in this process.
+fn labels_for(provider: &dyn DraftGenerationProvider) -> (&'static str, &'static str) {
+    static LABELS: OnceLock<std::sync::Mutex<std::collections::HashSet<&'static str>>> =
+        OnceLock::new();
+    fn intern(value: &str) -> &'static str {
+        if let Some(existing) = LABELS
+            .get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
+            .lock()
+            .ok()
+            .and_then(|labels| labels.get(value).copied())
+        {
+            return existing;
+        }
+        let leaked: &'static str = Box::leak(value.to_string().into_boxed_str());
+        if let Ok(mut labels) = LABELS
+            .get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
+            .lock()
+        {
+            labels.insert(leaked);
+        }
+        leaked
+    }
+    (intern(provider.name()), intern(provider.model()))
+}
+
 /// The options `build_app` accepts — the same levers the Fastify build took
 /// (`BuildAppOptions`).
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct BuildAppOptions {
     pub generation_config_path: Option<Option<String>>,
+    /// Pre-built provider (TS `options.generationProvider`), used by tests to
+    /// keep generation offline. `None` builds one from the merged env.
+    pub generation_provider: Option<Arc<dyn DraftGenerationProvider>>,
     pub enable_browser_prepare: bool,
     pub enable_browser_post: bool,
     pub browser_action_delay_ms: Option<u64>,
@@ -137,13 +274,24 @@ pub struct AppState {
     pub db_path: std::path::PathBuf,
     pub source_adapters: HashMap<String, Arc<dyn SourceAdapter>>,
     pub automation_deps: zyquor_automation::AutomationDeps,
+    /// The live provider. This is an `Arc<LiveGenerationProvider>` upcast to
+    /// the trait object: routes keep calling `name`/`model`/
+    /// `generate_draft_candidates` on it, and the handler that swaps updates
+    /// the shared slot behind it.
     pub generation_provider: Arc<dyn DraftGenerationProvider>,
     pub browser: std::sync::Arc<std::sync::Mutex<BrowserDeps>>,
     pub runtime: Arc<std::sync::Mutex<RuntimeState>>,
     /// Injected by the desktop shell once its runtime exists (the API server
     /// and worker start before it). `None` in the standalone API.
     pub desktop_control: Arc<std::sync::Mutex<Option<Arc<dyn DesktopControlPlane>>>>,
+    /// Injected by the desktop shell next to [`Self::desktop_control`];
+    /// `None` in the standalone API (process-store fallback).
+    pub desktop_settings: Arc<std::sync::Mutex<Option<Arc<dyn DesktopSettingsPlane>>>>,
     pub api_started_at: DateTime<chrono::Utc>,
+    /// Swappable env + provider slot (see [`LiveGenerationProvider`]).
+    generation: Arc<LiveGenerationProvider>,
+    /// The saved generation config file (`generation.json`), if any.
+    generation_config_path: Option<std::path::PathBuf>,
 }
 
 impl AppState {
@@ -164,12 +312,34 @@ impl AppState {
                     .and_then(|map| map.get(key).cloned())
             })
         };
-        let env = crate::lib_deps::merged_generation_env(&lookup);
-        let generation_provider: Arc<dyn DraftGenerationProvider> = Arc::new(
-            create_generation_provider_from_env(&env, ReqwestFetch::new())
-                .map_err(|error| error.to_string())?,
-        );
         let automation_deps = zyquor_automation::AutomationDeps::from_env(&lookup);
+
+        // `generationConfigPath` resolution as in `app.ts`: an explicit
+        // option wins (`Some(None)` = disabled); `None` (undefined) falls back
+        // to the default `data/generation.json` because the Rust build always
+        // receives an explicit repository (the TS `repository ? null` branch
+        // has no Rust equivalent and would silently drop saved-config
+        // persistence).
+        let generation_config_path = match &options.generation_config_path {
+            Some(Some(path)) => Some(std::path::PathBuf::from(path)),
+            Some(None) => None,
+            None => crate::lib_deps::generation_config_path(),
+        };
+
+        // Boot env: `{...process.env, ...settingsEnv, ...savedGenerationEnv}`.
+        let env = crate::lib_deps::boot_generation_environment(
+            options.settings_env.as_ref(),
+            generation_config_path.as_deref(),
+        );
+        let provider: Arc<dyn DraftGenerationProvider> = match options.generation_provider.clone() {
+            Some(provider) => provider,
+            None => Arc::new(
+                create_generation_provider_from_env(&env.lookup(), ReqwestFetch::new())
+                    .map_err(|error| error.to_string())?,
+            ),
+        };
+        let generation = LiveGenerationProvider::new(env, provider);
+        let generation_provider: Arc<dyn DraftGenerationProvider> = generation.clone();
 
         let source_adapters = default_source_adapters(&repository_handle);
 
@@ -191,7 +361,10 @@ impl AppState {
             })),
             runtime: Arc::new(std::sync::Mutex::new(RuntimeState::default())),
             desktop_control: Arc::new(std::sync::Mutex::new(None)),
+            desktop_settings: Arc::new(std::sync::Mutex::new(None)),
             api_started_at: chrono::Utc::now(),
+            generation,
+            generation_config_path,
         })
     }
 
@@ -210,6 +383,57 @@ impl AppState {
             .lock()
             .ok()
             .and_then(|slot| slot.clone())
+    }
+
+    /// Attach the desktop settings persistence plane. Same late-injection
+    /// pattern as [`Self::set_desktop_control`]: every `AppState` clone shares
+    /// the slot, so the router sees it immediately. Also seeds the process
+    /// fallback store so no-arg legacy readers (feedback notebook directory)
+    /// resolve the injected values.
+    pub fn set_desktop_settings(&self, settings: Arc<dyn DesktopSettingsPlane>) {
+        crate::routes::settings::seed_fallback_store(settings.get());
+        if let Ok(mut slot) = self.desktop_settings.lock() {
+            *slot = Some(settings);
+        }
+    }
+
+    /// The injected desktop settings plane, if this process is the desktop app.
+    pub fn desktop_settings(&self) -> Option<Arc<dyn DesktopSettingsPlane>> {
+        self.desktop_settings
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
+    }
+
+    /// The live merged generation env (`deps.generationEnv`) — never the
+    /// process environment again once the API is up.
+    pub fn generation_environment(&self) -> GenerationEnvironment {
+        self.generation.environment()
+    }
+
+    /// The live generation config resolved from the live env snapshot.
+    pub fn generation_config(
+        &self,
+    ) -> Result<zyquor_generation::GenerationProviderConfig, zyquor_generation::GenerationError>
+    {
+        let env = self.generation.environment();
+        resolve_generation_provider_config(&env.lookup())
+    }
+
+    /// Swap the live env + provider (successful `PATCH /generation` /
+    /// `PATCH /settings`). Both are replaced together so the config view and
+    /// the provider can never disagree.
+    pub fn apply_generation_provider(
+        &self,
+        env: GenerationEnvironment,
+        provider: Arc<dyn DraftGenerationProvider>,
+    ) {
+        self.generation.swap(env, provider);
+    }
+
+    /// The saved generation config file (`generation.json`), if any.
+    pub fn generation_config_path(&self) -> Option<&std::path::Path> {
+        self.generation_config_path.as_deref()
     }
 
     pub fn repository(&self) -> Repository {

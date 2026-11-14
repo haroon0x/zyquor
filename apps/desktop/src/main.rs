@@ -26,8 +26,8 @@ use zyquor_worker::{WorkerHandle, WorkerOptions};
 use controls::{ApiDesktopControl, ApiServerHandle, AppRuntime, DesktopControl, DesktopStatus};
 use log::{flush_log_sync, init_file_log, log_line};
 use settings::{
-    DesktopSettings, apply_desktop_env_defaults, apply_settings_to_env, load_settings,
-    settings_env_value,
+    DesktopSettings, SettingsPlane, apply_desktop_env_defaults, apply_settings_to_env,
+    load_settings, settings_env_value,
 };
 
 const MENU_OPEN: &str = "open";
@@ -179,7 +179,7 @@ fn desktop_set_worker_paused(state: tauri::State<'_, AppRuntime>, paused: bool) 
 /// Patch applied by `desktopSettings.update` (mirrors the TS semantics:
 /// fields are replaced, empty strings delete the key, then the settings
 /// are saved, applied to the env snapshot and the login item re-wired).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DesktopSettingsPatch {
     enable_browser_prepare: Option<bool>,
@@ -198,52 +198,23 @@ struct DesktopSettingsPatch {
     auto_approve_source_packets: Option<bool>,
 }
 
-fn set_string_setting(target: &mut Option<String>, patch: Option<String>) {
-    if let Some(value) = patch {
-        if value.is_empty() {
-            *target = None;
-        } else {
-            *target = Some(value);
-        }
-    }
-}
-
 #[tauri::command]
-fn desktop_settings_update(app: tauri::AppHandle, patch: DesktopSettingsPatch) -> DesktopSettings {
-    let data_root = app.state::<AppRuntime>().data_root.clone();
-    let mut current = load_settings(&data_root);
-    if let Some(value) = patch.enable_browser_prepare {
-        current.enable_browser_prepare = Some(value);
-    }
-    if let Some(value) = patch.enable_browser_post {
-        current.enable_browser_post = Some(value);
-    }
-    if let Some(value) = patch.close_chrome_after_post {
-        current.close_chrome_after_post = Some(value);
-    }
-    if let Some(value) = patch.headless {
-        current.headless = Some(value);
-    }
-    set_string_setting(&mut current.command_code_path, patch.command_code_path);
-    set_string_setting(&mut current.opencode_path, patch.opencode_path);
-    set_string_setting(&mut current.opencode_variant, patch.opencode_variant);
-    set_string_setting(&mut current.llm_provider, patch.llm_provider);
-    set_string_setting(&mut current.gemini_api_key, patch.gemini_api_key);
-    set_string_setting(&mut current.chrome_path, patch.chrome_path);
-    if let Some(value) = patch.cdp_port {
-        current.cdp_port = Some(value);
-    }
-    if let Some(value) = patch.start_with_windows {
-        current.start_with_windows = Some(value);
-    }
-    set_string_setting(&mut current.feedback_dir, patch.feedback_dir);
-    if let Some(value) = patch.auto_approve_source_packets {
-        current.auto_approve_source_packets = Some(value);
-    }
-    settings::save_settings(&data_root, &current);
-    apply_settings_to_env(&current, true);
-    apply_login_item(&app, current.start_with_windows.unwrap_or(false));
-    current
+fn desktop_settings_update(
+    state: tauri::State<'_, AppRuntime>,
+    patch: DesktopSettingsPatch,
+) -> DesktopSettings {
+    // The API owns the patch semantics (masking / empty-string deletion happen
+    // in `PATCH /settings`); the IPC path forwards the same JSON shape so a
+    // preload caller and the web UI behave identically.
+    let patch = match serde_json::to_value(&patch) {
+        Ok(serde_json::Value::Object(map)) => map
+            .into_iter()
+            .filter(|(_, value)| !value.is_null())
+            .collect::<serde_json::Map<String, serde_json::Value>>(),
+        _ => serde_json::Map::new(),
+    };
+    let _ = zyquor_api::DesktopSettingsPlane::update(state.settings.as_ref(), patch);
+    state.settings.current()
 }
 
 // ---------------------------------------------------------------------------
@@ -529,7 +500,12 @@ fn run_headless_smoke() -> i32 {
         .unwrap_or_else(|| std::env::temp_dir().join("zyquor-headless"));
     init_file_log(&data_root);
     log_line("info", "app boot");
-    let _ = load_desktop_settings(&data_root);
+    let desktop_settings = load_desktop_settings(&data_root);
+    let settings_plane = Arc::new(SettingsPlane::new(
+        data_root.clone(),
+        desktop_settings,
+        None,
+    ));
     let settings_env = collect_settings_env(true);
     let std_listener = bind_api_listener();
     let api_port = listener_port(&std_listener);
@@ -581,8 +557,10 @@ fn run_headless_smoke() -> i32 {
             db_path,
             data_root: data_root.clone(),
             api: Arc::new(backend.api),
+            settings: settings_plane.clone(),
         };
         control_slot.set_desktop_control(Arc::new(ApiDesktopControl::new(app_runtime.clone())));
+        control_slot.set_desktop_settings(settings_plane.clone());
 
         tokio::time::sleep(Duration::from_millis(SETTLE_MS)).await;
 
@@ -596,6 +574,7 @@ fn run_headless_smoke() -> i32 {
             "/worker/status",
             "/system/status",
             "/system/logs?lines=5",
+            "/settings",
         ] {
             let url = format!("{api_url}{path}");
             match client.get(&url).send().await {
@@ -607,10 +586,22 @@ fn run_headless_smoke() -> i32 {
                         continue;
                     }
                     let body = response.text().await.unwrap_or_default();
-                    // `/system/status` must carry the injected desktop block;
-                    // a null `desktop` means the control plane was not wired.
-                    if path == "/system/status" && !body.contains("\"desktop\":{") {
-                        eprintln!("FAIL: {path} has no desktop block: {body}");
+                    // `/system/status` must carry the injected desktop block
+                    // (a null `desktop` means the control plane was not wired)
+                    // and the injected-settings default (`autoApproveSourcePackets`
+                    // defaults to true, like the TS desktop settings).
+                    if path == "/system/status"
+                        && (!body.contains("\"desktop\":{")
+                            || !body.contains("\"autoApproveSourcePackets\":true"))
+                    {
+                        eprintln!("FAIL: {path} missing injected desktop/settings: {body}");
+                        all_ok = false;
+                        continue;
+                    }
+                    // `/settings` is served by the injected settings plane; an
+                    // empty body without the default key means no plane.
+                    if path == "/settings" && !body.contains("\"autoApproveSourcePackets\":true") {
+                        eprintln!("FAIL: {path} not backed by the injected plane: {body}");
                         all_ok = false;
                         continue;
                     }
@@ -667,6 +658,19 @@ fn run_setup(
     log_line("info", "app boot");
 
     let desktop_settings = load_desktop_settings(&data_root);
+    // The API's desktop-settings surface: same settings struct + file the rest
+    // of the desktop uses. `startWithWindows` updates go through the autostart
+    // plugin, exactly like the TS `desktopSettings.update` hook.
+    let settings_plane = {
+        let app_handle = app.handle().clone();
+        Arc::new(SettingsPlane::new(
+            data_root.clone(),
+            desktop_settings.clone(),
+            Some(Box::new(move |enabled: bool| {
+                apply_login_item(&app_handle, enabled)
+            })),
+        ))
+    };
     let settings_env = collect_settings_env(false);
     let db_path = data_root.join("app.sqlite");
     let options = build_options(settings_env, false);
@@ -691,8 +695,10 @@ fn run_setup(
         db_path: db_path.clone(),
         data_root: data_root.clone(),
         api: Arc::new(backend.api),
+        settings: settings_plane.clone(),
     };
     control_slot.set_desktop_control(Arc::new(ApiDesktopControl::new(runtime.clone())));
+    control_slot.set_desktop_settings(settings_plane);
     let runtime_for_tasks = runtime.clone();
     app.manage(runtime);
 

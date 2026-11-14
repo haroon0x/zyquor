@@ -33,7 +33,8 @@ pub mod tweet_performance;
 pub mod routes;
 
 pub use state::{
-    AppState, BuildAppOptions, DesktopControlPlane, Repository, RuntimeState, WorkerHeartbeat,
+    AppState, BuildAppOptions, DesktopControlPlane, DesktopSettingsPlane, Repository, RuntimeState,
+    WorkerHeartbeat,
 };
 
 use axum::Router;

@@ -162,7 +162,7 @@ async fn status(State(state): State<AppState>) -> Result<Json<Value>, ApiError> 
             "channel": channel,
             "enablePost": enable_post,
             "enablePrepare": enable_prepare,
-            "autoApproveSourcePackets": crate::routes::settings::stored_bool("autoApproveSourcePackets").unwrap_or(false)
+            "autoApproveSourcePackets": crate::routes::settings::read_bool(&state, "autoApproveSourcePackets").unwrap_or(false)
         },
         "worker": {
             "lastError": last_error,
@@ -196,22 +196,31 @@ async fn update_posting(
             .map_err(|_| crate::errors::ApiError::Internal("browser mutex poisoned".to_string()))?;
         if let Some(enable_prepare) = input.enable_prepare {
             browser.enable_prepare = enable_prepare;
-            crate::routes::settings::set_stored_value(
-                "enableBrowserPrepare",
-                json!(enable_prepare),
-            );
         }
         if let Some(enable_post) = input.enable_post {
             browser.enable_post = enable_post;
-            crate::routes::settings::set_stored_value("enableBrowserPost", json!(enable_post));
         }
         (browser.enable_prepare, browser.enable_post)
     };
+    if let Some(enable_prepare) = input.enable_prepare {
+        crate::routes::settings::write_setting(
+            &state,
+            "enableBrowserPrepare",
+            json!(enable_prepare),
+        );
+    }
+    if let Some(enable_post) = input.enable_post {
+        crate::routes::settings::write_setting(&state, "enableBrowserPost", json!(enable_post));
+    }
     if let Some(auto_approve) = input.auto_approve_source_packets {
-        crate::routes::settings::set_stored_value("autoApproveSourcePackets", json!(auto_approve));
+        crate::routes::settings::write_setting(
+            &state,
+            "autoApproveSourcePackets",
+            json!(auto_approve),
+        );
     }
     let auto_approve =
-        crate::routes::settings::stored_bool("autoApproveSourcePackets").unwrap_or(false);
+        crate::routes::settings::read_bool(&state, "autoApproveSourcePackets").unwrap_or(false);
     Ok(Json(json!({
         "enablePost": enable_post,
         "enablePrepare": enable_prepare,

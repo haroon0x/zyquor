@@ -1,7 +1,16 @@
 //! Generation config routes, ported from `apps/api/src/routes/generation.ts`.
+//!
+//! `PATCH /generation` hot-swaps the live provider (`deps.generationProvider`
+//! in TS): it builds the next env from the current live env snapshot, creates
+//! the provider, swaps it into [`AppState`], then persists the saved config.
+//! `GET /generation` resolves from that live env store, never process env.
+
+use std::sync::Arc;
 
 use axum::{Json, Router, extract::State, routing::get};
 use serde_json::{Value, json};
+use zyquor_generation::ReqwestFetch;
+use zyquor_generation::providers::{DraftGenerationProvider, create_generation_provider_from_env};
 
 use crate::errors::{ApiError, Issue};
 use crate::state::AppState;
@@ -20,12 +29,11 @@ fn providers_value() -> Value {
 }
 
 fn generation_value(state: &AppState) -> Result<Value, ApiError> {
-    // Mirrors `resolveGenerationProviderConfig(deps.generationEnv)` where the
-    // Rust env is the merged saved-config + process env.
-    let env_lookup = crate::lib_deps::merged_generation_env(&|key: &str| std::env::var(key).ok());
-    let config = zyquor_generation::resolve_generation_provider_config(&env_lookup)
+    // Mirrors `resolveGenerationProviderConfig(deps.generationEnv)`: the live
+    // env snapshot the provider was built from, not a fresh process-env read.
+    let config = state
+        .generation_config()
         .map_err(|error| ApiError::Generation(error.to_string()))?;
-    let _ = state;
     let mut value = serde_json::json!({
         "provider": config.provider.as_str(),
         "model": config.model,
@@ -148,40 +156,46 @@ async fn update_generation(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let input = parse_generation(&body)?;
-    // Build the next merged env: saved layer is rewritten from the new
-    // provider/model, the base layer stays `process.env`.
-    let provider = input.provider.clone();
-    let model = input.model.clone();
 
-    // Provider resolution errors surface as 503, like the TS
-    // `createGenerationProviderFromEnv` throw.
-    let next_env = |key: &str| -> Option<String> {
-        match key {
-            "ZYQUOR_LLM_PROVIDER" => Some(provider.clone()),
-            "ZYQUOR_COMMAND_CODE_MODEL" if provider == "command-code" => Some(model.clone()),
-            "ZYQUOR_OPENCODE_MODEL" if provider == "opencode" => Some(model.clone()),
-            "ZYQUOR_GEMINI_MODEL" if provider == "gemini" => Some(model.clone()),
-            "ZYQUOR_OLLAMA_MODEL" if provider == "ollama" => Some(model.clone()),
-            _ => std::env::var(key).ok(),
-        }
+    // TS: `nextEnv = {...deps.generationEnv, ZYQUOR_LLM_PROVIDER: provider,
+    // <provider-specific model var>: model}`. Everything else (paths, keys,
+    // variant, revision pass) carries over from the live env.
+    let mut next_env = state.generation_environment();
+    next_env.set("ZYQUOR_LLM_PROVIDER", Some(input.provider.clone()));
+    let model_key = match input.provider.as_str() {
+        "command-code" => Some("ZYQUOR_COMMAND_CODE_MODEL"),
+        "opencode" => Some("ZYQUOR_OPENCODE_MODEL"),
+        "gemini" => Some("ZYQUOR_GEMINI_MODEL"),
+        "ollama" => Some("ZYQUOR_OLLAMA_MODEL"),
+        _ => None,
     };
-    // Validate through the same factory the state build uses; the provider
-    // instance itself is immutable in `AppState`, so a failed factory is the
-    // only surfaced error and a success means the saved file can be written.
-    let _probe = zyquor_generation::create_generation_provider_from_env(
-        &next_env,
-        zyquor_generation::ReqwestFetch::new(),
-    )
-    .map_err(|error| ApiError::Generation(error.to_string()))?;
+    if let Some(key) = model_key {
+        next_env.set(key, Some(input.model.clone()));
+    }
 
-    // `writeSavedGenerationEnv(generationConfigPath, nextEnv)`.
-    if let Some(path) = crate::lib_deps::generation_config_path() {
-        crate::lib_deps::write_saved_generation_env(&path, &next_env)
+    // `createGenerationProviderFromEnv(nextEnv)` — a factory failure is a 503,
+    // like the TS throw, and leaves the live provider untouched.
+    let provider: Arc<dyn DraftGenerationProvider> = Arc::new(
+        create_generation_provider_from_env(&next_env.lookup(), ReqwestFetch::new())
+            .map_err(|error| ApiError::Generation(error.to_string()))?,
+    );
+    state.apply_generation_provider(next_env.clone(), provider);
+
+    // `writeSavedGenerationEnv(generationConfigPath, deps.generationEnv)`.
+    if let Some(path) = state.generation_config_path() {
+        crate::lib_deps::write_saved_generation_env(path, &next_env.lookup())
             .map_err(ApiError::Generation)?;
     }
-    let _ = state;
 
-    // The desktop settings update has no Rust counterpart in `AppState`.
+    // Keep the desktop settings panel in step; otherwise it reports a stale
+    // provider (TS: `deps.desktopSettings?.update({llmProvider})`).
+    let mut settings_patch = serde_json::Map::new();
+    settings_patch.insert(
+        "llmProvider".to_string(),
+        Value::String(input.provider.clone()),
+    );
+    crate::routes::settings::update_desktop_settings(&state, settings_patch);
+
     Ok(Json(json!({
         "generation": generation_value(&state)?,
         "providers": providers_value(),

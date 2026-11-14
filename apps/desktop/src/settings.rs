@@ -262,6 +262,157 @@ pub fn apply_desktop_env_defaults(settings: &DesktopSettings) {
     apply_one_setting_or_default("ZYQUOR_QUALITY_MIN", "7".to_string());
 }
 
+// ---------------------------------------------------------------------------
+// Injected settings plane (`deps.desktopSettings` in the TS app)
+// ---------------------------------------------------------------------------
+
+/// The desktop-settings persistence surface the API exposes through
+/// `GET/PATCH /settings`, `GET/POST /system/*` and the source-packet
+/// auto-approve gate. Created at boot from the settings file (with the TS
+/// defaults merged in) and injected into the API state after the server starts,
+/// next to `ApiDesktopControl`.
+///
+/// Every update follows the TS `desktopSettings.update` sequence: merge the
+/// patch, save atomically, apply the result to the in-process env snapshot
+/// (`applySettingsToEnv(..., {overwrite: true})`), and re-wire
+/// `startWithWindows` through the supplied autostart callback.
+pub struct SettingsPlane {
+    data_root: PathBuf,
+    current: Mutex<DesktopSettings>,
+    on_start_with_windows: Option<Box<dyn Fn(bool) + Send + Sync>>,
+}
+
+impl SettingsPlane {
+    pub fn new(
+        data_root: PathBuf,
+        initial: DesktopSettings,
+        on_start_with_windows: Option<Box<dyn Fn(bool) + Send + Sync>>,
+    ) -> Self {
+        Self {
+            data_root,
+            current: Mutex::new(initial),
+            on_start_with_windows,
+        }
+    }
+
+    /// The current settings struct (for the Tauri command / desktop lanes).
+    pub fn current(&self) -> DesktopSettings {
+        match self.current.lock() {
+            Ok(current) => current.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
+    }
+}
+
+impl zyquor_api::DesktopSettingsPlane for SettingsPlane {
+    fn get(&self) -> serde_json::Map<String, serde_json::Value> {
+        settings_to_map(&self.current())
+    }
+
+    fn update(
+        &self,
+        patch: serde_json::Map<String, serde_json::Value>,
+    ) -> serde_json::Map<String, serde_json::Value> {
+        let mut current = match self.current.lock() {
+            Ok(current) => current,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let mut next = current.clone();
+        apply_patch(&mut next, &patch);
+        save_settings(&self.data_root, &next);
+        apply_settings_to_env(&next, true);
+        if patch.contains_key("startWithWindows") {
+            if let Some(callback) = &self.on_start_with_windows {
+                callback(next.start_with_windows.unwrap_or(false));
+            }
+        }
+        *current = next;
+        settings_to_map(&current)
+    }
+}
+
+fn settings_to_map(settings: &DesktopSettings) -> serde_json::Map<String, serde_json::Value> {
+    match serde_json::to_value(settings) {
+        Ok(serde_json::Value::Object(map)) => map,
+        _ => serde_json::Map::new(),
+    }
+}
+
+/// Apply a camelCase JSON patch on top of the current settings. Empty strings
+/// and `null` remove a key, matching the TS spread-then-delete behaviour; keys
+/// this port does not know are ignored.
+fn apply_patch(settings: &mut DesktopSettings, patch: &serde_json::Map<String, serde_json::Value>) {
+    fn set_bool(
+        target: &mut Option<bool>,
+        patch: &serde_json::Map<String, serde_json::Value>,
+        key: &str,
+    ) {
+        match patch.get(key) {
+            Some(serde_json::Value::Bool(value)) => *target = Some(*value),
+            Some(serde_json::Value::Null) => *target = None,
+            _ => {}
+        }
+    }
+    fn set_string(
+        target: &mut Option<String>,
+        patch: &serde_json::Map<String, serde_json::Value>,
+        key: &str,
+    ) {
+        match patch.get(key) {
+            Some(serde_json::Value::String(value)) if value.is_empty() => *target = None,
+            Some(serde_json::Value::String(value)) => *target = Some(value.clone()),
+            Some(serde_json::Value::Null) => *target = None,
+            _ => {}
+        }
+    }
+    fn set_port(
+        target: &mut Option<u32>,
+        patch: &serde_json::Map<String, serde_json::Value>,
+        key: &str,
+    ) {
+        match patch.get(key) {
+            Some(serde_json::Value::Number(number)) => {
+                if let Some(value) = number.as_u64().and_then(|value| u32::try_from(value).ok()) {
+                    *target = Some(value);
+                }
+            }
+            Some(serde_json::Value::Null) => *target = None,
+            _ => {}
+        }
+    }
+
+    set_bool(
+        &mut settings.enable_browser_prepare,
+        patch,
+        "enableBrowserPrepare",
+    );
+    set_bool(
+        &mut settings.enable_browser_post,
+        patch,
+        "enableBrowserPost",
+    );
+    set_bool(
+        &mut settings.close_chrome_after_post,
+        patch,
+        "closeChromeAfterPost",
+    );
+    set_bool(&mut settings.headless, patch, "headless");
+    set_string(&mut settings.command_code_path, patch, "commandCodePath");
+    set_string(&mut settings.opencode_path, patch, "opencodePath");
+    set_string(&mut settings.opencode_variant, patch, "opencodeVariant");
+    set_string(&mut settings.llm_provider, patch, "llmProvider");
+    set_string(&mut settings.gemini_api_key, patch, "geminiApiKey");
+    set_string(&mut settings.chrome_path, patch, "chromePath");
+    set_port(&mut settings.cdp_port, patch, "cdpPort");
+    set_bool(&mut settings.start_with_windows, patch, "startWithWindows");
+    set_string(&mut settings.feedback_dir, patch, "feedbackDir");
+    set_bool(
+        &mut settings.auto_approve_source_packets,
+        patch,
+        "autoApproveSourcePackets",
+    );
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
@@ -370,6 +521,52 @@ mod tests {
             Some("http://127.0.0.1:9222")
         );
         assert_eq!(map.get("ZYQUOR_COMMAND_CODE_PATH"), None);
+    }
+
+    #[test]
+    fn settings_plane_merges_persists_and_deletes() {
+        let dir = temp_dir("plane");
+        let plane = SettingsPlane::new(
+            dir.clone(),
+            DesktopSettings {
+                auto_approve_source_packets: Some(true),
+                feedback_dir: Some("/tmp/feedback".to_string()),
+                ..DesktopSettings::default()
+            },
+            None,
+        );
+
+        let mut patch = serde_json::Map::new();
+        patch.insert(
+            "enableBrowserPost".to_string(),
+            serde_json::Value::Bool(false),
+        );
+        patch.insert("cdpPort".to_string(), serde_json::json!(9333));
+        // An empty string removes the key, like the TS `update`.
+        patch.insert(
+            "feedbackDir".to_string(),
+            serde_json::Value::String(String::new()),
+        );
+        let updated = zyquor_api::DesktopSettingsPlane::update(&plane, patch);
+
+        assert_eq!(updated["enableBrowserPost"], serde_json::json!(false));
+        // Untouched values survive the merge.
+        assert_eq!(updated["autoApproveSourcePackets"], serde_json::json!(true));
+        assert!(!updated.contains_key("feedbackDir"));
+
+        // Persisted atomically to settings.json (camelCase on disk).
+        let loaded = load_settings(&dir);
+        assert_eq!(loaded.enable_browser_post, Some(false));
+        assert_eq!(loaded.cdp_port, Some(9333));
+        assert_eq!(loaded.auto_approve_source_packets, Some(true));
+        assert_eq!(loaded.feedback_dir, None);
+
+        // `get` reflects the same merged settings.
+        let got = zyquor_api::DesktopSettingsPlane::get(&plane);
+        assert_eq!(got["cdpPort"], serde_json::json!(9333));
+        assert_eq!(plane.current().cdp_port, Some(9333));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
