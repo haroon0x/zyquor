@@ -26,7 +26,7 @@ axum = "0.8"
 chrono = "0.4"
 chromiumoxide = "0.8"
 dotenvy = "0.15"
-fancy-regex = "0.14"
+fancy-regex = "0.20"
 futures = "0.3"
 indexmap = { version = "2", features = ["serde"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
