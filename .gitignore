@@ -52,3 +52,9 @@ third_party/
 
 # Rust
 /target
+
+# Outreach runtime data (profiles are examples and stay tracked)
+data/outreach/runs/
+data/outreach/*.sqlite
+data/outreach/*.sqlite-*
+data/outreach/review.md

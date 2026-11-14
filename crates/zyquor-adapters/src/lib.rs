@@ -45,7 +45,7 @@ pub use company_rss::{CompanyRssAdapter, CompanyRssAdapterOptions, DEFAULT_COMPA
 pub use crawl4ai::{Crawl4AiOptions, Crawl4AiService};
 pub use cursor_changelog::{CursorChangelogAdapter, CursorChangelogAdapterOptions};
 pub use deepseek_updates::{DeepSeekUpdatesAdapter, DeepSeekUpdatesAdapterOptions};
-pub use fetch::{Fetch, FetchInit, FetchResponse, ReqwestFetch};
+pub use fetch::{Fetch, FetchInit, FetchResponse, ReqwestFetch, encode_uri_component};
 pub use gdelt::{GdeltAdapter, GdeltAdapterOptions};
 pub use github::{GitHubTrendingAdapter, GitHubTrendingAdapterOptions};
 pub use goldfish::{
@@ -61,7 +61,9 @@ pub use hackernews_search::{HackerNewsSearchAdapter, HackerNewsSearchAdapterOpti
 pub use hiring::{HiringAdapter, HiringAdapterOptions};
 pub use model_releases::{ModelReleasesAdapter, ModelReleasesAdapterOptions};
 pub use producthunt::{ProductHuntAdapter, ProductHuntAdapterOptions};
-pub use reddit::{RedditAdapter, RedditAdapterOptions};
+pub use reddit::{
+    RedditAdapter, RedditAdapterOptions, RedditCommentsAdapter, RedditCommentsAdapterOptions,
+};
 pub use rss::{RssAdapter, RssAdapterOptions};
 pub use techcrunch::{TechCrunchAdapter, TechCrunchAdapterOptions};
 pub use types::{

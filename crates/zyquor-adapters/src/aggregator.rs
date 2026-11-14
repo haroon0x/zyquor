@@ -480,6 +480,8 @@ fn build_adapters(
                     crawl_service: crawl_service.clone(),
                     max_items: Some(12),
                     now: Some(now),
+                    tags: None,
+                    window_days: None,
                     topic: query.to_string(),
                 },
             ))
@@ -569,6 +571,8 @@ fn build_adapters(
                                 .clone()
                                 .unwrap_or_else(|| "hot".to_string()),
                         ),
+                        query: None,
+                        time_window: None,
                     },
                 )),
                 name: "reddit".to_string(),

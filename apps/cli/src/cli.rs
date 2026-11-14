@@ -69,7 +69,7 @@ pub fn repo_data_dir() -> PathBuf {
 
 pub fn print_usage() {
     println!(
-        "Usage: zyquor [start|api|worker|web|post-loop|reply-loop|overseer|open-profile [--manual]|check-login|backfill-timeline [--dry-run]|poll-mentions [--dry]|seed-account [handle] [display name...]|lessons [--dry]|tweet-eval|smoke-generation]"
+        "Usage: zyquor [start|api|worker|web|post-loop|reply-loop|overseer|open-profile [--manual]|check-login|backfill-timeline [--dry-run]|poll-mentions [--dry]|seed-account [handle] [display name...]|lessons [--dry]|tweet-eval|smoke-generation|outreach <find|queue|review|list|mark-sent|skip|verify>]"
     );
 }
 

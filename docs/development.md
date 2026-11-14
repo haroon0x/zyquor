@@ -62,6 +62,7 @@ cargo run -p zyquor-cli -- <command> [flags]
 | `poll-mentions [--dry]` | Thin API client for mention scanning; `--dry` (or `DRY_RUN=1`) lists mentions without drafting. Never posts. |
 | `seed-account [handle] [display name...]` | Idempotently create the business style profile and account. Defaults to handle `business`. |
 | `lessons [--dry]` | Propose standing corrections from measured posts and append them to the feedback notebook. Read-only on the DB. |
+| `outreach <find\|queue\|review\|list\|mark-sent\|skip\|verify>` | Find live Reddit/HN threads, rank them, and review answers in a separate local queue. No posting path. See [outreach.md](outreach.md). |
 | `tweet-eval` | Run the fixed five-case generation evaluation with heuristic scoring and a `command-code` judge. Exits non-zero unless every case passes. |
 | `smoke-generation` | Live provider probe: generate candidates for one idea and print JSON. |
 

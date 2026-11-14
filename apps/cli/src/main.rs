@@ -10,6 +10,7 @@ mod eval;
 mod generation;
 mod lessons;
 mod mentions;
+mod outreach;
 mod overseer;
 mod post_loop;
 mod profile;
@@ -160,6 +161,7 @@ async fn main() {
                 run_sync(|_| lessons::run(&rest))
             }
         }
+        "outreach" => run_async(outreach::run(&rest)).await,
         "tweet-eval" => {
             if let Err(error) = check("tweet-eval", &rest) {
                 eprintln!("{error}");
