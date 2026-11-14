@@ -70,10 +70,98 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install the Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked
-      # Code signing is not wired for Tauri yet (docs/code-signing.md is
-      # still the Electron procedure), so the installers are unsigned.
-      - name: Build the desktop bundles
+      # Optional Windows Authenticode signing (docs/code-signing.md). The job
+      # builds and uploads unsigned bundles unless BOTH repository secrets are
+      # set: WINDOWS_CERTIFICATE (base64 or PEM-armored .pfx) and
+      # WINDOWS_CERTIFICATE_PASSWORD. Optional repository variable
+      # WINDOWS_TIMESTAMP_URL is the certificate authority's timestamp server.
+      # No certificate, password, or key material belongs in this repository.
+      - name: Prepare optional Authenticode signing
+        id: signing
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
+        run: |
+          $hasCertificate = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)
+          $hasPassword = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)
+
+          if (-not $hasCertificate -and -not $hasPassword) {
+            Write-Host "No Windows code-signing secrets configured; building unsigned bundles."
+            "enabled=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          if (-not ($hasCertificate -and $hasPassword)) {
+            throw "Set both WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD, or neither."
+          }
+
+          # Accept plain base64 or certutil/PEM-armored base64 for the PFX.
+          $base64 = ($env:WINDOWS_CERTIFICATE -replace '-----[^-]+-----', '') -replace '\s', ''
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'zyquor-code-signing.pfx'
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($base64))
+
+          try {
+            $pfx = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+              $pfxPath, $env:WINDOWS_CERTIFICATE_PASSWORD)
+            $thumbprint = $pfx.Thumbprint
+            $securePassword = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText
+            Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My `
+              -Password $securePassword | Out-Null
+          } finally {
+            Remove-Item -LiteralPath $pfxPath -Force -ErrorAction SilentlyContinue
+          }
+
+          $certificate = Get-ChildItem -Path Cert:\CurrentUser\My |
+            Where-Object { $_.Thumbprint -eq $thumbprint } |
+            Select-Object -First 1
+          if (-not $certificate -or -not $certificate.HasPrivateKey) {
+            throw "Imported certificate $thumbprint is missing from Cert:\CurrentUser\My or has no private key."
+          }
+
+          $windows = [ordered]@{
+            certificateThumbprint = $thumbprint
+            digestAlgorithm = 'sha256'
+          }
+          if (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_TIMESTAMP_URL)) {
+            $windows.timestampUrl = $env:WINDOWS_TIMESTAMP_URL
+          } else {
+            Write-Host "WINDOWS_TIMESTAMP_URL is not set; signatures will expire with the certificate."
+          }
+
+          $configPath = Join-Path $env:RUNNER_TEMP 'zyquor-authenticode.conf.json'
+          $json = [ordered]@{ bundle = [ordered]@{ windows = $windows } } | ConvertTo-Json -Depth 8
+          [IO.File]::WriteAllText($configPath, $json)
+
+          Write-Host "Authenticode signing enabled for certificate $thumbprint."
+          "enabled=true" >> $env:GITHUB_OUTPUT
+          "config_path=$configPath" >> $env:GITHUB_OUTPUT
+
+      - name: Build the desktop bundles (unsigned)
+        if: ${{ steps.signing.outputs.enabled != 'true' }}
         run: cargo tauri build
+
+      - name: Build the desktop bundles (Authenticode-signed)
+        if: ${{ steps.signing.outputs.enabled == 'true' }}
+        run: cargo tauri build --config "${{ steps.signing.outputs.config_path }}"
+
+      - name: Verify Authenticode signatures
+        if: ${{ steps.signing.outputs.enabled == 'true' }}
+        shell: pwsh
+        run: |
+          $artifacts = @()
+          $artifacts += Get-ChildItem -Path target/release/bundle/nsis/*.exe -ErrorAction SilentlyContinue
+          $artifacts += Get-ChildItem -Path target/release/bundle/msi/*.msi -ErrorAction SilentlyContinue
+          if ($artifacts.Count -eq 0) {
+            throw "No Windows installer artifacts found to verify."
+          }
+          foreach ($file in $artifacts) {
+            $signature = Get-AuthenticodeSignature -FilePath $file.FullName
+            Write-Host "$($file.Name): $($signature.Status)"
+            if ($signature.Status -ne 'Valid') {
+              throw "Invalid Authenticode signature on $($file.FullName): $($signature.StatusMessage)"
+            }
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: zyquor-windows

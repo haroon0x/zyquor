@@ -189,7 +189,7 @@ cargo tauri build                            # Windows installer bundles
 pnpm --dir apps/desktop/scripts install && node apps/desktop/scripts/make-icons.mjs  # regenerate icons
 ```
 
-The desktop app runs the API, worker, and UI in one process, keeps the worker alive in the tray, and starts or reconnects the dedicated posting Chrome profile. Data lives in `%APPDATA%/Zyquor` (override with `ZYQUOR_DATA_ROOT`). Settings are edited in the app and stored as `settings.json`. Build the Windows bundles on Windows; the `desktop-win` CI job runs on `windows-latest` and currently produces unsigned installers.
+The desktop app runs the API, worker, and UI in one process, keeps the worker alive in the tray, and starts or reconnects the dedicated posting Chrome profile. Data lives in `%APPDATA%/Zyquor` (override with `ZYQUOR_DATA_ROOT`). Settings are edited in the app and stored as `settings.json`. Build the Windows bundles on Windows; the `desktop-win` CI job runs on `windows-latest` and currently produces unsigned installers. See [docs/code-signing.md](docs/code-signing.md) for the Tauri v2 signing procedure and the opt-in CI wiring (certificate secrets are not configured yet).
 
 ## License
 

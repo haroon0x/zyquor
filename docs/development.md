@@ -109,7 +109,7 @@ cargo tauri dev
 cargo tauri build
 ```
 
-The desktop shell runs the API and worker in-process on an ephemeral port, adds the tray/window, and injects its control plane after startup. `tauri.conf.json` lives at `apps/desktop/tauri.conf.json` and consumes `../web/dist`.
+The desktop shell runs the API and worker in-process on an ephemeral port, adds the tray/window, and injects its control plane after startup. `tauri.conf.json` lives at `apps/desktop/tauri.conf.json` and consumes `../web/dist`. Bundles are unsigned by default; the optional Authenticode signing path, the CI secrets it needs, and the maintainer decisions still open are in [code-signing.md](code-signing.md).
 
 Headless boot check on any operating system:
 
