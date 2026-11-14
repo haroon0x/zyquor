@@ -795,3 +795,219 @@ fn duplicate_approved_text_is_rejected() {
             .unwrap()
     );
 }
+
+// --- account deletion parity with the retired TypeScript -------------------
+
+#[test]
+fn account_deletion_clears_exactly_the_typescript_tables() {
+    let (repo, account_id) = seeded();
+    let bystander = repo
+        .create_account(
+            "bystander",
+            "Bystander",
+            "profiles/bystander",
+            "style_default",
+        )
+        .unwrap();
+
+    // Rows owned by the account under deletion.
+    let packet = repo
+        .create_source_packet(&NewSourcePacket {
+            account_id: account_id.clone(),
+            source_type: "news".to_string(),
+            title: "A title".to_string(),
+            url: Some("https://example.com/a".to_string()),
+            summary: "summary".to_string(),
+            facts: vec!["fact".to_string()],
+            tweet_type: "useful_info".to_string(),
+        })
+        .unwrap();
+    let config = repo
+        .create_ingest_config(&NewIngestConfig {
+            account_id: account_id.clone(),
+            source_type: "news".to_string(),
+            max_packets_per_day: 2,
+            metadata: Map::new(),
+            tweet_type_mix: Map::new(),
+            schedule_window_start: "08:00".to_string(),
+            schedule_window_end: "22:00".to_string(),
+            enabled: true,
+        })
+        .unwrap();
+    let run = repo.create_ingest_run(&config.id, &account_id).unwrap();
+    repo.add_system_feedback(&account_id, "be shorter").unwrap();
+    repo.upsert_tweet_measurement(&NewTweetMeasurement {
+        account_id: account_id.clone(),
+        tweet_id: "42".to_string(),
+        origin: "posted".to_string(),
+        posted_at: None,
+        text: Some("queue drains in batches".to_string()),
+        has_link: None,
+        source_type: None,
+        tweet_type: None,
+        views: None,
+        likes: None,
+        replies: None,
+        reposts: None,
+        bookmarks: None,
+    })
+    .unwrap();
+
+    let draft = repo
+        .create_draft(&NewDraft {
+            account_id: account_id.clone(),
+            source_input: "idea".to_string(),
+            candidates: vec![NewCandidate {
+                text: "queue drains in batches".to_string(),
+                score: Map::new(),
+            }],
+            reply_to: None,
+            reply_to_url: None,
+            metadata: Map::new(),
+        })
+        .unwrap();
+    let (_, job) = repo
+        .approve_draft(&ApproveDraft {
+            draft_id: draft.draft.id.clone(),
+            edited_text: "queue drains in batches".to_string(),
+            mode: None,
+            scheduled_for: None,
+            reply_to: None,
+            reply_to_url: None,
+        })
+        .unwrap();
+    // Terminal status so deletion is not blocked; `failed` is not terminal.
+    repo.update_job_status(&job.id, PostJobStatus::Cancelled)
+        .unwrap();
+    repo.create_attempt(&NewAttempt {
+        job_id: job.id.clone(),
+        status: AttemptStatus::Failed,
+        error_code: None,
+        error_message: None,
+        screenshot_path: None,
+        trace_path: None,
+    })
+    .unwrap();
+    let history = repo
+        .create_post_history(&NewPostHistory {
+            account_id: account_id.clone(),
+            draft_id: draft.draft.id.clone(),
+            posted_text: "queue drains in batches".to_string(),
+            post_url: None,
+            source_packet_id: None,
+            source_type: None,
+            source_title: None,
+            source_url: None,
+            tweet_type: None,
+            metadata: Map::new(),
+        })
+        .unwrap();
+
+    // Rows owned by another account must survive.
+    let bystander_packet = repo
+        .create_source_packet(&NewSourcePacket {
+            account_id: bystander.id.clone(),
+            source_type: "news".to_string(),
+            title: "Bystander title".to_string(),
+            url: None,
+            summary: "bystander summary".to_string(),
+            facts: vec![],
+            tweet_type: "useful_info".to_string(),
+        })
+        .unwrap();
+    repo.add_system_feedback(&bystander.id, "keep it short")
+        .unwrap();
+
+    let deleted = repo.delete_account(&account_id).unwrap();
+    assert_eq!(deleted.id, account_id);
+
+    // Everything `deleteAccount` clears in the TypeScript repository.
+    assert!(repo.get_account(&account_id).unwrap().is_none());
+    assert!(repo.get_draft(&draft.draft.id).unwrap().is_none());
+    assert!(
+        repo.list_jobs(Some(&account_id), None, None)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(repo.list_attempts(&job.id).unwrap().is_empty());
+    assert!(repo.list_post_history().unwrap().is_empty());
+    assert!(
+        repo.list_tweet_measurements(Some(&account_id))
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        repo.list_source_packets(Some(&account_id), None, None)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        repo.list_ingest_configs(Some(&account_id))
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        repo.list_ingest_runs(Some(&account_id), 50)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(repo.list_system_feedback(&account_id).unwrap().is_empty());
+    assert_eq!(packet.account_id, account_id);
+    assert_eq!(run.account_id, account_id);
+    assert_eq!(history.account_id, account_id);
+
+    // The bystander account and its rows are untouched.
+    assert!(repo.get_account(&bystander.id).unwrap().is_some());
+    assert_eq!(
+        repo.list_source_packets(Some(&bystander.id), None, None)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(repo.list_system_feedback(&bystander.id).unwrap().len(), 1);
+    assert_eq!(bystander_packet.account_id, bystander.id);
+}
+
+#[test]
+fn account_deletion_with_knowledge_entries_reproduces_the_typescript_failure() {
+    let (repo, account_id) = seeded();
+    // TypeScript `deleteAccount` never deletes knowledge entries.
+    let entry = repo
+        .create_knowledge_entry(&NewKnowledgeEntry {
+            account_id: account_id.clone(),
+            kind: "product_fact".to_string(),
+            title: "Fact".to_string(),
+            content: "Body".to_string(),
+            source_url: None,
+        })
+        .unwrap();
+    let draft = repo
+        .create_draft(&NewDraft {
+            account_id: account_id.clone(),
+            source_input: "idea".to_string(),
+            candidates: vec![],
+            reply_to: None,
+            reply_to_url: None,
+            metadata: Map::new(),
+        })
+        .unwrap();
+
+    // `knowledge_entries.account_id` is a non-cascading foreign key, so the
+    // final `DELETE FROM accounts` fails in TypeScript too. The transaction
+    // rolls back, which is also the TypeScript `runTransaction` behaviour.
+    let error = repo.delete_account(&account_id).unwrap_err();
+    assert!(
+        error.to_string().contains("FOREIGN KEY constraint failed"),
+        "unexpected error: {error}"
+    );
+    assert!(repo.get_account(&account_id).unwrap().is_some());
+    assert_eq!(repo.list_knowledge_entries(&account_id).unwrap().len(), 1);
+    assert_eq!(
+        repo.list_knowledge_entries(&account_id).unwrap()[0].id,
+        entry.id
+    );
+    assert!(
+        repo.get_draft(&draft.draft.id).unwrap().is_some(),
+        "the failed delete must roll back"
+    );
+}

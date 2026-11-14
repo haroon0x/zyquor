@@ -368,6 +368,16 @@ impl SqliteRepository {
                 )));
             }
 
+            // Parity decision: match the retired TypeScript `deleteAccount`
+            // table list exactly (`7ebbe9c^:packages/storage/src/sqlite.ts`).
+            // That function never deletes `knowledge_entries`, so this one does
+            // not either. Because `knowledge_entries.account_id` is a
+            // non-cascading foreign key and SQLite runs with
+            // `foreign_keys = ON`, deleting an account that still owns a
+            // knowledge entry now fails the final `DELETE FROM accounts` and the
+            // whole transaction rolls back; TypeScript behaves identically. The
+            // failure is reproduced on purpose (parity is the contract), not
+            // repaired with an extra delete TS never had.
             let run = |sql: &str| self.conn.execute(sql, [id]).map(|_| ());
             run("DELETE FROM post_attempts WHERE job_id IN (SELECT id FROM post_jobs WHERE account_id = ?)")?;
             run("DELETE FROM post_history WHERE account_id = ?")?;
@@ -379,7 +389,7 @@ impl SqliteRepository {
             run("DELETE FROM ingest_runs WHERE account_id = ?")?;
             run("DELETE FROM ingest_configs WHERE account_id = ?")?;
             run("DELETE FROM system_feedback WHERE account_id = ?")?;
-            run("DELETE FROM knowledge_entries WHERE account_id = ?")?;
+            // knowledge_entries are intentionally not deleted here (see above).
             run("DELETE FROM accounts WHERE id = ?")?;
 
             Ok(account)
@@ -2390,4 +2400,174 @@ fn ingest_config_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<IngestCon
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
     })
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    //! Focused tests for behaviour that needs raw SQL to set up (the legacy
+    //! `post_history.text_hash IS NULL` fallback). The ported scenario matrix
+    //! lives in `crates/zyquor-storage/tests/repository.rs`.
+
+    use super::*;
+
+    const NOW: &str = "2026-01-01T12:00:00.000Z";
+
+    fn repo() -> SqliteRepository {
+        SqliteRepository::open_in_memory_with_now(|| NOW.to_string()).unwrap()
+    }
+
+    fn seed_history(repo: &SqliteRepository, account_id: &str, posted_text: &str) -> PostHistory {
+        let draft = repo
+            .create_draft(&NewDraft {
+                account_id: account_id.to_string(),
+                source_input: "idea".to_string(),
+                candidates: vec![],
+                reply_to: None,
+                reply_to_url: None,
+                metadata: Map::new(),
+            })
+            .unwrap();
+        repo.create_post_history(&NewPostHistory {
+            account_id: account_id.to_string(),
+            draft_id: draft.draft.id,
+            posted_text: posted_text.to_string(),
+            post_url: None,
+            source_packet_id: None,
+            source_type: None,
+            source_title: None,
+            source_url: None,
+            tweet_type: None,
+            metadata: Map::new(),
+        })
+        .unwrap()
+    }
+
+    fn drop_text_hash(repo: &SqliteRepository, history: &PostHistory) {
+        repo.conn
+            .execute(
+                "UPDATE post_history SET text_hash = NULL WHERE id = ?",
+                [&history.id],
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn text_hash_lookup_hits_the_indexed_column() {
+        let repo = repo();
+        let account = repo
+            .create_account("someone", "Someone", "profiles/someone", "style_default")
+            .unwrap();
+        seed_history(&repo, &account.id, "Queue drains in batches.");
+
+        assert!(
+            repo.has_post_history_text_hash(
+                &account.id,
+                &hash_post_text("Queue drains in batches."),
+                &normalize_post_text("unused by the indexed path"),
+            )
+            .unwrap()
+        );
+        assert!(
+            !repo
+                .has_post_history_text_hash(
+                    &account.id,
+                    &hash_post_text("A different sentence."),
+                    &normalize_post_text("A different sentence."),
+                )
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn legacy_null_text_hash_rows_are_compared_on_normalised_text() {
+        let repo = repo();
+        let account = repo
+            .create_account("someone", "Someone", "profiles/someone", "style_default")
+            .unwrap();
+        let history = seed_history(&repo, &account.id, "Queue drains in batches.");
+        // Simulate a row written before `post_history.text_hash` existed.
+        drop_text_hash(&repo, &history);
+
+        // The indexed lookup cannot see a row with no hash, so the fallback
+        // compares the caller's normalised text against the stored text.
+        assert!(
+            repo.has_post_history_text_hash(
+                &account.id,
+                &hash_post_text("Queue drains in batches."),
+                &normalize_post_text("  QUEUE   drains in batches. "),
+            )
+            .unwrap(),
+            "a legacy row must still match on normalised text"
+        );
+        assert!(
+            !repo
+                .has_post_history_text_hash(
+                    &account.id,
+                    &hash_post_text("A different sentence."),
+                    &normalize_post_text("A different sentence."),
+                )
+                .unwrap(),
+            "the fallback must not match unrelated text"
+        );
+    }
+
+    #[test]
+    fn legacy_fallback_is_scoped_to_the_account_and_to_null_hash_rows() {
+        let repo = repo();
+        let first = repo
+            .create_account("first", "First", "profiles/first", "style_default")
+            .unwrap();
+        let second = repo
+            .create_account("second", "Second", "profiles/second", "style_default")
+            .unwrap();
+
+        let legacy = seed_history(&repo, &first.id, "Queue drains in batches.");
+        drop_text_hash(&repo, &legacy);
+
+        assert!(
+            repo.has_post_history_text_hash(
+                &first.id,
+                &hash_post_text("Queue drains in batches."),
+                &normalize_post_text("Queue drains in batches."),
+            )
+            .unwrap()
+        );
+        // Every account is scanned independently: the first account's legacy
+        // row must not leak across the account scope.
+        assert!(
+            !repo
+                .has_post_history_text_hash(
+                    &second.id,
+                    &hash_post_text("Queue drains in batches."),
+                    &normalize_post_text("Queue drains in batches."),
+                )
+                .unwrap()
+        );
+
+        // A second legacy row still matches inside its own account.
+        let other = seed_history(&repo, &second.id, "A different sentence.");
+        drop_text_hash(&repo, &other);
+        assert!(
+            repo.has_post_history_text_hash(
+                &second.id,
+                &hash_post_text("A different sentence."),
+                &normalize_post_text("A different sentence."),
+            )
+            .unwrap()
+        );
+
+        // Rows that have a hash are only ever matched through the indexed
+        // column; the text fallback filters on `text_hash IS NULL`.
+        seed_history(&repo, &second.id, "Hashed rows are not compared.");
+        assert!(
+            !repo
+                .has_post_history_text_hash(
+                    &second.id,
+                    &hash_post_text("No such text."),
+                    &normalize_post_text("Hashed rows are not compared."),
+                )
+                .unwrap()
+        );
+    }
 }
