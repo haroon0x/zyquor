@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Live generation-provider hot-swap: `PATCH /generation` now rebuilds and swaps
+  the provider in place (`LiveGenerationProvider` holds the merged env snapshot
+  + provider behind an `RwLock`), persists `data/generation.json`, and keeps
+  `GET /generation`, `/health`, and `/system/status` in step. The generation
+  keys of `PATCH /settings` hot-swap the same way. No restart required.
+- Persistent desktop settings: `DesktopSettingsPlane` is injected into the API
+  by the Tauri shell (over `settings.json`), so `GET/PATCH /settings`,
+  `POST /system/posting`, and the `posting` fields of `GET /system/status`
+  survive a restart. The standalone API keeps an in-process fallback.
+- `autoApproveSourcePackets` now gates source-packet auto-approval
+  (`enablePost && setting`), matching the retired `source-packets.ts`.
+- End-to-end HTTP workflow suite (`apps/api/tests/e2e_workflow.rs`, 8 tests)
+  covering accounts, draft → select → approve → job, quality gates, source
+  packets, ingest configs, system feedback, history, and generation reads,
+  in-process with no LLM/browser/network dependency.
+- `parse.rs` unit tests (13 fixtures) in `zyquor-generation`, plus
+  `zyquor-storage` account-deletion parity and legacy null-`text_hash`
+  regression tests.
+- `zyquor outreach`: review-only Reddit/Hacker News thread finder with a local
+  queue and no posting path (`docs/outreach.md`).
+- Windows code signing: `docs/code-signing.md` rewritten for Tauri v2, and the
+  `desktop-win` CI job has opt-in Authenticode wiring guarded on repository
+  secrets so unsigned builds still work without a certificate.
+
 - Desktop control plane over HTTP: the Tauri shell injects a
   `DesktopControlPlane` into the Rust API, restoring the web UI's System panel
   (`GET /system/logs`, `POST /system/worker/pause`, `POST /system/chrome/close`,
@@ -141,6 +165,16 @@ account credentials leaving the machine.
   floor, or the raw length check.
 
 ### Changed
+
+- `deleteAccount` matches the retired TypeScript table list exactly (it no
+  longer deletes `knowledge_entries`); deleting an account that still owns a
+  knowledge entry fails and rolls back through the non-cascading FK, exactly as
+  the TypeScript implementation behaved.
+- Docs tell the truth about the finished state: `ROADMAP.md`, `CLAUDE.md`,
+  `docs/rust-migration.md`, and `docs/architecture.md` now record the
+  completed migration, the landed 2026-11-14 work, and the remaining product
+  decisions (live X acceptance, signing certificate, `deleteAccount` vs
+  knowledge entries, `xai-news` date regex).
 
 - Approvals write a normalized text fingerprint and reject duplicate text for
   the same account; the pre-approval duplicate check queries approved drafts

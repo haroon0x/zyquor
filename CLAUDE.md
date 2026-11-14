@@ -28,7 +28,7 @@ Draft generation is a single LLM call that writes candidates with all anti-slop 
 
 Tweet types (`TWEET_TYPES` in `crates/zyquor-core/src/types.rs`): `feed_observation`, `useful_info`, `guide`, `opinion`, `reply`, `narrative_history`. The retired types (`news_context`, `lesson`, `tool`, `hiring`, `article_summary`) are folded into these on database open.
 
-Controlled posting only behind env flags (`ZYQUOR_ENABLE_BROWSER_PREPARE` / `ZYQUOR_ENABLE_BROWSER_POST`; both disabled by default). Multi-account works end to end: accounts can be created, switched, enabled, and deleted in the web UI or via `POST /accounts` / `DELETE /accounts/:id`, each with its own profile and CDP port. Per-account limits, quiet hours, and profile assignment are editable in the Accounts panel. Desktop shell: **Tauri v2** (`apps/desktop`). There is no end-to-end test suite yet (see Next Steps).
+Controlled posting only behind env flags (`ZYQUOR_ENABLE_BROWSER_PREPARE` / `ZYQUOR_ENABLE_BROWSER_POST`; both disabled by default). Multi-account works end to end: accounts can be created, switched, enabled, and deleted in the web UI or via `POST /accounts` / `DELETE /accounts/:id`, each with its own profile and CDP port. Per-account limits, quiet hours, and profile assignment are editable in the Accounts panel. Desktop shell: **Tauri v2** (`apps/desktop`). An in-process end-to-end HTTP suite (`apps/api/tests/e2e_workflow.rs`) covers the API workflows without an LLM or browser.
 
 ## Architecture
 
@@ -221,15 +221,12 @@ Env: `ZYQUOR_POST_ACCOUNT_ID` (default `account_personal`), `ZYQUOR_POST_LOOP_PE
 The migration is done (M0–M8 in `docs/rust-migration.md`). What is genuinely left:
 
 - **Live X acceptance run.** `zyquor-browser` is ported and CDP-smoke-tested (launch, protocol, login detection), but a full prepare/compose/post round-trip against a logged-in X session still requires your manual X login and an explicit ask per housekeeping rules.
-- **Windows packaging/signing.** The Tauri bundle builds unsigned; `docs/code-signing.md` still documents the retired Electron + Azure Trusted Signing pipeline and needs rewriting for Tauri.
-- **`PATCH /generation` hot-swap.** The route validates and persists the saved config, but the live provider is immutable in `AppState`; a restart applies the change.
-- **`autoApproveSourcePackets`.** The System panel toggle now round-trips through the API process store, but it is not persisted to `settings.json` and no Rust worker lane consumes it yet.
-- **Storage parity.** Align `deleteAccount` (the Rust version also deletes knowledge entries + ingest configs) before account-deletion parity testing; the legacy null-`text_hash` branch still has no regression test.
-- **`parse.rs`** in `zyquor-generation` has no unit tests (accepted under the test policy).
-- **No end-to-end test suite**; voice input is deferred.
+- **Windows signing certificate.** The Tauri bundle builds unsigned. `docs/code-signing.md` documents the Tauri v2 Authenticode procedure and the `desktop-win` job has opt-in secret-guarded wiring, but a signing provider/certificate must be chosen, the CI secrets set, and the updater keypair generated before a release is signed. The signed CI path has not run against a real certificate.
+- **`deleteAccount` vs knowledge entries.** The Rust port reproduces the retired TypeScript behaviour: knowledge entries are not deleted, so a non-cascading FK makes `DELETE /accounts/:id` fail and roll back when that account still owns one. Decide whether to keep parity or clean up knowledge entries first (one line plus its test either way).
 - **`xai-news` date regex.** The retired TypeScript adapter never emitted items because it captured the 3-letter month; the Rust port reproduces that by contract. Fix in a separate change.
+- **Voice input** is deferred.
 
-Already in the tree and not pending: account creation/editing (limits, quiet hours, profile dir), schedule clearing, shuffled `POST /jobs/post-ready`, quality-gate-failures panel, Tauri tray/window/settings, the desktop control plane over HTTP (`/system/logs`, `/system/worker/pause`, `/system/chrome/close`, `/system/stop-all`, `/system/quit`, `/system/restart`), and the app icon.
+Already in the tree and not pending: account creation/editing (limits, quiet hours, profile dir), schedule clearing, shuffled `POST /jobs/post-ready`, quality-gate-failures panel, Tauri tray/window/settings, the desktop control plane over HTTP (`/system/logs`, `/system/worker/pause`, `/system/chrome/close`, `/system/stop-all`, `/system/quit`, `/system/restart`), the injected persistent desktop-settings plane (`DesktopSettingsPlane` over `settings.json`), live generation-provider hot-swap, the `autoApproveSourcePackets` gate, storage parity, the `parse.rs` test suite, the in-process end-to-end HTTP suite (`apps/api/tests/e2e_workflow.rs`), and the app icon.
 
 # Delegation Rules
 

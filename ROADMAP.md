@@ -56,6 +56,42 @@ decision and served inside the Tauri webview.
   shipped `skills/zyquor` skill no longer describe the retired TypeScript
   tree.
 
+## Landed 2026-11-14
+
+- **Generation provider hot-swap.** `PATCH /generation` swaps the live provider
+  in place (`LiveGenerationProvider` holds the merged env snapshot + provider
+  behind an `RwLock`), persists the saved config, and syncs the desktop
+  settings panel. `GET /generation`, `/health`, and `/system/status` read the
+  live state; `PATCH /settings` generation keys hot-swap the same way. Covered
+  by `apps/api/tests/desktop_settings.rs`.
+- **Desktop settings actually persist.** A `DesktopSettingsPlane` is injected
+  into `AppState` the same way the control plane is; the Tauri shell implements
+  it over `settings.json` (atomic save, env application, autostart re-wiring).
+  `GET/PATCH /settings`, `/system/posting`, and the `posting` block of
+  `/system/status` all go through it, so toggles survive a restart. The
+  standalone API keeps a process-level fallback (documented deviation: TS
+  answered 404 for `/settings` without `desktopSettings`).
+- **`autoApproveSourcePackets` is consumed.** The source-packet draft gate now
+  applies the TS rule: `enablePost && (no settings plane ? true : setting)`.
+- **Storage parity.** `deleteAccount` now matches the retired TypeScript table
+  list exactly (it does not delete `knowledge_entries`), and the legacy
+  null-`text_hash` lookup has a regression test. Consequence, inherited from
+  the port: a non-cascading FK means deleting an account that still owns a
+  knowledge entry fails and rolls back, exactly as TS behaved; pinned by a test
+  and left as a product decision.
+- **Tests.** `parse.rs` gained 13 fixture tests; `zyquor-storage` gained the
+  account-deletion and null-hash tests; a new in-process end-to-end HTTP suite
+  (`apps/api/tests/e2e_workflow.rs`, 8 tests, no LLM/browser/network) covers
+  accounts, draft → select → approve → job, quality-gate rejections, source
+  packets, ingest configs, system feedback, history, and generation reads.
+- **Tauri code signing documented.** `docs/code-signing.md` is rewritten for
+  Tauri v2 (Authenticode vs updater signatures, verification, open decisions)
+  and the `desktop-win` CI job has opt-in Authenticode wiring guarded on
+  repository secrets; releases stay unsigned until a certificate is chosen.
+- **`zyquor outreach`.** New review-only CLI lane that finds live Hacker News
+  and Reddit threads, ranks them, and queues human-reviewed answers. No posting
+  path, no browser automation (see `docs/outreach.md`).
+
 ## What is left
 
 Ordered by what unblocks the product.
@@ -63,24 +99,17 @@ Ordered by what unblocks the product.
 1. **Live X acceptance run (M4 exit).** Launch the dedicated profile, log in
    manually, then exercise prepare → compose → post through the normal gated
    path. Needs your X login and an explicit ask per the housekeeping rules.
-2. **Tauri code signing.** `docs/code-signing.md` still describes the Electron
-   + Azure Trusted Signing pipeline; Tauri builds are unsigned until it is
-   rewritten (and the `desktop-win` job gets the certificate wiring).
-3. **Hot-swap the generation provider.** `PATCH /generation` validates and
-   persists the saved config, but the live provider is immutable in
-   `AppState`; a restart applies it.
-4. **Persist desktop settings from the API.** `/system/posting` and
-   `PATCH /settings` write to a process-level store; the Tauri shell owns
-   `settings.json`. Surviving a restart means injecting a settings surface the
-   same way the control plane is injected.
-5. **`autoApproveSourcePackets` lane.** The toggle round-trips, but no Rust
-   worker lane consumes it yet. Either port the TS auto-approve lane or remove
-   the UI control.
-6. **Storage parity:** align `deleteAccount` (the Rust version also deletes
-   knowledge entries + ingest configs); add the legacy null-`text_hash`
-   regression test.
-7. **Tests:** `parse.rs` in `zyquor-generation` has no unit tests, and there
-   is still no end-to-end suite.
+2. **Tauri code signing certificate.** The docs and opt-in CI wiring are in
+   place; a signing provider/certificate must be chosen, the CI secrets set,
+   and the updater key generated. Releases stay unsigned until then, and the
+   signed CI path has not yet run against a real certificate.
+3. **Product decision: `deleteAccount` vs knowledge entries.** The Rust port
+   reproduces the TS behaviour (knowledge entries are not deleted, so the
+   non-cascading FK fails the delete and rolls back). Keep parity or clean up
+   `knowledge_entries` first — a one-line change either way.
+4. **`xai-news` date regex.** The retired TypeScript adapter never emitted
+   items because it captured the 3-letter month; the Rust port reproduces that
+   by contract. Fix in a separate change.
 
 ## Deferred
 
