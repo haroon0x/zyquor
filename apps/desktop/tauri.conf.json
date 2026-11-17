@@ -21,7 +21,19 @@
   },
   "bundle": {
     "targets": "all",
-    "icon": ["build/icon.png"],
-    "resources": ["build/icon.png"]
+    "icon": [
+      "build/icon.png"
+    ],
+    "resources": [
+      "build/icon.png"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFDNDNBQUM1QjEwMDEyRUEKUldUcUVnQ3h4YXBEckhkWU1ZcHZTK1FZVW9EMk92aE9pcWZ6RG8xNzRDUUx4dmZwQ0srazB2eTkK",
+      "endpoints": [
+        "https://github.com/haroon0x/zyquor/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

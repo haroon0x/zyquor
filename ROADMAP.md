@@ -106,6 +106,14 @@ decision and served inside the Tauri webview.
   card was dropped. It now captures the full `Month D, YYYY` text; fixture
   tests cover full/short month names, 1-digit days, dedupe, and the blurb
   fallback.
+- **Release-signing readiness.** The Tauri updater minisign keypair was
+  generated (public key committed at `apps/desktop/updater.pubkey` and in
+  `plugins.updater`; private key + password held outside the repo), CI can sign
+  updater artifacts and emit `latest.json`
+  (`scripts/generate-updater-manifest.py`) when the secrets are configured, and
+  `REQUIRE_WINDOWS_SIGNING=true` will fail release tags that would publish
+  unsigned installers. `scripts/new-dev-code-signing-cert.ps1` dry-runs the
+  Authenticode plumbing with an untrusted self-signed certificate.
 - **One auto-approval gate.** The source-packet draft route and the
   automatic-ingest lane share `auto_approve_allowed(enable_post, setting)`; the
   standalone dev API now honours its settings store (GUI toggle + posting
@@ -143,11 +151,15 @@ surfaced live and were fixed in the same change set:
 
 Only one item is left, and it needs a human purchase/identity step:
 
-1. **Tauri code signing certificate.** The docs, the opt-in secret-guarded
-   Authenticode CI wiring, and the updater keypair are in place; a real
-   signing provider/certificate must be chosen, the CI secrets set, and the
-   signed CI path exercised once on a Windows runner. Releases stay unsigned
-   until then.
+1. **Tauri code signing certificate.** Everything except the certificate
+   itself is in place (2026-11-17): docs, opt-in secret-guarded Authenticode CI,
+   the generated updater keypair (public key committed, private key held
+   offline), signed updater artifacts + `latest.json` generation in CI, and a
+   `REQUIRE_WINDOWS_SIGNING` enforcement toggle. The remaining human steps are:
+   choose/buy a CA-issued code-signing certificate, add the CI secrets (PFX,
+   password, updater key + password), set `REQUIRE_WINDOWS_SIGNING=true`, and
+   run one signed release on the Windows runner. Releases stay unsigned until
+   then.
 
 ## Deferred
 

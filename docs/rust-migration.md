@@ -345,9 +345,11 @@ applies and is preserved as requirements on the Rust implementation:
   transaction defaults; M2 pins the exact schema and round-trips real data.
 - **Desktop packaging.** Electron → Tauri changed the installer, updater, and
   code signing. The bundle builds unsigned (CI `desktop-win`); `docs/code-signing.md`
-  now documents the Tauri v2 procedure and the job has opt-in Authenticode wiring
-  guarded on repository secrets. A signing certificate/provider and the updater
-  key are still maintainer decisions.
+  documents the Tauri v2 procedure, the job has opt-in Authenticode + updater-artifact
+  signing guarded on repository secrets, the updater keypair exists (public key
+  committed; private key held offline), and `REQUIRE_WINDOWS_SIGNING` can fail
+  unsigned release tags. Only the CA-issued certificate choice/purchase and the
+  CI secrets remain human steps.
 - **Frontend.** React was kept, so the repo is not 100% Rust; this is called
   out rather than hidden.
 

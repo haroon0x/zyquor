@@ -125,6 +125,39 @@ signing as unimplemented, not as working.
 CI does **not** publish a GitHub release, does **not** produce updater
 artifacts, and does **not** verify timestamps. Those remain maintainer steps.
 
+## Required CI secrets and variables
+
+| Name | Kind | Purpose |
+| ---- | ---- | ------- |
+| `WINDOWS_CERTIFICATE` | secret | base64 (or PEM-armored base64) of the CA-issued `.pfx` |
+| `WINDOWS_CERTIFICATE_PASSWORD` | secret | password for that `.pfx` |
+| `WINDOWS_TIMESTAMP_URL` | repository variable | CA timestamp server (RFC 3161 URL; add `"tsp": true` to the overlay if the CA requires it) |
+| `TAURI_SIGNING_PRIVATE_KEY` | secret | contents of the updater private key (`~/.config/zyquor/updater.key` on the maintainer machine) |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | secret | password for the updater private key |
+| `REQUIRE_WINDOWS_SIGNING` | repository variable | `true` once a certificate exists, to fail release tags that would publish unsigned installers |
+
+Half a secret pair fails `desktop-win` on purpose. With no secrets the job
+still builds and uploads unsigned bundles (nothing silently changes).
+
+### Dry-run the Authenticode plumbing without a CA certificate
+
+`scripts/new-dev-code-signing-cert.ps1` creates a self-signed, **untrusted**
+code-signing certificate and prints a base64 PFX + password. Point the same
+`WINDOWS_CERTIFICATE` / `WINDOWS_CERTIFICATE_PASSWORD` variables at it to
+exercise the import → build → verify steps on a Windows machine. Windows will
+report the signature as `UnknownError`/untrusted (expected — the certificate is
+not trusted); the point is that a signature was applied and the toolchain
+works. Never ship those bundles.
+
+### Where to keep the updater private key
+
+The updater private key was generated on the maintainer machine at
+`~/.config/zyquor/updater.key` (mode 600; password in
+`~/.config/zyquor/updater.key.password`) on 2026-11-17. Back both up offline
+(password manager + encrypted copy), then add them as the two CI secrets above.
+Do not commit them, and do not regenerate the pair casually: an installed app
+only trusts updates signed by the committed public key.
+
 ## Signing locally on Windows
 
 Run this from a native Windows checkout (never WSL), after building the
@@ -215,16 +248,29 @@ Enabling the updater is a separate change (see below).
    carries over.
 3. **Timestamp server.** Set `WINDOWS_TIMESTAMP_URL` (CA-provided). If the CA
    serves RFC 3161 timestamps, the config also needs `"tsp": true`.
-4. **Enforcement.** Once a certificate exists, make `desktop-win` fail when the
-   signing secrets are missing on `v*` tags, so an unsigned installer cannot be
-   published as a release by accident.
-5. **Updater key pair.** Generate it, add the plugin/config, store
-   `TAURI_SIGNING_PRIVATE_KEY` (+ password if any) as CI secrets, and back the
-   private key up off-CI: losing it means installed clients can no longer
-   verify updates.
+4. **Enforcement.** The toggle is implemented: set repository variable
+   `REQUIRE_WINDOWS_SIGNING=true` once a certificate exists and `desktop-win`
+   fails on `v*` tags when the Authenticode secrets are missing, so an unsigned
+   installer cannot be published as a release by accident. It is off today
+   because there is no certificate yet.
+5. ~~**Updater key pair.**~~ **Done (2026-11-17).** A minisign keypair was
+   generated; the **public** key is committed at
+   `apps/desktop/updater.pubkey` and in `apps/desktop/tauri.conf.json` under
+   `plugins.updater.pubkey`. The **private** key and its password live outside
+   the repository and must be backed up offline (losing them means installed
+   clients can no longer verify updates). Add them to CI as
+   `TAURI_SIGNING_PRIVATE_KEY` (key contents) and
+   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, then set
+   `bundle.createUpdaterArtifacts` for the signed build via
+   `apps/desktop/tauri.updater.conf.json` (CI does this automatically when the
+   secrets are present). `scripts/generate-updater-manifest.py` turns the
+   resulting `*.sig` files into the `latest.json` updater manifest that CI
+   uploads. The runtime updater is still not wired into the desktop app (no
+   plugin/UI), so artifacts are ready but updates are not delivered yet — that
+   remains a separate change.
 6. **Release publishing.** `desktop-win` only uploads build artifacts; a
    maintainer still creates the GitHub release and attaches the (signed)
-   installers.
+   installers plus `latest.json` from the artifact bundle.
 
 ## Security notes
 

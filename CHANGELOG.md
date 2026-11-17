@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Release-signing readiness: generated the Tauri updater minisign keypair
+  (public key committed at `apps/desktop/updater.pubkey` and in
+  `plugins.updater`), taught `desktop-win` to sign updater artifacts and emit
+  `latest.json` via `scripts/generate-updater-manifest.py` when secrets are
+  present, and added the `REQUIRE_WINDOWS_SIGNING` tag enforcement toggle plus
+  `scripts/new-dev-code-signing-cert.ps1` for local Authenticode dry-runs.
+
 - Live generation-provider hot-swap: `PATCH /generation` now rebuilds and swaps
   the provider in place (`LiveGenerationProvider` holds the merged env snapshot
   + provider behind an `RwLock`), persists `data/generation.json`, and keeps
