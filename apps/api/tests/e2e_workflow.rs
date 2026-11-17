@@ -334,6 +334,109 @@ async fn accounts_create_patch_delete_round_trip() -> TestResult {
 }
 
 #[tokio::test]
+async fn deleting_an_account_clears_its_knowledge_entries() -> TestResult {
+    let harness = Harness::new("account-knowledge-delete")?;
+
+    // The API refuses to delete the last remaining account, so create two.
+    // Handles are limited to 15 chars (`is_valid_handle`), so keep them short.
+    let (status, body) = harness
+        .send(
+            "POST",
+            "/accounts",
+            Some(json!({"handle": "e2e_know_owner"})),
+        )
+        .await?;
+    assert_eq!(status, StatusCode::CREATED);
+    let owner_id = text(&body["account"], "id")?;
+
+    let (status, body) = harness
+        .send("POST", "/accounts", Some(json!({"handle": "e2e_know_by"})))
+        .await?;
+    assert_eq!(status, StatusCode::CREATED);
+    let bystander_id = text(&body["account"], "id")?;
+
+    // Give each account one knowledge entry through the real route.
+    for (account_id, title) in [
+        (owner_id.as_str(), "Owner fact"),
+        (bystander_id.as_str(), "Bystander fact"),
+    ] {
+        let (status, body) = harness
+            .send(
+                "POST",
+                "/knowledge",
+                Some(json!({
+                    "accountId": account_id,
+                    "kind": "product_fact",
+                    "title": title,
+                    "content": "A knowledge body",
+                })),
+            )
+            .await?;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+        assert_eq!(text(&body["entry"], "accountId")?, account_id);
+        assert_eq!(text(&body["entry"], "title")?, title);
+    }
+
+    let owner_path = format!("/knowledge?accountId={owner_id}");
+    let bystander_path = format!("/knowledge?accountId={bystander_id}");
+    for path in [owner_path.as_str(), bystander_path.as_str()] {
+        let (status, body) = harness.send("GET", path, None).await?;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["entries"].as_array().ok_or("entries array")?.len(), 1);
+    }
+
+    // Deleting an account that owns a knowledge entry used to fail with a
+    // FOREIGN KEY constraint error; it now succeeds and clears the entries.
+    let (status, body) = harness
+        .send("DELETE", &format!("/accounts/{owner_id}"), None)
+        .await?;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["account"]["id"], json!(owner_id.as_str()));
+
+    // The account is gone, so its knowledge list answers 404 rather than
+    // listing the orphaned rows; the rows themselves are cleared.
+    let (status, body) = harness.send("GET", &owner_path, None).await?;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        text(&body, "error")?,
+        format!("Account not found: {owner_id}")
+    );
+    assert!(
+        harness
+            .state
+            .repository()
+            .list_knowledge_entries(&owner_id)
+            .await?
+            .is_empty()
+    );
+
+    // The bystander account and its knowledge entry are untouched.
+    let (status, body) = harness.send("GET", &bystander_path, None).await?;
+    assert_eq!(status, StatusCode::OK);
+    let entries = body["entries"].as_array().ok_or("entries array")?;
+    assert_eq!(entries.len(), 1);
+    assert_eq!(text(&entries[0], "accountId")?, bystander_id);
+    assert_eq!(text(&entries[0], "title")?, "Bystander fact");
+
+    let (status, body) = harness.send("GET", "/accounts", None).await?;
+    assert_eq!(status, StatusCode::OK);
+    let accounts = body["accounts"].as_array().ok_or("accounts array")?;
+    assert!(
+        !accounts
+            .iter()
+            .any(|item| item["id"].as_str() == Some(owner_id.as_str())),
+        "{body}"
+    );
+    assert!(
+        accounts
+            .iter()
+            .any(|item| item["id"].as_str() == Some(bystander_id.as_str())),
+        "{body}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn draft_select_approve_creates_job_with_schedule_and_attempts() -> TestResult {
     let harness = Harness::new("draft-lifecycle")?;
     let account = harness.seed_account("e2e_draft").await?;

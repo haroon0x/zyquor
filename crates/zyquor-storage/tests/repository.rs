@@ -796,7 +796,7 @@ fn duplicate_approved_text_is_rejected() {
     );
 }
 
-// --- account deletion parity with the retired TypeScript -------------------
+// --- account deletion (knowledge_entries cleanup deviates from TypeScript) --
 
 #[test]
 fn account_deletion_clears_exactly_the_typescript_tables() {
@@ -969,9 +969,13 @@ fn account_deletion_clears_exactly_the_typescript_tables() {
 }
 
 #[test]
-fn account_deletion_with_knowledge_entries_reproduces_the_typescript_failure() {
+fn account_deletion_clears_knowledge_entries_and_leaves_other_accounts_untouched() {
     let (repo, account_id) = seeded();
-    // TypeScript `deleteAccount` never deletes knowledge entries.
+
+    // Deliberate post-migration deviation from the retired TypeScript: its
+    // `deleteAccount` omitted `knowledge_entries`, so the non-cascading foreign
+    // key made the final `DELETE FROM accounts` fail and roll back. The Rust
+    // port deletes them in the same transaction, so deletion now succeeds.
     let entry = repo
         .create_knowledge_entry(&NewKnowledgeEntry {
             account_id: account_id.clone(),
@@ -981,33 +985,47 @@ fn account_deletion_with_knowledge_entries_reproduces_the_typescript_failure() {
             source_url: None,
         })
         .unwrap();
-    let draft = repo
-        .create_draft(&NewDraft {
+    let second_entry = repo
+        .create_knowledge_entry(&NewKnowledgeEntry {
             account_id: account_id.clone(),
-            source_input: "idea".to_string(),
-            candidates: vec![],
-            reply_to: None,
-            reply_to_url: None,
-            metadata: Map::new(),
+            kind: "feature".to_string(),
+            title: "Second fact".to_string(),
+            content: "More body".to_string(),
+            source_url: Some("https://example.com/source".to_string()),
         })
         .unwrap();
 
-    // `knowledge_entries.account_id` is a non-cascading foreign key, so the
-    // final `DELETE FROM accounts` fails in TypeScript too. The transaction
-    // rolls back, which is also the TypeScript `runTransaction` behaviour.
-    let error = repo.delete_account(&account_id).unwrap_err();
-    assert!(
-        error.to_string().contains("FOREIGN KEY constraint failed"),
-        "unexpected error: {error}"
-    );
-    assert!(repo.get_account(&account_id).unwrap().is_some());
-    assert_eq!(repo.list_knowledge_entries(&account_id).unwrap().len(), 1);
-    assert_eq!(
-        repo.list_knowledge_entries(&account_id).unwrap()[0].id,
-        entry.id
-    );
-    assert!(
-        repo.get_draft(&draft.draft.id).unwrap().is_some(),
-        "the failed delete must roll back"
-    );
+    let bystander = repo
+        .create_account(
+            "bystander",
+            "Bystander",
+            "profiles/bystander",
+            "style_default",
+        )
+        .unwrap();
+    let bystander_entry = repo
+        .create_knowledge_entry(&NewKnowledgeEntry {
+            account_id: bystander.id.clone(),
+            kind: "product_fact".to_string(),
+            title: "Bystander fact".to_string(),
+            content: "Bystander body".to_string(),
+            source_url: None,
+        })
+        .unwrap();
+
+    let deleted = repo.delete_account(&account_id).unwrap();
+    assert_eq!(deleted.id, account_id);
+    assert_eq!(entry.account_id, account_id);
+    assert_eq!(second_entry.account_id, account_id);
+
+    // Deletion succeeds and clears every knowledge entry of the deleted
+    // account; the foreign key no longer blocks `DELETE FROM accounts`.
+    assert!(repo.get_account(&account_id).unwrap().is_none());
+    assert!(repo.list_knowledge_entries(&account_id).unwrap().is_empty());
+
+    // Knowledge entries owned by another account are untouched.
+    assert!(repo.get_account(&bystander.id).unwrap().is_some());
+    let bystander_entries = repo.list_knowledge_entries(&bystander.id).unwrap();
+    assert_eq!(bystander_entries.len(), 1);
+    assert_eq!(bystander_entries[0].id, bystander_entry.id);
 }

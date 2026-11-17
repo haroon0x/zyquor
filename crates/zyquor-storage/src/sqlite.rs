@@ -368,16 +368,14 @@ impl SqliteRepository {
                 )));
             }
 
-            // Parity decision: match the retired TypeScript `deleteAccount`
-            // table list exactly (`7ebbe9c^:packages/storage/src/sqlite.ts`).
-            // That function never deletes `knowledge_entries`, so this one does
-            // not either. Because `knowledge_entries.account_id` is a
-            // non-cascading foreign key and SQLite runs with
-            // `foreign_keys = ON`, deleting an account that still owns a
-            // knowledge entry now fails the final `DELETE FROM accounts` and the
-            // whole transaction rolls back; TypeScript behaves identically. The
-            // failure is reproduced on purpose (parity is the contract), not
-            // repaired with an extra delete TS never had.
+            // Deliberate post-migration deviation from the retired TypeScript
+            // `deleteAccount`: TS never deleted `knowledge_entries`, and
+            // `knowledge_entries.account_id` is a non-cascading foreign key
+            // with `foreign_keys = ON`, so deleting an account that still owned
+            // an entry failed the final `DELETE FROM accounts` and rolled the
+            // whole transaction back. The Rust port clears the account's
+            // knowledge entries in this transaction, so account deletion
+            // cannot fail on that foreign key.
             let run = |sql: &str| self.conn.execute(sql, [id]).map(|_| ());
             run("DELETE FROM post_attempts WHERE job_id IN (SELECT id FROM post_jobs WHERE account_id = ?)")?;
             run("DELETE FROM post_history WHERE account_id = ?")?;
@@ -389,7 +387,7 @@ impl SqliteRepository {
             run("DELETE FROM ingest_runs WHERE account_id = ?")?;
             run("DELETE FROM ingest_configs WHERE account_id = ?")?;
             run("DELETE FROM system_feedback WHERE account_id = ?")?;
-            // knowledge_entries are intentionally not deleted here (see above).
+            run("DELETE FROM knowledge_entries WHERE account_id = ?")?;
             run("DELETE FROM accounts WHERE id = ?")?;
 
             Ok(account)
