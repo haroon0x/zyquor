@@ -177,6 +177,13 @@ account credentials leaving the machine.
 
 ### Changed
 
+- Web UI redesign ("Wire Desk"): light warm-paper editorial theme with bundled
+  Instrument Sans + JetBrains Mono, a labelled numbered nav rail, masthead,
+  kicker/edition header, hairline panels instead of boxy cards, a single
+  vermilion accent, paper grain/wash, staggered enter motion, pulse/skeleton
+  states, and a proper mobile collapse. Functionality and API surface are
+  unchanged (`apps/web` only).
+
 - `deleteAccount` clears the account's `knowledge_entries` in the same
   transaction. This is a deliberate post-migration deviation from the
   TypeScript implementation, whose omission conflicted with the non-cascading

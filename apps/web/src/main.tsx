@@ -20,6 +20,8 @@ import { QueueView } from "./views/Queue.js";
 import { RepliesView } from "./views/Replies.js";
 import { SettingsView } from "./views/Settings.js";
 import { SystemView } from "./views/System.js";
+import "@fontsource-variable/instrument-sans";
+import "@fontsource-variable/jetbrains-mono";
 import "./styles.css";
 
 type ViewId = "compose" | "queue" | "replies" | "automation" | "history" | "system" | "settings";
@@ -252,10 +254,18 @@ function App() {
   return (
     <>
       <div className="app-shell">
+      <div aria-hidden="true" className="paper-wash" />
+      <div aria-hidden="true" className="paper-grain" />
       <aside className="sidebar">
-        <button aria-label="Go to Compose" className="brand-mark" onClick={() => navigate("compose")}>Z</button>
+        <div className="brand-lockup">
+          <button aria-label="Go to Compose" className="brand-mark" onClick={() => navigate("compose")}>Z</button>
+          <div className="brand-type">
+            <span className="brand-name">Zyquor</span>
+            <span className="brand-sub">posting desk</span>
+          </div>
+        </div>
         <nav className="sidebar-nav" aria-label="Primary navigation">
-          {views.map((view) => (
+          {views.map((view, index) => (
             <a
               aria-current={activeView === view.id ? "page" : undefined}
               className={activeView === view.id ? "nav-item active" : "nav-item"}
@@ -263,12 +273,16 @@ function App() {
               href={`#${view.id}`}
               key={view.id}
               onClick={() => setActiveView(view.id)}
+              style={{ ["--nav-index" as string]: index }}
               title={view.title}
             >
+              <span aria-hidden="true" className="nav-index">{String(index + 1).padStart(2, "0")}</span>
               <PanelIcon name={view.icon} />
+              <span className="nav-label">{view.title}</span>
             </a>
           ))}
         </nav>
+        <p className="rail-note">Every post waits for a human click.</p>
         <div className="sidebar-status">
           <button aria-label="Open setup guide" className="ghost onboarding-help" onClick={openOnboarding} title="Setup guide">?</button>
           <span
@@ -370,9 +384,16 @@ function App() {
         <main className="content-area">
           {error ? <p className="notice error" role="alert">{error}</p> : null}
           <header className="view-header">
-            <div>
+            <div className="view-header-copy">
+              <span className="view-kicker">
+                Desk {String(Math.max(0, views.findIndex((view) => view.id === activeView)) + 1).padStart(2, "0")} / {String(views.length).padStart(2, "0")}
+              </span>
               <h1>{activeViewMeta.title}</h1>
               <p>{activeViewMeta.description}</p>
+            </div>
+            <div aria-hidden="true" className="view-header-meta">
+              <span className="edition-stamp">{new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</span>
+              <span className="edition-sub">local-first intranet</span>
             </div>
           </header>
           <div className="view-frame" key={activeView}>{viewContent}</div>
