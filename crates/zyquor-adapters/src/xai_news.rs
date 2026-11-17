@@ -91,8 +91,12 @@ fn parse_listing(html: &str) -> Vec<SourceItem> {
         let title = clean_text(
             &first_group(r"<h[1-4][^>]*>([\s\S]*?)</h[1-4]>", &body).unwrap_or_default(),
         );
+        // The retired TypeScript regex captured only group 1 (the bare month),
+        // so `new Date("Jun")` was always invalid and no card was emitted.
+        // Capture the whole `Month D, YYYY` text instead, which
+        // `parse_date` parses as local midnight (same as JS `Date.parse`).
         let published = first_group(
-            r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2}, \d{4}",
+            r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2}, \d{4})",
             &body,
         )
         .and_then(|value| parse_date(&value));
@@ -178,4 +182,89 @@ fn clean_text(value: &str) -> String {
 fn parse_date(value: &str) -> Option<String> {
     let millis = crate::dates::parse_datetime_millis(value)?;
     crate::dates::iso_from_unix_millis(millis)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_card_with_full_date_and_blurb() {
+        let html = r#"
+            <a href="/news/some-slug">
+                <h2>Grok 3 ships</h2>
+                <p>A new model family from xAI.</p>
+                <span>Jun 3, 2024</span>
+            </a>
+        "#;
+        let items = parse_listing(html);
+        assert_eq!(items.len(), 1);
+        let item = &items[0];
+        assert_eq!(item.title, "Grok 3 ships");
+        assert_eq!(item.url, "https://x.ai/news/some-slug");
+        assert_eq!(item.content, "A new model family from xAI.");
+        assert_eq!(
+            item.metadata.get("source"),
+            Some(&Value::String("xai-news".to_string()))
+        );
+        // The full date (not just the month) must reach `parse_date`; the
+        // resulting instant is local midnight, so compare against the helper
+        // instead of a hardcoded UTC offset.
+        let expected = parse_date("Jun 3, 2024").expect("Jun 3, 2024 should parse");
+        assert_eq!(
+            item.metadata.get("published"),
+            Some(&Value::String(expected))
+        );
+    }
+
+    #[test]
+    fn drops_cards_without_a_date() {
+        let html = r#"<a href="/news/no-date"><h2>Undated post</h2><p>Blurb.</p></a>"#;
+        assert!(parse_listing(html).is_empty());
+    }
+
+    #[test]
+    fn dedupes_slugs() {
+        let html = concat!(
+            r#"<a href="/news/same-slug"><h2>First title</h2><p>One.</p><span>Jun 3, 2024</span></a>"#,
+            r#"<a href="/news/same-slug"><h2>Second title</h2><p>Two.</p><span>Jul 4, 2024</span></a>"#,
+        );
+        let items = parse_listing(html);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].title, "First title");
+    }
+
+    #[test]
+    fn falls_back_to_title_when_blurb_is_empty() {
+        let html =
+            r#"<a href="/news/no-blurb"><h2>Just the title</h2><span>May 7, 2024</span></a>"#;
+        let items = parse_listing(html);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].content, "Just the title");
+    }
+
+    #[test]
+    fn parses_may_abbreviation_with_one_digit_day() {
+        let html = r#"<a href="/news/may-post"><h2>May post</h2><p>Blurb.</p><span>May 7, 2024</span></a>"#;
+        let items = parse_listing(html);
+        assert_eq!(items.len(), 1);
+        let expected = parse_date("May 7, 2024").expect("May 7, 2024 should parse");
+        assert_eq!(
+            items[0].metadata.get("published"),
+            Some(&Value::String(expected))
+        );
+    }
+
+    #[test]
+    fn parses_full_month_name() {
+        let html = r#"<a href="/news/june-post"><h2>June post</h2><p>Blurb.</p><span>June 3, 2024</span></a>"#;
+        let items = parse_listing(html);
+        assert_eq!(items.len(), 1);
+        let expected = parse_date("June 3, 2024").expect("June 3, 2024 should parse");
+        assert_eq!(
+            items[0].metadata.get("published"),
+            Some(&Value::String(expected))
+        );
+    }
 }
