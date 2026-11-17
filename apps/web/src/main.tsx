@@ -89,7 +89,14 @@ function App() {
   const toastIdRef = useRef(0);
   const [toasts, setToasts] = useState<Array<{ id: number; message: string; kind: "success" | "info" | "error" }>>([]);
   const [browserSessionChecking, setBrowserSessionChecking] = useState(false);
-  const [systemSnapshot, setSystemSnapshot] = useState<{ workerRunning: boolean; postingEnabled: boolean; prepareEnabled: boolean } | null>(null);
+  const [systemSnapshot, setSystemSnapshot] = useState<{
+    workerRunning: boolean;
+    workerPaused: boolean;
+    postingEnabled: boolean;
+    prepareEnabled: boolean;
+    canPauseWorker: boolean;
+  } | null>(null);
+  const [navCounts, setNavCounts] = useState<{ pendingDrafts: number; queueReady: number }>({ pendingDrafts: 0, queueReady: 0 });
   const isElectron = Boolean(window.zyquor);
   const appVersion = window.zyquor?.appVersion ?? "";
 
@@ -147,16 +154,41 @@ function App() {
     void api<WorkerStatus>("/worker/status").then(setWorkerStatus).catch(() => setWorkerStatus(null));
   }, [refreshToken]);
 
-  // Keep the rail's worker/posting indicators live without opening System.
+  // Keep the rail's worker/posting controls live without opening System.
   useEffect(() => {
-    void api<{ posting?: { enablePost?: boolean; enablePrepare?: boolean }; worker?: { running?: boolean } }>("/system/status")
+    void api<{
+      posting?: { enablePost?: boolean; enablePrepare?: boolean };
+      worker?: { running?: boolean; paused?: boolean };
+      desktop?: unknown;
+    }>("/system/status")
       .then((status) => setSystemSnapshot({
         workerRunning: status.worker?.running === true,
+        workerPaused: status.worker?.paused === true,
         postingEnabled: status.posting?.enablePost === true,
-        prepareEnabled: status.posting?.enablePrepare === true
+        prepareEnabled: status.posting?.enablePrepare === true,
+        canPauseWorker: status.desktop != null
       }))
       .catch(() => setSystemSnapshot(null));
   }, [refreshToken]);
+
+  // What is actually waiting for the human: reviewable drafts and ready jobs.
+  useEffect(() => {
+    if (!activeAccountId) return;
+    let active = true;
+    void Promise.all([
+      api<{ drafts: unknown[] }>("/drafts/pending").catch(() => ({ drafts: [] })),
+      api<{ jobs: unknown[] }>(
+        `/jobs?accountId=${encodeURIComponent(activeAccountId)}&statuses=approved,prepared`
+      ).catch(() => ({ jobs: [] }))
+    ]).then(([pending, jobs]) => {
+      if (active) {
+        setNavCounts({ pendingDrafts: pending.drafts.length, queueReady: jobs.jobs.length });
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [activeAccountId, refreshToken]);
 
   // Verify the posting-browser session as soon as an account becomes active, so
   // the header never sits on an ambiguous "X unknown" until the user clicks.
@@ -193,6 +225,25 @@ function App() {
     void action()
       .catch((caught) => reportError(caught, "Unknown error"))
       .finally(() => setBusyScopes((current) => current.filter((item) => item !== scope)));
+  }
+
+  function togglePosting() {
+    const enabling = systemSnapshot?.postingEnabled !== true;
+    if (enabling && !window.confirm("Arm posting? Queued autopost jobs and the worker can publish to X without another click. Only enable this when you mean it.")) return;
+    run(async () => {
+      await api("/system/posting", { method: "POST", body: JSON.stringify({ enablePost: enabling }) });
+      setRefreshToken((current) => current + 1);
+      notify(enabling ? "Posting armed — autopost jobs can publish." : "Posting is off.", enabling ? "error" : "info");
+    }, "header");
+  }
+
+  function toggleWorkerPaused() {
+    const paused = systemSnapshot?.workerPaused !== true;
+    run(async () => {
+      await api("/system/worker/pause", { method: "POST", body: JSON.stringify({ paused }) });
+      setRefreshToken((current) => current + 1);
+      notify(paused ? "Worker paused." : "Worker resumed.", "info");
+    }, "header");
   }
 
   function checkBrowserSession() {
@@ -315,58 +366,63 @@ function App() {
   return (
     <>
       <div className="app-shell">
-      <div aria-hidden="true" className="paper-wash" />
-      <div aria-hidden="true" className="paper-grain" />
       <aside className="sidebar">
         <div className="brand-lockup">
           <button aria-label="Go to Compose" className="brand-mark" onClick={() => navigate("compose")}>Z</button>
-          <div className="brand-type">
-            <span className="brand-name">Zyquor</span>
-            <span className="brand-sub">posting desk</span>
-          </div>
+          <span className="brand-name">Zyquor</span>
         </div>
         <nav className="sidebar-nav" aria-label="Primary navigation">
-          {views.map((view, index) => (
-            <a
-              aria-current={activeView === view.id ? "page" : undefined}
-              className={activeView === view.id ? "nav-item active" : "nav-item"}
-              data-label={view.title}
-              href={`#${view.id}`}
-              key={view.id}
-              onClick={() => setActiveView(view.id)}
-              style={{ ["--nav-index" as string]: index }}
-              title={view.title}
-            >
-              <span aria-hidden="true" className="nav-index">{String(index + 1).padStart(2, "0")}</span>
-              <PanelIcon name={view.icon} />
-              <span className="nav-label">{view.title}</span>
-            </a>
-          ))}
+          {views.map((view) => {
+            const badge = view.id === "queue" ? navCounts.queueReady : view.id === "compose" ? navCounts.pendingDrafts : 0;
+            return (
+              <a
+                aria-current={activeView === view.id ? "page" : undefined}
+                className={activeView === view.id ? "nav-item active" : "nav-item"}
+                href={`#${view.id}`}
+                key={view.id}
+                onClick={() => setActiveView(view.id)}
+                title={view.title}
+              >
+                <PanelIcon name={view.icon} />
+                <span className="nav-label">{view.title}</span>
+                {badge > 0 ? <span className="nav-badge">{badge}</span> : null}
+              </a>
+            );
+          })}
         </nav>
-        <p className="rail-note">Every post waits for a human click.</p>
         <div className="sidebar-status">
           <div className="rail-states">
-            <button
-              className={workerOnline ? "rail-state ok" : "rail-state warn"}
-              onClick={() => navigate("system")}
-              title="Worker state — open System"
-              type="button"
-            >
+            <div className={workerOnline ? "rail-row ok" : "rail-row warn"}>
               <span aria-hidden="true" className="rail-dot" />
-              worker {workerOnline ? "online" : "offline"}
-            </button>
-            <button
-              className={systemSnapshot?.postingEnabled ? "rail-state posting-on" : "rail-state"}
-              onClick={() => navigate("system")}
-              title="Posting flag — open System"
-              type="button"
-            >
+              <span>{workerOnline ? (systemSnapshot?.workerPaused ? "worker paused" : "worker running") : "worker offline"}</span>
+              {systemSnapshot?.canPauseWorker ? (
+                <button
+                  className="rail-toggle"
+                  disabled={busyScopes.includes("header")}
+                  onClick={toggleWorkerPaused}
+                  title={systemSnapshot.workerPaused ? "Resume the background worker" : "Pause the background worker between jobs"}
+                  type="button"
+                >
+                  {systemSnapshot.workerPaused ? "resume" : "pause"}
+                </button>
+              ) : null}
+            </div>
+            <div className={systemSnapshot?.postingEnabled ? "rail-row posting-on" : "rail-row"}>
               <span aria-hidden="true" className="rail-dot" />
-              posting {systemSnapshot?.postingEnabled ? "on" : "off"}
-            </button>
+              <span>posting {systemSnapshot?.postingEnabled ? "on" : "off"}</span>
+              <button
+                className={systemSnapshot?.postingEnabled ? "rail-toggle danger" : "rail-toggle"}
+                disabled={busyScopes.includes("header")}
+                onClick={togglePosting}
+                title="Toggle whether queued jobs may publish to X"
+                type="button"
+              >
+                {systemSnapshot?.postingEnabled ? "turn off" : "arm"}
+              </button>
+            </div>
           </div>
           <div className="rail-actions">
-            <button aria-label="Open setup guide" className="ghost onboarding-help" onClick={openOnboarding} title="Setup guide" type="button">?</button>
+            <button aria-label="Setup checks" className="ghost onboarding-help" onClick={openOnboarding} title="Setup checks" type="button">?</button>
             {isElectron ? <span className="sidebar-version">v{appVersion || "—"}</span> : null}
           </div>
         </div>
@@ -489,17 +545,8 @@ function App() {
             </div>
           ) : null}
           <header className="view-header">
-            <div className="view-header-copy">
-              <span className="view-kicker">
-                Desk {String(Math.max(0, views.findIndex((view) => view.id === activeView)) + 1).padStart(2, "0")} / {String(views.length).padStart(2, "0")}
-              </span>
-              <h1>{activeViewMeta.title}</h1>
-              <p>{activeViewMeta.description}</p>
-            </div>
-            <div aria-hidden="true" className="view-header-meta">
-              <span className="edition-stamp">{new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</span>
-              <span className="edition-sub">local-first intranet</span>
-            </div>
+            <h1>{activeViewMeta.title}</h1>
+            <p>{activeViewMeta.description}</p>
           </header>
           <div className="view-frame" key={activeView}>{viewContent}</div>
         </main>

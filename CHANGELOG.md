@@ -186,6 +186,14 @@ account credentials leaving the machine.
 
 ### Changed
 
+- Web GUI is now a dark operational theme by default: decorative editorial
+  chrome (paper layers, numbered nav, desk/edition stamps, masthead label,
+  dashed placeholder boxes) is gone; the rail carries live worker/posting
+  controls (posting arm/disarm with confirmation where the control exists) and
+  nav badges for work waiting (pending drafts, ready queue jobs); queue rows
+  now have labelled Prepare/Post actions; desktop-only controls and log panels
+  are hidden outside the desktop app instead of rendering disabled placeholders.
+
 - Generation prompts rebuilt from scratch around a shared writing codex
   (`crates/zyquor-generation/src/voice.rs`), distilled from five public writing
   skills (no-ai-slop, clarity, avoid-ai-writing, humanizer, ghostwriter, all

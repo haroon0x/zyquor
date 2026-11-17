@@ -50,7 +50,6 @@ export function GenerationPanel({ panel, state }: { panel: PanelProps; state: Ge
           </span>
         ) : null}
       </div>
-      {generation ? <p className="model-live">Realtime generator: {liveModelLabel(generation)}</p> : null}
       <div className="settings-grid">
         <label>
           Provider

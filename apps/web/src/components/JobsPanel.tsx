@@ -350,8 +350,8 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
                   <span className="queue-type">{draft?.type ?? "—"}</span>
                   <span className="queue-scheduled">{job.scheduledFor ? new Date(job.scheduledFor).toLocaleString() : "Now"}</span>
                   <div className="queue-row-actions" onClick={(event) => event.stopPropagation()}>
-                    <button aria-label="Prepare job" className="ghost icon-button" disabled={!canPrepare || busy} title="Prepare — fill the composer without posting" onClick={() => prepareJob(job)}><Busy active={busy} /><ActionIcon name="prepare" /></button>
-                    {canPost ? <button aria-label="Post job" className="ghost icon-button" disabled={busy} title="Post — publish to X now" onClick={() => postJob(job)}><Busy active={busy} /><ActionIcon name="post" /></button> : null}
+                    <button aria-label="Prepare job" className="ghost compact-button queue-action" disabled={!canPrepare || busy} title="Prepare — fill the composer without posting" onClick={() => prepareJob(job)}><Busy active={busy} /><ActionIcon name="prepare" /><span>Prepare</span></button>
+                    {canPost ? <button aria-label="Post job" className="secondary compact-button queue-action" disabled={busy} title="Post — publish to X now" onClick={() => postJob(job)}><Busy active={busy} /><ActionIcon name="post" /><span>Post</span></button> : null}
                     <button aria-label="Delete job" className="ghost danger icon-button" disabled={job.status === "running" || busy} title="Delete job" onClick={() => deleteJob(job)}><Busy active={busy} /><ActionIcon name="delete" /></button>
                   </div>
                 </div>

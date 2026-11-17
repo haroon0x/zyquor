@@ -84,7 +84,7 @@ export function KnowledgePanel({ panel }: { panel: PanelProps }) {
         <span className="pill">{entries.filter((entry) => entry.enabled).length} active</span>
       </div>
       <InlineError message={loadError} />
-      <p className="empty">Verified facts injected into every draft for this account. Product facts for a brand handle, persona and stances for a personal one.</p>
+      <p className="panel-note">Verified facts are injected into every draft for this account. Add product facts for a brand handle, or persona and stances for a personal one.</p>
       {entries.length ? (
         <ul className="feedback-list">
           {entries.map((entry) => (
@@ -109,7 +109,7 @@ export function KnowledgePanel({ panel }: { panel: PanelProps }) {
           ))}
         </ul>
       ) : (
-        <p className="empty">No knowledge entries yet.</p>
+        <p className="panel-note">No verified facts yet. Add the first one below.</p>
       )}
       <div className="source-actions">
         <select aria-label="Knowledge kind" value={kind} onChange={(event) => setKind(event.target.value as KnowledgeKind)}>

@@ -3543,3 +3543,364 @@ textarea:focus, input:focus, select:focus {
 @media (max-width: 720px) {
   .sidebar-status { display: none; }
 }
+
+/* ==========================================================================
+   Operations theme — dark, functional. No decorative chrome.
+   ========================================================================== */
+
+:root {
+  color-scheme: dark;
+  --bg: #10110d;
+  --paper: #10110d;
+  --panel: #161712;
+  --panel-raised: #1d1e18;
+  --input: #14150f;
+  --line: rgba(236, 230, 216, 0.13);
+  --line-strong: rgba(236, 230, 216, 0.26);
+  --ink: #ebe5d6;
+  --muted: #a6a08e;
+  --faint: #7b7564;
+  --accent: #e56a3f;
+  --accent-ink: #180d08;
+  --accent-soft: rgba(229, 106, 63, 0.16);
+  --ok: #74c79a;
+  --warn: #ef8a70;
+  --pending: #d8b25e;
+  --info: #8cb9da;
+  --shadow-card: 0 20px 45px -30px rgba(0, 0, 0, 0.85);
+}
+
+html,
+body,
+#root {
+  background: var(--bg);
+}
+
+body {
+  background: var(--bg);
+}
+
+* {
+  scrollbar-color: color-mix(in srgb, var(--ink) 26%, transparent) transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ink) 20%, transparent);
+}
+
+button {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+button.secondary,
+button.ghost {
+  box-shadow: none;
+}
+
+/* Decorative layers from the editorial theme are gone. */
+.paper-wash,
+.paper-grain,
+.rail-note,
+.brand-sub,
+.view-kicker,
+.view-header-meta,
+.account-bar-inner::before {
+  display: none;
+}
+
+/* Sidebar: plain labelled nav, no numbering. */
+.nav-item {
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  animation: none;
+}
+
+.nav-item.active {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 17px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  padding: 0 5px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* Rail state: read it, flip it, stay on the page. */
+.rail-states {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rail-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 2px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.rail-row .rail-dot {
+  flex: 0 0 5px;
+}
+
+.rail-row.ok .rail-dot {
+  background: var(--ok);
+  opacity: 1;
+}
+
+.rail-row.warn .rail-dot {
+  background: var(--warn);
+  opacity: 1;
+}
+
+.rail-row.posting-on {
+  color: var(--warn);
+}
+
+.rail-row.posting-on .rail-dot {
+  background: var(--warn);
+  opacity: 1;
+}
+
+.rail-toggle {
+  margin-left: auto;
+  height: 20px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  padding: 0 7px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  box-shadow: none;
+}
+
+.rail-toggle:hover:not(:disabled) {
+  border-color: var(--ink);
+  color: var(--ink);
+  background: transparent;
+}
+
+.rail-toggle.danger {
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+  color: var(--warn);
+}
+
+/* Page header: title and purpose, nothing else. */
+.view-header {
+  display: block;
+  max-width: 1120px;
+  border-bottom: 1px solid var(--line-strong);
+  padding-bottom: 18px;
+  margin-bottom: 24px;
+}
+
+.view-header h1 {
+  font-size: clamp(24px, 2.6vw, 30px);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+}
+
+.view-header p {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+
+.view-frame > * {
+  animation: none;
+}
+
+/* Flat panels on dark. */
+.panel {
+  border-top-color: var(--line-strong);
+}
+
+.log-box {
+  background: #0b0c09;
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+.queue-table {
+  background: var(--panel);
+  border-color: var(--line-strong);
+}
+
+.candidate-card,
+.reply-card,
+.history-item {
+  background: var(--panel);
+}
+
+/* Keep controls legible on dark. */
+select,
+input,
+textarea {
+  color-scheme: dark;
+}
+
+.account-cluster select {
+  background-color: var(--panel-raised);
+}
+
+@media (max-width: 900px) {
+  .rail-row {
+    font-size: 8.5px;
+  }
+}
+
+/* Functional-only fixes for the dark theme. */
+button {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+button.secondary {
+  border-color: var(--line-strong);
+  background: transparent;
+  color: var(--ink);
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--muted);
+}
+
+button.danger {
+  color: var(--warn);
+}
+
+button.ghost.danger {
+  color: var(--warn);
+}
+
+.brand-mark {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.brand-mark:hover {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--panel);
+}
+
+.panel-note {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+  max-width: 72ch;
+}
+
+/* Queue actions: labeled, so reviewing and publishing is unambiguous. */
+.queue-table-head,
+.queue-row-summary {
+  grid-template-columns: 148px minmax(220px, 1fr) 110px 170px 230px;
+  min-width: 940px;
+}
+
+.queue-action {
+  gap: 6px;
+  height: 28px;
+  padding: 0 9px;
+  font-size: 10.5px;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
+.queue-action .panel-icon {
+  width: 13px;
+  height: 13px;
+  flex-basis: 13px;
+}
+
+.queue-row-actions {
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+@media (max-width: 900px) {
+  .queue-table-head,
+  .queue-row-summary {
+    grid-template-columns: 130px minmax(200px, 1fr) 90px 150px 230px;
+    min-width: 880px;
+  }
+}
+
+/* Empty states are guidance or actions, not placeholder boxes. */
+.empty {
+  margin: 6px 0 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--muted);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  letter-spacing: 0;
+  line-height: 1.55;
+  text-align: left;
+  text-transform: none;
+}
+
+.view-empty-state {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  place-items: initial;
+  gap: 8px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  padding: 20px 0;
+  color: var(--muted);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  letter-spacing: 0;
+  text-align: left;
+  text-transform: none;
+}
+
+.view-empty-state p:first-child {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* One divider between the page header and the first section, not two. */
+.view-header {
+  border-bottom: 0;
+  padding-bottom: 0;
+  margin-bottom: 20px;
+}
+
+.view-frame > .compose-view > .panel:first-child {
+  border-top: 0;
+  padding-top: 0;
+}

@@ -44,6 +44,7 @@ export function SystemView({ panel }: { panel: PanelProps }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const logBoxRef = useRef<HTMLDivElement | null>(null);
+  const isDesktop = Boolean(status?.desktop);
 
   async function loadStatus() {
     setStatus(await api<SystemStatus>("/system/status"));
@@ -72,6 +73,7 @@ export function SystemView({ panel }: { panel: PanelProps }) {
   }, [refreshToken]);
 
   useEffect(() => {
+    if (!isDesktop) return;
     const tick = () => {
       if (document.hidden) return;
       void loadLogs().catch(() => undefined);
@@ -79,7 +81,7 @@ export function SystemView({ panel }: { panel: PanelProps }) {
     tick();
     const timer = setInterval(tick, LOG_POLL_MS);
     return () => clearInterval(timer);
-  }, []);
+  }, [isDesktop]);
 
   useEffect(() => {
     if (!followLogs) return;
@@ -188,7 +190,6 @@ export function SystemView({ panel }: { panel: PanelProps }) {
     });
   }
 
-  const isDesktop = Boolean(status?.desktop);
   const filteredLogs = logFilter
     ? logs.filter((line) => line.toLowerCase().includes(logFilter.toLowerCase()))
     : logs;
@@ -209,16 +210,18 @@ export function SystemView({ panel }: { panel: PanelProps }) {
             <span className={status?.worker.running && !status.worker.paused ? "pill pill--succeeded" : "pill pill--failed"}>
               worker {status?.worker.paused ? "paused" : status?.worker.running ? "running" : "offline"}
             </span>
-            <span className={status?.desktop?.chromeConnected ? "pill pill--succeeded" : "pill pill--failed"}>
-              chrome {status?.desktop?.chromeConnected ? "connected" : "off"}
-            </span>
+            {isDesktop ? (
+              <span className={status?.desktop?.chromeConnected ? "pill pill--succeeded" : "pill pill--failed"}>
+                chrome {status?.desktop?.chromeConnected ? "connected" : "off"}
+              </span>
+            ) : null}
             <span className={status?.posting.enablePost ? "pill pill--failed" : "pill pill--succeeded"}>
               post {status?.posting.enablePost ? "ARMED" : "off"}
             </span>
           </div>
         </div>
         <dl className="system-grid data-content">
-          <div><dt>App version</dt><dd>{status?.desktop?.appVersion ?? "—"}</dd></div>
+          {isDesktop ? <div><dt>App version</dt><dd>{status?.desktop?.appVersion ?? "—"}</dd></div> : null}
           <div><dt>Platform</dt><dd>{status?.desktop?.platform ?? "browser"}</dd></div>
           <div><dt>Uptime</dt><dd>{uptime(status?.desktop?.startedAt ?? status?.api.startedAt)}</dd></div>
           <div><dt>Generation</dt><dd>{status ? `${status.generation.provider} / ${status.generation.model}` : "—"}</dd></div>
@@ -226,7 +229,7 @@ export function SystemView({ panel }: { panel: PanelProps }) {
           <div><dt>Post enabled</dt><dd>{status?.posting.enablePost ? "yes" : "no"}</dd></div>
           <div><dt>Automated posting</dt><dd>{status?.posting.autoApproveSourcePackets ? "sources auto-approve" : "review required"}</dd></div>
           <div><dt>Chrome CDP</dt><dd>{status?.desktop?.cdpUrl ?? status?.posting.cdpUrl ?? "—"}</dd></div>
-          <div><dt>Chrome pid</dt><dd>{status?.desktop?.chromePid ?? "not launched by Zyquor"}</dd></div>
+          {isDesktop ? <div><dt>Chrome pid</dt><dd>{status?.desktop?.chromePid ?? "not launched by Zyquor"}</dd></div> : null}
           <div><dt>Worker heartbeat</dt><dd>{relativeTime(status?.worker.lastHeartbeatAt ?? null)}</dd></div>
           <div><dt>Last ingest</dt><dd>{relativeTime(status?.worker.lastIngestAt ?? null)}</dd></div>
           <div><dt>Last post</dt><dd>{relativeTime(status?.worker.lastPostAt ?? null)}</dd></div>
@@ -236,8 +239,8 @@ export function SystemView({ panel }: { panel: PanelProps }) {
           <div><dt>Pending drafts</dt><dd>{status?.counts.drafts ?? "—"}</dd></div>
           <div><dt>Running jobs</dt><dd>{status?.runningJobs.length ? status.runningJobs.map((job) => job.id).join(", ") : "none"}</dd></div>
           <div><dt>Jobs</dt><dd>{jobsByStatus.length ? jobsByStatus.map(([key, value]) => `${key} ${value}`).join(" · ") : status?.counts.jobs ?? "—"}</dd></div>
-          <div><dt>Data root</dt><dd className="system-path">{status?.desktop?.dataRoot ?? "—"}</dd></div>
-          <div><dt>Log file</dt><dd className="system-path">{status?.desktop?.logPath ?? "—"}</dd></div>
+          {isDesktop ? <div><dt>Data root</dt><dd className="system-path">{status?.desktop?.dataRoot ?? "—"}</dd></div> : null}
+          {isDesktop ? <div><dt>Log file</dt><dd className="system-path">{status?.desktop?.logPath ?? "—"}</dd></div> : null}
         </dl>
         {status?.worker.lastError ? <p className="notice error">Worker error: {status.worker.lastError}</p> : null}
         {status?.ingestRun.errors.length ? (
@@ -254,10 +257,14 @@ export function SystemView({ panel }: { panel: PanelProps }) {
         </div>
         <div className="system-controls">
           <button className="secondary" disabled={busy} onClick={launchChrome}><Busy active={busy} />Launch Chrome</button>
-          <button className="secondary" disabled={busy || !isDesktop} onClick={closeChrome}><Busy active={busy} />Close Chrome</button>
-          <button className="secondary" disabled={busy || !isDesktop} onClick={() => setWorkerPaused(!status?.worker.paused)}>
-            <Busy active={busy} />{status?.worker.paused ? "Resume worker" : "Pause worker"}
-          </button>
+          {isDesktop ? (
+            <>
+              <button className="secondary" disabled={busy} onClick={closeChrome}><Busy active={busy} />Close Chrome</button>
+              <button className="secondary" disabled={busy} onClick={() => setWorkerPaused(!status?.worker.paused)}>
+                <Busy active={busy} />{status?.worker.paused ? "Resume worker" : "Pause worker"}
+              </button>
+            </>
+          ) : null}
           <button className="secondary" disabled={busy} onClick={runIngestNow}><Busy active={busy} />Run ingest now</button>
           <button className="secondary" disabled={busy || !status?.ingestRun.running} onClick={cancelIngest}><Busy active={busy} />Cancel ingest</button>
           <button className="secondary" disabled={busy} onClick={recoverStale}><Busy active={busy} />Recover stale</button>
@@ -267,18 +274,22 @@ export function SystemView({ panel }: { panel: PanelProps }) {
           <button className={status?.posting.enablePost ? "secondary" : "ghost danger"} disabled={busy} onClick={() => setPostingFlag({ enablePost: !status?.posting.enablePost })}>
             <Busy active={busy} />{status?.posting.enablePost ? "Disable posting" : "Arm posting"}
           </button>
-          <button className={status?.posting.autoApproveSourcePackets ? "secondary" : "ghost"} disabled={busy || !isDesktop} onClick={() => setPostingFlag({ autoApproveSourcePackets: !status?.posting.autoApproveSourcePackets })}>
-            <Busy active={busy} />{status?.posting.autoApproveSourcePackets ? "Automated posting: on" : "Automated posting: off"}
-          </button>
+          {isDesktop ? (
+            <button className={status?.posting.autoApproveSourcePackets ? "secondary" : "ghost"} disabled={busy} onClick={() => setPostingFlag({ autoApproveSourcePackets: !status?.posting.autoApproveSourcePackets })}>
+              <Busy active={busy} />{status?.posting.autoApproveSourcePackets ? "Automated posting: on" : "Automated posting: off"}
+            </button>
+          ) : null}
         </div>
-        <div className="system-controls system-controls--danger">
-          <button className="danger stop-everything" disabled={busy} onClick={stopEverything}><Busy active={busy} />Stop everything</button>
-          <button className="ghost" disabled={busy || !isDesktop} onClick={restartApp}><Busy active={busy} />Restart app</button>
-          <button className="ghost danger" disabled={busy || !isDesktop} onClick={quitApp}><Busy active={busy} />Quit Zyquor</button>
-        </div>
+        {isDesktop ? (
+          <div className="system-controls system-controls--danger">
+            <button className="danger stop-everything" disabled={busy} onClick={stopEverything}><Busy active={busy} />Stop everything</button>
+            <button className="ghost" disabled={busy} onClick={restartApp}><Busy active={busy} />Restart app</button>
+            <button className="ghost danger" disabled={busy} onClick={quitApp}><Busy active={busy} />Quit Zyquor</button>
+          </div>
+        ) : null}
       </section>
 
-      <section className="panel">
+      {isDesktop ? <section className="panel">
         <div className="panel-head">
           <div>
             <h2 className="panel-title"><PanelIcon name="layers" />Activity log</h2>
@@ -297,7 +308,7 @@ export function SystemView({ panel }: { panel: PanelProps }) {
             <div className={logLevel(line)} key={`${index}-${line.slice(0, 24)}`}>{line}</div>
           )) : <p className="empty">No log lines yet.</p>}
         </div>
-      </section>
+      </section> : null}
     </div>
   );
 }
