@@ -597,25 +597,11 @@ async fn execute_automatic_ingest(
     let provider = state.generation_provider.clone();
     let deps = state.automation_deps.clone();
     let now = chrono::Utc::now();
-    // TS `autoApproveEnabled` (`routes/ingest.ts`): with a desktop settings
-    // plane, `enablePost === true && settings.autoApproveSourcePackets === true`;
-    // without one (the standalone API) the TS fallback is `true`.
-    let auto_approve = match state.desktop_settings() {
-        Some(plane) => {
-            let enable_post = state
-                .browser
-                .lock()
-                .map(|browser| browser.enable_post)
-                .unwrap_or(false);
-            enable_post
-                && plane
-                    .get()
-                    .get("autoApproveSourcePackets")
-                    .and_then(Value::as_bool)
-                    == Some(true)
-        }
-        None => true,
-    };
+    // TS `autoApproveEnabled` (`routes/ingest.ts`): with the desktop settings
+    // surface, `enablePost && settings.autoApproveSourcePackets`; unset falls
+    // back to the TS `true`. The Rust standalone keeps its settings fallback
+    // store, so the same gate applies there too.
+    let auto_approve = crate::routes::settings::auto_approve_source_packets_allowed(state);
 
     let outcome = tokio::task::spawn_blocking(
         move || -> std::result::Result<zyquor_automation::IngestResult, String> {

@@ -111,6 +111,27 @@ pub(crate) fn read_bool(state: &AppState, key: &str) -> Option<bool> {
         .and_then(Value::as_bool)
 }
 
+/// Pure gate for source-packet auto-approval, shared by the source-packet
+/// draft route and the automatic-ingest lane: posting must be on and the
+/// stored `autoApproveSourcePackets` must not be explicitly false. Unset keeps
+/// the retired-TS fallback (`true`).
+pub(crate) fn auto_approve_allowed(enable_post: bool, stored: Option<bool>) -> bool {
+    enable_post && stored.unwrap_or(true)
+}
+
+/// [`auto_approve_allowed`] against the live state. Reads the injected desktop
+/// settings plane when the Tauri shell is running, else the process-store
+/// fallback — so the standalone dev API also honours `POST /system/posting` and
+/// `PATCH /settings` (deliberate post-migration deviation: TS only had the
+/// fallback `true` there because it had no settings surface at all).
+pub(crate) fn auto_approve_source_packets_allowed(state: &AppState) -> bool {
+    let enable_post = match state.browser.lock() {
+        Ok(browser) => browser.enable_post,
+        Err(poisoned) => poisoned.into_inner().enable_post,
+    };
+    auto_approve_allowed(enable_post, read_bool(state, "autoApproveSourcePackets"))
+}
+
 /// The configured feedback directory (`feedbackDir`), used by the
 /// system-feedback notebook writer. `None` resolves to `<cwd>/feedback`,
 /// matching `resolveFeedbackDir(undefined)`.
@@ -257,4 +278,24 @@ async fn update_settings(
     let mut masked = mask_settings(&updated);
     masked.insert("restartRequired".to_string(), Value::Bool(restart_required));
     Ok(Json(Value::Object(masked)))
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::auto_approve_allowed;
+
+    #[test]
+    fn auto_approve_requires_posting_and_is_on_unless_disabled() {
+        // Posting off always denies, whatever the setting says.
+        assert!(!auto_approve_allowed(false, None));
+        assert!(!auto_approve_allowed(false, Some(true)));
+        assert!(!auto_approve_allowed(false, Some(false)));
+
+        // Posting on: an unset setting keeps the TS fallback (true), an
+        // explicit false disables auto-approval, an explicit true allows it.
+        assert!(auto_approve_allowed(true, None));
+        assert!(auto_approve_allowed(true, Some(true)));
+        assert!(!auto_approve_allowed(true, Some(false)));
+    }
 }

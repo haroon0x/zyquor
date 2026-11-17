@@ -349,31 +349,6 @@ fn append_notebook_entry(dir: &std::path::Path, heading: &str, lines: &[&str]) {
         });
 }
 
-fn browser_enable_post(state: &AppState) -> bool {
-    match state.browser.lock() {
-        Ok(guard) => guard.enable_post,
-        Err(poisoned) => poisoned.into_inner().enable_post,
-    }
-}
-
-/// The `autoApproveSourcePackets` half of the TS auto-approve gate
-/// (`routes/source-packets.ts`):
-/// `enablePost === true && (no desktopSettings ? true : settings.autoApproveSourcePackets === true)`.
-/// The standalone API has no injected desktop settings plane, so the TS
-/// fallback (`true`) applies there.
-fn auto_approve_setting_allowed(state: &AppState) -> bool {
-    match state.desktop_settings() {
-        Some(plane) => {
-            plane
-                .get()
-                .get("autoApproveSourcePackets")
-                .and_then(Value::as_bool)
-                == Some(true)
-        }
-        None => true,
-    }
-}
-
 // --- draft generation bridge ----------------------------------------------------
 
 fn packet_draft_result_json(result: &zyquor_automation::PacketDraftResult) -> Value {
@@ -431,7 +406,7 @@ async fn create_packet_draft(
 
     let requested_auto_approve =
         body.auto_approve == Some(true) || body.mode.as_deref() == Some("autopost");
-    let auto_approve_allowed = browser_enable_post(&state) && auto_approve_setting_allowed(&state);
+    let auto_approve_allowed = crate::routes::settings::auto_approve_source_packets_allowed(&state);
     let auto_approve = requested_auto_approve && auto_approve_allowed;
     if requested_auto_approve && !auto_approve_allowed {
         eprintln!(
