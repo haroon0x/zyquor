@@ -207,6 +207,14 @@ account credentials leaving the machine.
 
 ### Fixed
 
+- Live X acceptance (2026-11-17) surfaced three browser-flow bugs, all fixed:
+  login/session checks now run on a home shell page instead of the composer
+  route (`/compose/post` has no nav shell and `verify_credentials` returns
+  403); prepare/post relaunch the posting Chrome when the close-after flags
+  shut it down; and post-click permalink verification falls back to the
+  author's profile or reply thread, so a published post is no longer recorded
+  as a failed job.
+
 - `xai-news` now parses the full published date (`Month D, YYYY`) instead of
   capturing only the bare month, so cards are no longer dropped by the
   published-date check; fixture tests cover month-name forms, 1-digit days,

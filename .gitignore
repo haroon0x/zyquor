@@ -58,3 +58,6 @@ data/outreach/runs/
 data/outreach/*.sqlite
 data/outreach/*.sqlite-*
 data/outreach/review.md
+
+# Nested artifacts dir when the data root itself is data/ (ZYQUOR_DATA_ROOT=data)
+/data/data/

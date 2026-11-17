@@ -162,6 +162,25 @@ Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (di
 - Never clear x.com site data or cookies on that error. Clearing site data deletes a valid session and turns a render bug into a forced login.
 - Recovery order: relaunch the dedicated Chrome profile, then retry. If the same profile still will not render, move to a fresh profile and log in once — a corrupt profile can survive cookie, storage, IndexedDB, service-worker, cache, and extension clears.
 
+### Live acceptance findings (2026-11-17)
+
+- **Session checks must run on a shell page.** `/compose/post` renders without
+  the nav shell (`SideNav` / `AppTabBar` selectors absent) and X's
+  `verify_credentials` fallback now answers **403**, so a login check on the
+  composer route is a false "not logged in". `check_x_login` and
+  `prepare_post` therefore verify the session on `https://x.com/home` before
+  opening the composer. Do not move those checks back onto the compose route.
+- **Relaunch Chrome before browser jobs.** `close_after_prepare` /
+  `close_after_post` shut Chrome down between steps; the prepare and post
+  routes call `ensure_browser_cdp` before connecting (the TS `autoLaunchCdp`
+  equivalent). Without it the next step fails with "Chrome CDP is unavailable".
+- **Permalink verification needs a fallback.** After a successful Post click X
+  does not navigate to the new status URL from `/compose/post`. Verification
+  reads the compose page first, then opens the author's profile (or the reply
+  thread) and matches the posted text, reloading a few times. A successful
+  post must never be recorded as failed — that is exactly the case where a
+  blind retry could duplicate.
+
 ### Posting Chrome CDP Ports
 
 - `per_profile_cdp_url` (`crates/zyquor-core/src/paths.rs`) derives each profile's CDP port from the base URL. Profiles in `ZYQUOR_BROWSER_CDP_BASE_PROFILES` (comma-separated, default `personal-main`) stay on the base port; anything else resolves to a stable hash offset.
@@ -220,11 +239,10 @@ Env: `ZYQUOR_POST_ACCOUNT_ID` (default `account_personal`), `ZYQUOR_POST_LOOP_PE
 
 The migration is done (M0–M8 in `docs/rust-migration.md`). What is genuinely left:
 
-- **Live X acceptance run.** `zyquor-browser` is ported and CDP-smoke-tested (launch, protocol, login detection), but a full prepare/compose/post round-trip against a logged-in X session still requires your manual X login and an explicit ask per housekeeping rules.
 - **Windows signing certificate.** The Tauri bundle builds unsigned. `docs/code-signing.md` documents the Tauri v2 Authenticode procedure and the `desktop-win` job has opt-in secret-guarded wiring, but a signing provider/certificate must be chosen, the CI secrets set, and the updater keypair generated before a release is signed. The signed CI path has not run against a real certificate.
 - **Voice input** is deferred.
 
-Already in the tree and not pending: account creation/editing (limits, quiet hours, profile dir), schedule clearing, shuffled `POST /jobs/post-ready`, quality-gate-failures panel, Tauri tray/window/settings, the desktop control plane over HTTP (`/system/logs`, `/system/worker/pause`, `/system/chrome/close`, `/system/stop-all`, `/system/quit`, `/system/restart`), the injected persistent desktop-settings plane (`DesktopSettingsPlane` over `settings.json`), live generation-provider hot-swap, the shared `autoApproveSourcePackets` gate (effective in the dev GUI too), storage parity plus account-deletion knowledge-entry cleanup, the fixed `xai-news` date parsing, the `parse.rs` test suite, the in-process end-to-end HTTP suite (`apps/api/tests/e2e_workflow.rs`), and the app icon.
+Already in the tree and not pending: account creation/editing (limits, quiet hours, profile dir), schedule clearing, shuffled `POST /jobs/post-ready`, quality-gate-failures panel, Tauri tray/window/settings, the desktop control plane over HTTP (`/system/logs`, `/system/worker/pause`, `/system/chrome/close`, `/system/stop-all`, `/system/quit`, `/system/restart`), the injected persistent desktop-settings plane (`DesktopSettingsPlane` over `settings.json`), live generation-provider hot-swap, the shared `autoApproveSourcePackets` gate (effective in the dev GUI too), storage parity plus account-deletion knowledge-entry cleanup, the fixed `xai-news` date parsing, the `parse.rs` test suite, the in-process end-to-end HTTP suite (`apps/api/tests/e2e_workflow.rs`), the live X acceptance round trip (2026-11-17), and the app icon.
 
 # Delegation Rules
 

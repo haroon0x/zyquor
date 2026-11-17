@@ -354,6 +354,44 @@ async fn resolve_posted_permalink(
     None
 }
 
+/// Post-click permalink verification with a profile/thread fallback.
+///
+/// X does not navigate to the new status URL after clicking Post on the
+/// `/compose/post` route: during the live acceptance run on 2026-11-17 the
+/// tweet was published but the job was failed because the permalink could not
+/// be read from the compose page. When the immediate checks fail, open the
+/// author's profile (or the reply target thread) and match the posted text
+/// with the author handle, reloading a few times so a slow timeline cannot
+/// turn a successful post into a failed job.
+async fn verify_posted_permalink(
+    page: &CdpPage,
+    handle: Option<&str>,
+    text: &str,
+    reply_to_url: Option<&str>,
+) -> Option<String> {
+    if let Some(found) = resolve_posted_permalink(page, handle, Some(text)).await {
+        return Some(found);
+    }
+    let target = match (reply_to_url, handle) {
+        (Some(url), _) => url.to_string(),
+        (None, Some(handle)) => format!("https://x.com/{}", handle.trim_start_matches('@').trim()),
+        (None, None) => return None,
+    };
+    let normalized: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    for attempt in 0..4u64 {
+        let _ = page.goto(&target, 45_000).await;
+        tokio::time::sleep(std::time::Duration::from_millis(2_500 + attempt * 2_000)).await;
+        let _ = page.evaluate_value("window.scrollBy(0, 600)").await;
+        tokio::time::sleep(std::time::Duration::from_millis(1_000)).await;
+        if let Some(found) =
+            article_permalink_matching(page, handle, Some(normalized.as_str())).await
+        {
+            return Some(found);
+        }
+    }
+    None
+}
+
 #[derive(Debug, Clone, serde::Deserialize)]
 struct ArticleRow {
     #[serde(default)]
@@ -443,6 +481,8 @@ async fn visible_editor_texts(page: &CdpPage) -> Vec<String> {
     .unwrap_or_default()
 }
 
+const X_HOME_URL: &str = "https://x.com/home";
+
 pub async fn prepare_post(
     session: &Session,
     input: &PreparePostInput,
@@ -474,6 +514,21 @@ pub async fn prepare_post(
 
     let _ = page.bring_to_front().await;
     let _ = crate::tracing::start_tracing(&page).await;
+    // The session check must run on a shell page, never on the composer
+    // overlay: `/compose/post` renders without the nav shell and X's
+    // `verify_credentials` fallback answers 403, which made the guard a false
+    // "not logged in" on 2026-11-17 (found in the live acceptance run). Move
+    // an inherited compose/login tab back to the home shell and verify there.
+    let current_url = page.url().await;
+    if crate::login::needs_shell_page(&current_url) {
+        let _ = page.goto(X_HOME_URL, 45_000).await;
+    }
+    if let Err(error) = assert_not_login_page(&page).await {
+        let _ = page.screenshot_full_page(&screenshot_path).await;
+        let _ = crate::tracing::stop_tracing(&page, &trace_path).await;
+        return Err(prepare_error(error, Some(screenshot_path.clone()), None));
+    }
+    let session_handle = read_logged_in_handle(&page).await.ok().flatten();
     if let Err(error) = open_post_composer(
         &page,
         input
@@ -489,11 +544,6 @@ pub async fn prepare_post(
         return Err(prepare_error(error, Some(screenshot_path.clone()), None));
     }
     tokio::time::sleep(std::time::Duration::from_millis(action_delay_ms)).await;
-
-    if let Err(error) = assert_not_login_page(&page).await {
-        let _ = page.screenshot_full_page(&screenshot_path).await;
-        return Err(prepare_error(error, Some(screenshot_path.clone()), None));
-    }
 
     let _ = page.wait_for_visible(EDITOR_SELECTOR, 30_000).await;
     tokio::time::sleep(std::time::Duration::from_millis(action_delay_ms)).await;
@@ -538,7 +588,9 @@ pub async fn prepare_post(
         }
     };
     tokio::time::sleep(std::time::Duration::from_millis(action_delay_ms)).await;
-    let posted_by = read_logged_in_handle(&page).await.ok().flatten();
+    // Captured on the shell page before the composer opened; the composer
+    // route has no profile link and the credentials fallback is unavailable.
+    let posted_by = session_handle.clone();
     let _ = page
         .chromiumoxide_page()
         .click(chromiumoxide::layout::Point::new(
@@ -581,7 +633,13 @@ pub async fn prepare_post(
         ));
     }
     if post_url.is_none() {
-        post_url = resolve_posted_permalink(&page, posted_by.as_deref(), Some(&text)).await;
+        post_url = verify_posted_permalink(
+            &page,
+            posted_by.as_deref(),
+            &text,
+            input.reply_to_url.as_deref(),
+        )
+        .await;
     }
     match post_url {
         Some(post_url) => Ok(PreparePostResult {
@@ -589,11 +647,15 @@ pub async fn prepare_post(
             inserted_text,
             post_url: Some(post_url),
         }),
-        None => Err(prepare_error(
-            "Posted tweet permalink could not be verified after X Post click",
-            Some(screenshot_path.clone()),
-            None,
-        )),
+        None => {
+            let _ = page.screenshot_full_page(&screenshot_path).await;
+            let _ = crate::tracing::stop_tracing(&page, &trace_path).await;
+            Err(prepare_error(
+                "Posted tweet permalink could not be verified after X Post click",
+                Some(screenshot_path.clone()),
+                None,
+            ))
+        }
     }
 }
 

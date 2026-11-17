@@ -16,6 +16,14 @@ pub async fn check_x_login(
     x_home_url: &str,
 ) -> Result<CheckXLoginResult, String> {
     let page = page_for_session_check(session, x_home_url).await?;
+    // X serves some routes (notably `/compose/post`) without the nav shell,
+    // and its `verify_credentials` fallback now answers 403, so a session
+    // check on those routes is a false "not logged in" (found during the live
+    // acceptance run on 2026-11-17). Move an inherited compose/login tab back
+    // to a shell page before asserting.
+    if needs_shell_page(&page.url().await) {
+        let _ = page.goto(x_home_url, 45_000).await;
+    }
     assert_not_login_page(&page).await?;
     let handle = read_logged_in_handle(&page).await.ok().flatten();
     Ok(CheckXLoginResult {
@@ -91,6 +99,12 @@ async fn is_authenticated_shell(page: &CdpPage) -> bool {
     .await
     .map(|value| value == serde_json::Value::Bool(true))
     .unwrap_or(false)
+}
+
+/// Routes that render without the authenticated nav shell (or are login
+/// pages), where [`assert_not_login_page`] cannot judge the session.
+pub(crate) fn needs_shell_page(url: &str) -> bool {
+    url.contains("x.com/compose") || url.contains("x.com/login") || url.contains("/i/flow/login")
 }
 
 /// Which account is REALLY logged in? Prefer the side-nav profile link, then

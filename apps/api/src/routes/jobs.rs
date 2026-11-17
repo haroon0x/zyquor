@@ -764,6 +764,11 @@ async fn post_browser_job(
     let per_profile_url = per_profile_cdp_url(Some(base_cdp), &account.profile_dir);
     let profile_dir = resolve_profile_dir(&account.profile_dir);
     mark_browser_loaded(state);
+    // The posting Chrome may have been closed after a prepare/post; relaunch
+    // it before the session check, like the retired TS `autoLaunchCdp` did.
+    if browser.cdp_url.is_some() {
+        let _ = zyquor_browser::ensure_browser_cdp(&per_profile_url, &profile_dir).await;
+    }
     let expected_handle = account.handle.trim_start_matches('@').to_lowercase();
     let session_result = check_x_login_session(&per_profile_url).await;
     let session = match session_result {
@@ -1925,6 +1930,14 @@ async fn prepare_job(
         reply_to_url: job.reply_to.as_ref().map(|reply| reply.url.clone()),
     };
     mark_browser_loaded(&state);
+    // A previous job may have closed the posting Chrome (`close_after_prepare`
+    // / `close_after_post`); relaunch it before connecting, like the retired
+    // TS browser module's `autoLaunchCdp` did.
+    if !prepare_input.cdp_url.is_empty() {
+        let _ =
+            zyquor_browser::ensure_browser_cdp(&prepare_input.cdp_url, &prepare_input.profile_dir)
+                .await;
+    }
     let prepare_result = async {
         let session = zyquor_browser::Session::connect(&prepare_input.cdp_url).await;
         match session {

@@ -16,7 +16,7 @@ decision and served inside the Tauri webview.
 | M1: `zyquor-core` | done | Domain types, lifecycle transitions, path rules, post spacing, reply-target parsing. |
 | M2: `zyquor-storage` + `zyquor-accounts` | done | Full SQLite repository surface over rusqlite (schema, migrations, seeding, accounts, drafts, jobs, attempts, packets, ingest, history, measurements). A database written by the TypeScript repository reads back with matching records. |
 | M3: generation / adapters / automation | done | Provider clients (opencode with its failover ladder, command-code, ollama, gemini), prompt assembly (byte-for-byte parity captured before the TS tree was deleted), quality scoring, all 19 source adapters, the ingest engine. |
-| M4: `zyquor-browser` | done (live X acceptance pending) | chromiumoxide CDP session, login detection, five feed fetchers, composer + caller-gated post click, delete flow, per-profile launch state, Chrome launcher. CDP launch/protocol/login-detection smoke passed 2026-11-08. A full compose/post round-trip still needs a logged-in X session and an explicit ask. |
+| M4: `zyquor-browser` | done (live X acceptance passed 2026-11-17) | chromiumoxide CDP session, login detection, five feed fetchers, composer + caller-gated post click, delete flow, per-profile launch state, Chrome launcher. CDP launch/protocol/login-detection smoke passed 2026-11-08. Full gated prepare → compose → post → permalink/history round trip passed 2026-11-17 against a logged-in @haroon0x. |
 | M5: `apps/api` + `apps/worker` | done | axum API over every TS route module, worker poll loop 1:1, live-smoked against a seeded account. The desktop control plane is now wired too (see below). |
 | M6: `apps/desktop` | done | Tauri v2 shell: settings/log/chrome/controls, API on an ephemeral port + in-process worker, tray, window guards, headless smoke. |
 | M7: `apps/web` | done | Keep React. `pnpm --dir apps/web build` produces the dist the Tauri shell loads. |
@@ -111,17 +111,43 @@ decision and served inside the Tauri webview.
   standalone dev API now honours its settings store (GUI toggle + posting
   flag), with unit tests for the gate truth table.
 
+## Live X acceptance (2026-11-17)
+
+The M4 exit criterion is met. With an explicit go-ahead, posting was enabled
+for the acceptance window and the full gated path ran against the dedicated
+`@haroon0x` profile:
+
+draft (idea) → generate → select → screened approve (`prepare_only`) → worker
+prepare (`text_inserted`) → explicit `POST /jobs/:id/post` (`post_clicked` →
+`verified`) → permalink + `post_history` row.
+
+Two real posts came out of the run (`.../status/2122621984655072850021` and the
+reconciled first attempt `.../status/2122621989483692154`). Posting was turned
+back off afterwards and stays off by default. Three browser-flow bugs only
+surfaced live and were fixed in the same change set:
+
+- **Session checks on the composer route.** `/compose/post` renders without the
+  nav shell, and X's `verify_credentials` fallback now answers 403, so the
+  composer-route login guard reported "not logged in" on an authenticated
+  session. Session/login checks now run on a home shell page.
+- **Chrome relaunch before browser jobs.** With `close_after_prepare` /
+  `close_after_post`, the next prepare/post found CDP dead; both paths now call
+  `ensure_browser_cdp` first (parity with the TS `autoLaunchCdp`).
+- **Post-click permalink verification.** The first accepted post was published
+  but the job failed because the permalink could not be read from the compose
+  page. Verification now falls back to the author's profile (or the reply
+  thread), reloading a few times — a successful post can no longer be recorded
+  as failed.
+
 ## What is left
 
-Ordered by what unblocks the product.
+Only one item is left, and it needs a human purchase/identity step:
 
-1. **Live X acceptance run (M4 exit).** Launch the dedicated profile, log in
-   manually, then exercise prepare → compose → post through the normal gated
-   path. Needs your X login and an explicit ask per the housekeeping rules.
-2. **Tauri code signing certificate.** The docs and opt-in CI wiring are in
-   place; a signing provider/certificate must be chosen, the CI secrets set,
-   and the updater key generated. Releases stay unsigned until then, and the
-   signed CI path has not yet run against a real certificate.
+1. **Tauri code signing certificate.** The docs, the opt-in secret-guarded
+   Authenticode CI wiring, and the updater keypair are in place; a real
+   signing provider/certificate must be chosen, the CI secrets set, and the
+   signed CI path exercised once on a Windows runner. Releases stay unsigned
+   until then.
 
 ## Deferred
 
