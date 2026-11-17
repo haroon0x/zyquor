@@ -18,10 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by the Tauri shell (over `settings.json`), so `GET/PATCH /settings`,
   `POST /system/posting`, and the `posting` fields of `GET /system/status`
   survive a restart. The standalone API keeps an in-process fallback.
-- `autoApproveSourcePackets` now gates source-packet auto-approval in both the
-  draft route and the automatic-ingest lane when the desktop settings plane is
-  injected (`enablePost && setting`), matching the retired TS routes; the
-  standalone API keeps the TS `true` fallback.
+- `autoApproveSourcePackets` now gates source-packet auto-approval through one
+  shared gate for the draft route and the automatic-ingest lane
+  (`enablePost && setting`; unset keeps the TS `true` fallback). The standalone
+  dev API honours its settings store too, so the System-panel toggle and
+  posting flag are effective there (deliberate deviation from the TS
+  standalone fallback).
 - End-to-end HTTP workflow suite (`apps/api/tests/e2e_workflow.rs`, 8 tests)
   covering accounts, draft → select → approve → job, quality gates, source
   packets, ingest configs, system feedback, history, and generation reads,
@@ -168,10 +170,10 @@ account credentials leaving the machine.
 
 ### Changed
 
-- `deleteAccount` matches the retired TypeScript table list exactly (it no
-  longer deletes `knowledge_entries`); deleting an account that still owns a
-  knowledge entry fails and rolls back through the non-cascading FK, exactly as
-  the TypeScript implementation behaved.
+- `deleteAccount` clears the account's `knowledge_entries` in the same
+  transaction. This is a deliberate post-migration deviation from the
+  TypeScript implementation, whose omission conflicted with the non-cascading
+  FK and made the delete fail; covered by storage tests and an API e2e test.
 - Docs tell the truth about the finished state: `ROADMAP.md`, `CLAUDE.md`,
   `docs/rust-migration.md`, and `docs/architecture.md` now record the
   completed migration, the landed 2026-11-14 work, and the remaining product
@@ -204,6 +206,11 @@ account credentials leaving the machine.
   by `drafts.text_hash`; `post_history.text_hash` remains the posted-text index.
 
 ### Fixed
+
+- `xai-news` now parses the full published date (`Month D, YYYY`) instead of
+  capturing only the bare month, so cards are no longer dropped by the
+  published-date check; fixture tests cover month-name forms, 1-digit days,
+  dedupe, and the blurb fallback.
 
 - Replies record their own status URL as the permalink instead of the parent
   tweet's URL.

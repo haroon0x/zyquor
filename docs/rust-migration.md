@@ -124,8 +124,8 @@ worker -> core, storage
 | --------- | ----- | ----- |
 | M0 — Scaffold | done | `Cargo.toml` workspace, `rust-toolchain.toml`, Rust CI job (fmt, clippy, test). |
 | M1 — `zyquor-core` | done | Domain enums, lifecycle transitions, path rules, post spacing, reply-target parsing. 35 tests; parity harness matches TypeScript on 96 gate/transition cases and 11 CDP-URL cases. |
-| M2 — `zyquor-storage` + `zyquor-accounts` | done | `zyquor-accounts` ported (6 tests). `zyquor-storage` ports the full SQLite `ZyquorRepository` surface — schema, column migrations, first-run seeding, accounts, style profiles, system feedback, knowledge entries, drafts, jobs, attempts, source packets, ingest runs/configs, post history, tweet measurements (23 tests). Verified cross-implementation: a database written by the TypeScript repository is read back by the Rust one with matching draft, job, and history records. No remaining repository surface. Account-deletion parity, the legacy null-`text_hash` regression test, and the e2e workflow suite landed 2026-11-14. |
-| M3 — generation / adapters / automation | complete | `zyquor-generation` is complete: config resolution, prompt/harness assembly (8 request shapes × 4 builders, byte-identical to TypeScript), deterministic quality scoring and text post-processing, answer parsing (`parse.rs`), the provider clients (`command-code`, `opencode` with its failover ladder, `gemini`, `ollama`) behind a `Fetch` seam plus a shared spawn/capture runner for the CLIs, the refine loop, and the `create_generation_provider_from_env` factory. `zyquor-adapters` is complete: all 19 source adapters + the aggregator + health tracking + the Goldfish MCP adapter behind a `Fetch`/`CrawlService` seam (new modules `types.rs`, `fetch.rs`, `xml_util.rs`, `dates.rs`); Date.parse-compatible date helpers and XML/HTML helpers shared per-crate. `zyquor-automation` is complete: the ingest engine, packet/draft derivation, tweet-type routing (daily caps, rolling window, hash selection), post-quality gates, performance aggregation, and the shared `AutomationDeps` env bundle. Known gap from the port: the TypeScript `xai-news.ts` parses `firstMatch` group 1 (the 3-letter month fraction of the regex, e.g. "Jan"), so no xai-news item has ever passed the `published` check; the Rust port reproduces that bug by contract (reported separately; see "Known gaps"). |
+| M2 — `zyquor-storage` + `zyquor-accounts` | done | `zyquor-accounts` ported (6 tests). `zyquor-storage` ports the full SQLite `ZyquorRepository` surface — schema, column migrations, first-run seeding, accounts, style profiles, system feedback, knowledge entries, drafts, jobs, attempts, source packets, ingest runs/configs, post history, tweet measurements (23 tests). Verified cross-implementation: a database written by the TypeScript repository is read back by the Rust one with matching draft, job, and history records. No remaining repository surface. Account-deletion coverage, the legacy null-`text_hash` regression test, and the e2e workflow suite landed 2026-11-14; account deletion now also clears `knowledge_entries` (2026-11-17 post-migration fix). |
+| M3 — generation / adapters / automation | complete | `zyquor-generation` is complete: config resolution, prompt/harness assembly (8 request shapes × 4 builders, byte-identical to TypeScript), deterministic quality scoring and text post-processing, answer parsing (`parse.rs`), the provider clients (`command-code`, `opencode` with its failover ladder, `gemini`, `ollama`) behind a `Fetch` seam plus a shared spawn/capture runner for the CLIs, the refine loop, and the `create_generation_provider_from_env` factory. `zyquor-adapters` is complete: all 19 source adapters + the aggregator + health tracking + the Goldfish MCP adapter behind a `Fetch`/`CrawlService` seam (new modules `types.rs`, `fetch.rs`, `xml_util.rs`, `dates.rs`); Date.parse-compatible date helpers and XML/HTML helpers shared per-crate. `zyquor-automation` is complete: the ingest engine, packet/draft derivation, tweet-type routing (daily caps, rolling window, hash selection), post-quality gates, performance aggregation, and the shared `AutomationDeps` env bundle. Known gap from the port: the TypeScript `xai-news.ts` parsed `firstMatch` group 1 (the 3-letter month fraction of the regex, e.g. "Jan"), so no xai-news item ever passed the `published` check; the Rust port reproduced that bug for parity and fixed it on 2026-11-17 (full-date capture + fixture tests). |
 | M4 — browser | done (live X acceptance pending) | `zyquor-browser` ported: chromiumoxide CDP session layer (page selection, dialog dismissal, owned-tab cleanup), `CdpPage` primitives (visible/actionability waits, hit-test clicks, text insertion), login detection + handle resolution, all five feed fetchers (timeline, mentions, home feed, tweet, performance) with scroll-and-collect machinery, the composer flow (open/type/verify + caller-gated click → verified permalink), the delete flow, per-profile launch state, and the Chrome launcher with WSL/detached handling. Deliberate gaps (see "Known gaps"): the Playwright cross-frame stability check is reduced to scroll+one poll wait; `prepare-*.zip` trace artifacts are trace-events JSON dumps; the non-CDP `launchPersistentContext` fallback is not ported. Not yet live-tested against X (the human-ask rule). |
 | M5 — api / worker | complete | `zyquor-api` (axum 0.8 + tower-http 0.6) ports all 17 TS route modules (accounts, system, batches, browser, drafts, generation, history, ingest, jobs incl. prepare/post/retry, knowledge, onboarding, performance, replies incl. mentions scans, settings, source-packets, style-profiles, system-feedback, worker) plus the `lib/*` helpers (`browser`, `daily-limit`, `media`, `post-process`, `post-browser-job`, `post-history-snapshot`, `stale-jobs`, `retry-job`, `history`, `tweet-performance`, `feedback-notebook`). `zyquor-worker` ports the TS poll loop 1:1 (approved jobs by account with quiet hours/spacing backfill, ingest, performance, mentions lanes, heartbeats, worker lock). Storage gained the handful of repository queries the routes need (`delete_job`, `list_jobs_by_draft_id`, pending/quality-gate draft lists, post-history counts, etc.). Smoke-tested live against a seeded account: health/status/worker/performance/history/onboarding/generation all respond with TS shapes, and the worker drives heartbeat → ingest async → recover-stale end-to-end (the TS daily-cap/post flows stay behind `ZYQUOR_ENABLE_BROWSER_PREPARE/POST`, and live CDP against X still needs the human ask per housekeeping rules). Test count: 122. |
 | M6 — desktop | complete (Tauri v2 shell) | `zyquor-desktop` (Tauri v2, `apps/desktop/`) replaces Electron: `settings.rs` (settings.json + env map, plaintext-keys gap recorded), `log.rs` (buffered 5 MiB rotation logger), `chrome.rs` (per-profile CDP launch/close state), `controls.rs` (desktopControl/status/logTail/quit/restart/pause chrome-close, tray tooltip, shutdown sequence), `main.rs` (API on port 0 + worker bring-up, single-instance, autostart, window with `window.zyquor` init script, 60 s failed-job tooltip poll, headless-smoke). Headless smoke exits 0 without Chrome (`OK: /accounts → 200`, `OK: /worker/status → 200`). Update channel stubbed (Tauri updater needs signing keys); `startWithWindows` via autostart plugin; safeStorage keys are plaintext (`enc:v1:` legacy values still parsed); `--headless-smoke` skips the single-instance lock. Test count: 158. |
@@ -164,12 +164,14 @@ running total.
   `/health`, and `/system/status` read the live state. `PATCH /settings`
   generation keys hot-swap the same way; `restartRequired` is only true when
   provider creation or the saved-config write fails.
-- `autoApproveSourcePackets` is consumed by the source-packet draft route
-  (`enablePost && (no plane ? true : setting)`, matching `source-packets.ts`)
-  and by the automatic-ingest lane (TS `ingest.ts`: with a settings plane,
-  `enablePost && setting`; standalone keeps the TS `true` fallback). The worker
-  still sends `autoApprove: true` as the TS worker did, so the API gate is the
-  single decision point.
+- `autoApproveSourcePackets` is consumed by one shared gate
+  (`auto_approve_allowed(enable_post, setting)`: posting on, setting not
+  explicitly false, unset keeps the TS `true` fallback) in both the
+  source-packet draft route and the automatic-ingest lane. Deviation from TS:
+  the standalone API honours its settings store, so `POST /system/posting` and
+  `PATCH /settings` are effective there too (TS had no settings surface). The
+  worker still sends `autoApprove: true` as the TS worker did, so the API gate
+  is the single decision point.
 - Ingest/packet-draft run on a second SQLite connection (opened from
   `AppState::db_path`) so the shared proxy mutex is never held across a
   network-bound generation/ingest. WAL (`PRAGMA journal_mode = WAL`) is
@@ -204,13 +206,12 @@ running total.
 
 ### Known gaps in `zyquor-adapters`
 
-- `xai-news.ts` (TypeScript) has a latent bug: the published-date regex
-  `(Jan|…|Dec)[a-z]* \d{1,2}, \d{4}` captures only the month fraction
-  (e.g. `"Jan"`), which `Date.parse` rejects, so the adapter's items never
-  pass its own published-date filter. The Rust port reproduces that behaviour
-  (`parse_date` of the 3-letter fraction never yields items). Fix in a
-  separate change once the bug is acknowledged; do not "repair" it inside a
-  port commit.
+- `xai-news.ts` (TypeScript) had a latent bug: the published-date regex
+  `(Jan|…|Dec)[a-z]* \d{1,2}, \d{4}` captured only the month fraction
+  (e.g. `"Jan"`), which `Date.parse` rejects, so its items never passed the
+  published-date filter. The Rust port reproduced that for parity and was
+  fixed separately on 2026-11-17: the adapter now captures the full
+  `Month D, YYYY` text and emits items, with fixture tests (no network).
 
 ### Known gaps in `zyquor-storage`
 
@@ -222,15 +223,12 @@ Not ported yet:
 - `hasPostHistoryTextHash` now has regression coverage for both branches,
   including the legacy null-`text_hash` scan (rows written before the column
   existed are compared on normalised text; hashed rows are never text-compared).
-- `deleteAccount` is aligned with the TypeScript table list (2026-11-14): it
-  clears post_attempts, post_history, tweet_measurements, post_jobs,
-  draft_candidates, drafts, source_packets, ingest_runs, ingest_configs,
-  system_feedback, then accounts, and deliberately does not delete
-  `knowledge_entries`. Because that foreign key does not cascade, deleting an
-  account that still owns a knowledge entry fails and rolls back — the same
-  behaviour the TypeScript implementation had. Pinned by a regression test;
-  whether to keep parity or clean up knowledge entries first is a product
-  decision (see `ROADMAP.md`, "What is left").
+- `deleteAccount` is aligned with the TypeScript table list (2026-11-14) and,
+  as a deliberate post-migration deviation (2026-11-17), it now also clears
+  the account's `knowledge_entries` in the same transaction. TypeScript left
+  them behind, which conflicted with the non-cascading FK and failed the
+  delete; the Rust port cleans them up so account deletion cannot fail there.
+  Covered by storage tests and an API e2e test.
 
 ### Known gaps in `zyquor-generation`
 

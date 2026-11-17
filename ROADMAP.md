@@ -71,16 +71,16 @@ decision and served inside the Tauri webview.
   `/system/status` all go through it, so toggles survive a restart. The
   standalone API keeps a process-level fallback (documented deviation: TS
   answered 404 for `/settings` without `desktopSettings`).
-- **`autoApproveSourcePackets` is consumed.** The source-packet draft gate now
-  applies the TS rule: `enablePost && (no settings plane ? true : setting)`,
-  and the automatic-ingest lane uses the same desktop-settings branch
-  (`enablePost && setting`) when the Tauri plane is injected.
-- **Storage parity.** `deleteAccount` now matches the retired TypeScript table
-  list exactly (it does not delete `knowledge_entries`), and the legacy
-  null-`text_hash` lookup has a regression test. Consequence, inherited from
-  the port: a non-cascading FK means deleting an account that still owns a
-  knowledge entry fails and rolls back, exactly as TS behaved; pinned by a test
-  and left as a product decision.
+- **`autoApproveSourcePackets` is consumed.** One shared gate now covers the
+  source-packet draft route and the automatic-ingest lane: `enablePost` and the
+  stored setting must both allow it, and an unset setting keeps the TS fallback
+  (`true`). The standalone dev API honours `POST /system/posting` and
+  `PATCH /settings` too, so the GUI toggle works everywhere (deliberate
+  post-migration deviation: TS had no settings surface in standalone mode).
+- **Storage parity.** `deleteAccount` matches the retired TypeScript table list
+  and the legacy null-`text_hash` lookup has a regression test. The TS deletion
+  omitted `knowledge_entries`, which failed on the non-cascading FK; that
+  reproduction was corrected on 2026-11-17 (see below).
 - **Tests.** `parse.rs` gained 13 fixture tests; `zyquor-storage` gained the
   account-deletion and null-hash tests; a new in-process end-to-end HTTP suite
   (`apps/api/tests/e2e_workflow.rs`, 8 tests, no LLM/browser/network) covers
@@ -94,6 +94,23 @@ decision and served inside the Tauri webview.
   and Reddit threads, ranks them, and queues human-reviewed answers. No posting
   path, no browser automation (see `docs/outreach.md`).
 
+## Landed 2026-11-17
+
+- **`deleteAccount` cleans knowledge entries.** The port had reproduced the
+  retired TypeScript bug where `knowledge_entries` were left behind and the
+  non-cascading FK failed the delete and rolled the transaction back; account
+  deletion now clears them in the same transaction. Covered by storage tests
+  and a new API e2e test.
+- **`xai-news` publishes items again.** The adapter captured only the bare
+  month from the published-date regex, so `parse_date` always failed and every
+  card was dropped. It now captures the full `Month D, YYYY` text; fixture
+  tests cover full/short month names, 1-digit days, dedupe, and the blurb
+  fallback.
+- **One auto-approval gate.** The source-packet draft route and the
+  automatic-ingest lane share `auto_approve_allowed(enable_post, setting)`; the
+  standalone dev API now honours its settings store (GUI toggle + posting
+  flag), with unit tests for the gate truth table.
+
 ## What is left
 
 Ordered by what unblocks the product.
@@ -105,13 +122,6 @@ Ordered by what unblocks the product.
    place; a signing provider/certificate must be chosen, the CI secrets set,
    and the updater key generated. Releases stay unsigned until then, and the
    signed CI path has not yet run against a real certificate.
-3. **Product decision: `deleteAccount` vs knowledge entries.** The Rust port
-   reproduces the TS behaviour (knowledge entries are not deleted, so the
-   non-cascading FK fails the delete and rolls back). Keep parity or clean up
-   `knowledge_entries` first — a one-line change either way.
-4. **`xai-news` date regex.** The retired TypeScript adapter never emitted
-   items because it captured the 3-letter month; the Rust port reproduces that
-   by contract. Fix in a separate change.
 
 ## Deferred
 
