@@ -9,6 +9,8 @@ use fancy_regex::Regex;
 use zyquor_core::AI_SLOP_PHRASES;
 use zyquor_core::paths::EnvLookup;
 
+use crate::voice::{self, Lane};
+
 /// Clamp a requested candidate count. The cap is a request-size guard, not a
 /// quality decision.
 pub fn normalize_count(count: Option<usize>) -> usize {
@@ -330,6 +332,12 @@ fn count_specific_nouns(text: &str) -> usize {
 }
 
 pub fn score_tweet_quality(text: &str) -> i64 {
+    score_tweet_quality_lane(text, Lane::Post)
+}
+
+/// Lane-aware scoring. Replies answer a specific person, so their lane rules
+/// (pleasantry openers, unrequested advice) are only applied there.
+pub fn score_tweet_quality_lane(text: &str, lane: Lane) -> i64 {
     let trimmed = text.trim();
     let payoff_signals = count_payoff_signals(trimmed);
     let mut score: i64 = 3;
@@ -362,12 +370,23 @@ pub fn score_tweet_quality(text: &str) -> i64 {
     if contains_aphorism(trimmed) {
         score -= 3;
     }
+    // Structural AI-shape patterns distilled from the writing skills: staged
+    // contrasts, throat-clearing, faux insight, inflation, borrowed authority,
+    // trailing -ing significance, recap and mic-drop closers, chat residue.
+    score -= voice::penalty(trimmed, lane);
     score
 }
 
 pub fn is_clean_tweet_text(text: &str) -> bool {
+    is_clean_tweet_text_lane(text, Lane::Post)
+}
+
+/// Lane-aware cleanliness gate. The approval screen is the safety rail; the
+/// structural craft rules are part of it now.
+pub fn is_clean_tweet_text_lane(text: &str, lane: Lane) -> bool {
     let trimmed = text.trim();
     !trimmed.is_empty()
+        && voice::is_craft_clean(trimmed, lane)
         && !any_match(INTERNAL_LEAK_PATTERNS, trimmed)
         && !any_match(INCOMPLETE_PATTERNS, trimmed)
         && !contains_generic_slop(trimmed)
@@ -389,4 +408,16 @@ pub fn passes_tweet_quality_floor(text: &str, minimum: f64) -> bool {
     is_clean_tweet_text(text)
         && !looks_like_source_recap(text)
         && (score_tweet_quality(text) as f64) >= minimum
+}
+
+/// Lane-aware floor check for the approval and loop screens.
+pub fn passes_tweet_quality_floor_lane(text: &str, minimum: f64, lane: Lane) -> bool {
+    is_clean_tweet_text_lane(text, lane)
+        && !looks_like_source_recap(text)
+        && (score_tweet_quality_lane(text, lane) as f64) >= minimum
+}
+
+/// Structural findings behind a rejected draft, for diagnostics and screens.
+pub fn craft_findings(text: &str, lane: Lane) -> Vec<voice::Finding> {
+    voice::hard_failures(text, lane)
 }

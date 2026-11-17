@@ -15,6 +15,7 @@ mod outreach;
 mod overseer;
 mod post_loop;
 mod profile;
+mod prompt;
 mod reply_loop;
 mod seed;
 mod start;
@@ -174,6 +175,14 @@ async fn main() {
         }
         // `mcp` parses its own flags (--api-url takes a value).
         "mcp" => run_async(mcp::run(&rest)).await,
+        // `prompt` parses its own value flags; it prints, never calls a model.
+        "prompt" => match prompt::run(&rest) {
+            Ok(code) => code,
+            Err(error) => {
+                eprintln!("{error}");
+                1
+            }
+        },
         "outreach" => run_async(outreach::run(&rest)).await,
         "tweet-eval" => {
             if let Err(error) = check("tweet-eval", &rest) {

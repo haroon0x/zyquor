@@ -113,3 +113,43 @@ fn minimums_read_from_the_environment_and_clamp_to_zero_ten() {
     let lookup = |key: &str| garbage.get(key).map(|value| (*value).to_string());
     assert_eq!(quality_minimum(&lookup), DEFAULT_QUALITY_MIN);
 }
+
+#[test]
+fn rejects_structural_ai_shapes() {
+    for text in [
+        "This isn't about speed. It's about trust.",
+        "Here's the thing: the queue is the bottleneck.",
+        "What nobody tells you is that caching lies.",
+        "The launch is a testament to the team's focus.",
+        "Experts agree that local models are the future.",
+        "The launch adds search, highlighting the team's focus.",
+        "In conclusion, the queue was the bottleneck.",
+        "We cut p99 to 80ms. Let that sink in.",
+    ] {
+        assert!(!is_clean_tweet_text(text), "should reject: {text}");
+    }
+}
+
+#[test]
+fn specific_technical_posts_still_clear_the_gate() {
+    let good = "We replaced the whole queue with a single mutex because throughput was 4x better under load. p99 dropped from 900ms to 210ms.";
+    assert!(is_clean_tweet_text(good));
+    assert!(
+        score_tweet_quality(good) >= 7,
+        "score {}",
+        score_tweet_quality(good)
+    );
+}
+
+#[test]
+fn reply_lane_catches_pleasantry_openers() {
+    use zyquor_generation::WritingLane;
+    assert!(!zyquor_generation::is_clean_tweet_text_lane(
+        "Great point. The queue is the bottleneck.",
+        WritingLane::Reply
+    ));
+    assert!(zyquor_generation::is_clean_tweet_text_lane(
+        "The queue is the bottleneck, not the model.",
+        WritingLane::Reply
+    ));
+}

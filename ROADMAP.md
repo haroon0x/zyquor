@@ -114,6 +114,15 @@ decision and served inside the Tauri webview.
   built binary, else `cargo run`), `docs/agents.md`, and an updated
   `skills/zyquor` (also served as the MCP resource `zyquor://guide`). Protocol
   covered by `apps/cli/tests/mcp_protocol.rs`.
+- **Writing codex rewrite.** The generation system prompt was rebuilt from
+  scratch around one shared codex (`crates/zyquor-generation/src/voice.rs`),
+  distilled from five public writing skills (no-ai-slop, clarity,
+  avoid-ai-writing, humanizer, ghostwriter). The prompt now assembles role,
+  job, shared craft codex, lane contract (post vs reply), provenance, account
+  voice, banned phrases, output contract, and a cut-list self-check; replies
+  have their own contract and thread context. The same codex powers the
+  deterministic gate (`voice::PATTERNS` → penalties and hard failures). Added
+  `zyquor prompt` for inspecting the exact prompts and `docs/writing-quality.md`.
 - **Release-signing readiness.** The Tauri updater minisign keypair was
   generated (public key committed at `apps/desktop/updater.pubkey` and in
   `plugins.updater`; private key + password held outside the repo), CI can sign

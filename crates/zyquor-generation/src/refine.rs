@@ -1,12 +1,11 @@
 //! Write candidates with a single LLM call, plus an optional revision pass.
 //! Ported from `packages/generation/src/refine.ts`.
 //!
-//! The full anti-slop guidance (voice rules, punctuation, style contract,
-//! banned phrases, source boundary) lives in `system_prompt`/`user_prompt`, so
-//! there is no need for separate insight, audit, reader-critique, or repair
-//! passes. `revise` adds one cut-only editing pass on top: it can only remove
-//! vagueness and unsupported claims, never add material, and never lowers a
-//! candidate's quality score. If the model returns something we cannot parse
+//! The full writing codex (craft rules, lane contract, factual boundary,
+//! banned phrases, account voice, output contract) lives in
+//! `system_prompt`/`user_prompt`, so there is no separate audit or critique
+//! pass. `revise` adds one cut-only editor pass on top: it can only remove
+//! material, never add it, and never lowers a candidate's quality score. If the model returns something we cannot parse
 //! into candidates, retry once with the simpler `line_prompt` for robustness,
 //! then fail loudly.
 

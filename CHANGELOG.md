@@ -186,6 +186,21 @@ account credentials leaving the machine.
 
 ### Changed
 
+- Generation prompts rebuilt from scratch around a shared writing codex
+  (`crates/zyquor-generation/src/voice.rs`), distilled from five public writing
+  skills (no-ai-slop, clarity, avoid-ai-writing, humanizer, ghostwriter, all
+  MIT). The system prompt now composes role, one-reader job, craft codex, lane
+  contract (post vs reply with target/thread context), factual provenance,
+  account voice, banned phrases, JSON output contract and a cut-list
+  self-check. The revision pass is a cut-only editor pass against the same
+  checklist. The deterministic gate now penalises and refuses structural AI
+  shapes (staged contrasts, throat-clearing, faux insight, importance puffery,
+  borrowed authority, participle tails, recap/mic-drop closers, chat residue,
+  reply pleasantries) through lane-aware `score_tweet_quality_lane`,
+  `is_clean_tweet_text_lane`, `passes_tweet_quality_floor_lane`, and
+  `craft_findings`. Added `zyquor prompt` for printing the exact prompts and
+  `docs/writing-quality.md` with sources and extension rules.
+
 - UX pass on the web GUI: global toast feedback for every action (approve,
   post, prepare, delete, schedule, session checks), a plain-language "what
   happens next" line in Compose (review-first vs scheduled vs autopost), busy

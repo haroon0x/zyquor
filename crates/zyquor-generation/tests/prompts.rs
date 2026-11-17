@@ -1,9 +1,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! Prompt assembly tests. Byte-level parity against the TypeScript
-//! implementation was verified in M3 (76311 bytes identical via the retired
-//! `scripts/prompt-parity.mjs` + `examples/prompt_parity.rs` diff); these
-//! cover the invariants that must hold on their own.
+//! Prompt assembly tests. Byte-level parity with the retired TypeScript
+//! implementation was verified in M3, then deliberately superseded by the
+//! writing-codex rewrite (2026-11-17, see `docs/writing-quality.md`). These
+//! tests pin the new contract: section order, the shared codex, lane
+//! switching, provenance rules, and the cut-only revision pass.
 
 use zyquor_generation::harness::{
     SourceTweetInput, build_source_tweet_input, render_source_context,
@@ -35,12 +36,14 @@ fn system_prompt_keeps_the_expected_section_order() {
     };
     let prompt = system_prompt(&input);
     let headings = [
-        "Role and standard",
-        "Factual boundary",
-        "Publication rules",
-        "Voice",
-        "Tweet type",
-        "Output format",
+        "## The job",
+        "## Craft codex",
+        "## Lane:",
+        "## Facts and provenance",
+        "## Account voice",
+        "## Banned phrases",
+        "## Output",
+        "## Before you answer",
     ];
     let positions: Vec<usize> = headings
         .iter()
@@ -138,7 +141,10 @@ fn banned_phrases_are_deduped_bounded_and_drop_private_vocabulary() {
     let prompt = system_prompt(&many);
     let banned_line = prompt
         .lines()
-        .find(|line| line.starts_with("Avoid these account or AI phrases"))
+        .find(|line| {
+            line.starts_with("Never use these account or AI phrases")
+                || line.starts_with("No extra banned phrases")
+        })
         .expect("banned phrase line");
     let listed = banned_line
         .trim_end_matches('.')
@@ -251,5 +257,63 @@ fn unknown_tweet_type_falls_back_to_the_general_contract() {
         tweet_type: Some("news_context".to_string()),
         ..GenerateDraftCandidatesInput::default()
     };
-    assert!(system_prompt(&input).contains("Style: General insight."));
+    assert!(system_prompt(&input).contains("Form — General insight."));
+}
+
+#[test]
+fn system_prompt_carries_the_craft_codex() {
+    let input = GenerateDraftCandidatesInput::from_idea("Ship smaller defaults");
+    let prompt = system_prompt(&input);
+    for marker in [
+        "portability test",
+        "throat-clearing",
+        "faux-insight",
+        "not X, it's Y",
+        "pivotal",
+        "borrowed authority",
+        "recap ending",
+        "Keep the account's voice",
+    ] {
+        assert!(prompt.contains(marker), "missing codex marker: {marker}");
+    }
+    // The codex is prompt-side only: the account voice layer must still be
+    // able to override generic rhythm guidance.
+    assert!(prompt.contains("outrank generic rhythm advice"));
+}
+
+#[test]
+fn lane_codex_switches_between_post_and_reply() {
+    let post = GenerateDraftCandidatesInput {
+        idea: "idea".to_string(),
+        tweet_type: Some("opinion".to_string()),
+        ..GenerateDraftCandidatesInput::default()
+    };
+    let post_prompt = system_prompt(&post);
+    assert!(post_prompt.contains("A post is one developed thought"));
+    assert!(!post_prompt.contains("A reply is a comment to the author"));
+
+    let reply = GenerateDraftCandidatesInput {
+        idea: "reply".to_string(),
+        tweet_type: Some("reply".to_string()),
+        reply_context: Some(ReplyContext {
+            author_handle: "someone".to_string(),
+            url: "https://x.com/someone/status/1".to_string(),
+            text: Some("Tune the queue first.".to_string()),
+            ..ReplyContext::default()
+        }),
+        ..GenerateDraftCandidatesInput::default()
+    };
+    let reply_prompt = system_prompt(&reply);
+    assert!(reply_prompt.contains("A reply is a comment to the author"));
+    assert!(reply_prompt.contains("do not restate or re-explain"));
+}
+
+#[test]
+fn revision_prompt_is_cut_only() {
+    let input = GenerateDraftCandidatesInput::from_idea("idea");
+    let prompt = revision_prompt(&input, &["first".to_string()]);
+    assert!(prompt.contains("You are the editor, not the writer."));
+    assert!(prompt.contains("Delete, do not rewrite into something new:"));
+    assert!(prompt.contains("Do not add new facts"));
+    assert!(prompt.contains("same count and order"));
 }

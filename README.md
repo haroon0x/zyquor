@@ -157,6 +157,25 @@ cargo test --workspace
 
 All TypeScript backend code has been ported and the pnpm workspace retired (only the React renderer remains, built with pnpm/Vite).
 
+## Writing quality
+
+Zyquor's writer is governed by one shared **voice codex** (distilled from five
+public writing skills: no-ai-slop, clarity, avoid-ai-writing, humanizer, and
+ghostwriter) that drives both the system prompt and a deterministic anti-slop
+gate: staged binary contrasts, throat-clearing, faux-insight setups, importance
+puffery, borrowed authority, participle tails, recap/mic-drop closers and chat
+residue are penalised or refused, while the account's own examples and voice
+notes still outrank generic guidance. Replies get a separate lane contract
+(react to the author, never re-explain the target or lecture).
+
+```bash
+zyquor prompt --idea "…" --tweet-type opinion   # print the exact system + user prompt
+zyquor smoke-generation                        # live provider probe with the new prompt
+```
+
+See [docs/writing-quality.md](docs/writing-quality.md) for the rules, sources,
+enforcement layers, and how to add a pattern with tests.
+
 ## Agent native
 
 Zyquor is built to be driven by coding agents, not just clicked:

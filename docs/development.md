@@ -54,6 +54,7 @@ cargo run -p zyquor-cli -- <command> [flags]
 | `worker` | Run the background worker only. Requires `ZYQUOR_RUN_WORKER=1`; takes the worker lock. |
 | `web` | Run the Vite dev server only. |
 | `status [--json]` | One-shot health + queue summary from the local API. Use it to discover a running instance; exits 1 when unreachable. |
+| `prompt --idea <text> [--tweet-type <type>] [--reply-to <url>] [--json]` | Print the exact system + user prompt for a request without calling a model. Use it to tune the writing codex; see [writing-quality.md](writing-quality.md). |
 | `mcp [--allow-browser] [--allow-post] [--api-url <url>]` | Model Context Protocol stdio server for agent harnesses. Default exposes read + draft/approve tools; browser/posting tools need the flags. See [agents.md](agents.md). |
 | `open-profile [--manual]` | Ensure the CDP Chrome is running, or with `--manual` open a normal Chrome window at the X login page and wait for Enter. |
 | `check-login` | Check the dedicated profile's X session. Prints JSON and exits 0 only when logged in. |
