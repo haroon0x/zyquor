@@ -9,6 +9,7 @@ mod cli;
 mod eval;
 mod generation;
 mod lessons;
+mod mcp;
 mod mentions;
 mod outreach;
 mod overseer;
@@ -17,6 +18,7 @@ mod profile;
 mod reply_loop;
 mod seed;
 mod start;
+mod status;
 
 #[tokio::main]
 async fn main() {
@@ -161,6 +163,17 @@ async fn main() {
                 run_sync(|_| lessons::run(&rest))
             }
         }
+        "status" => {
+            if let Err(error) = check("status", &rest) {
+                eprintln!("{error}");
+                cli::print_usage();
+                1
+            } else {
+                run_async(status::run(&rest)).await
+            }
+        }
+        // `mcp` parses its own flags (--api-url takes a value).
+        "mcp" => run_async(mcp::run(&rest)).await,
         "outreach" => run_async(outreach::run(&rest)).await,
         "tweet-eval" => {
             if let Err(error) = check("tweet-eval", &rest) {

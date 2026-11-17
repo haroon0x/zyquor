@@ -146,6 +146,24 @@ cargo tauri build                          # tauri.conf.json bundle
 
 Env flags: `ZYQUOR_ENABLE_BROWSER_PREPARE=0`, `ZYQUOR_ENABLE_BROWSER_POST=0` (disabled by default), `ZYQUOR_LLM_PROVIDER=command-code|opencode|gemini|ollama|auto`. `ZYQUOR_REVISION_PASS=1` adds a cut-only second-pass revision (opencode only): removes vagueness and unsupported claims from the first-pass drafts, never adds material, cannot lower a candidate; off by default. Source adapter tests: `cargo test -p zyquor-adapters`. Product Hunt is optional without `ZYQUOR_PRODUCTHUNT_API_TOKEN`.
 
+### Agent interface (MCP + CLI)
+
+- `zyquor mcp` (`apps/cli/src/mcp.rs`) is a stdio MCP server (JSON-RPC 2.0,
+  protocol `2025-06-18`) exposing read tools plus `create_draft`,
+  `generate_draft`, `select_candidate`, `approve_draft`. Approvals hard-code
+  `screened:true`. `prepare_job` and `post_job` are only listed with
+  `--allow-browser` / `--allow-post`, and `post_job` requires `confirm:"post"`;
+  mode `autopost` approval is refused without `--allow-post`. Keep this tiering
+  — the review queue is the gate.
+- `zyquor status [--json]` (`apps/cli/src/status.rs`) is the one-shot discovery
+  command: health, worker, posting flags, counts, generation model. Exits 1 when
+  the API is unreachable.
+- Root `./zyquor` is a dev wrapper (prefers a fresh built binary, else
+  `cargo run`); `.mcp.json` registers the server for project-scoped MCP
+  harnesses (Claude Code). The MCP resource `zyquor://guide` serves
+  `skills/zyquor/SKILL.md`.
+- Full contract, harness setup and HTTP fallback: `docs/agents.md`.
+
 ### Generation Provider Resolution
 
 - Provider resolution order: saved `data/generation.json` > shell env > `.env` (dotenv skips already-set vars; saved config wins over both).

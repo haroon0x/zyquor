@@ -1,3 +1,23 @@
 #!/usr/bin/env sh
+# Zyquor dev entrypoint.
+#
+# Agents can call this like any CLI:  ./zyquor status --json
+# MCP harnesses (Claude Code etc.) can register it:  ./zyquor mcp
+#
+# Prefers a built binary for clean stdin/stdout and fast startup, but only
+# while it is newer than every Rust source file; otherwise falls back to
+# `cargo run`, which rebuilds first. This avoids silently running a stale
+# binary after an edit.
+set -e
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-exec node "$DIR/scripts/zyquor.mjs" "$@"
+
+for BIN in "$DIR/target/debug/zyquor" "$DIR/target/release/zyquor"; do
+  if [ -x "$BIN" ]; then
+    NEWER=$(find "$DIR/apps" "$DIR/crates" -name '*.rs' -newer "$BIN" -print 2>/dev/null | head -n 1)
+    if [ -z "$NEWER" ]; then
+      exec "$BIN" "$@"
+    fi
+  fi
+done
+
+exec cargo run --quiet --manifest-path "$DIR/Cargo.toml" -p zyquor-cli -- "$@"

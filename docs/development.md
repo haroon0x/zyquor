@@ -53,6 +53,8 @@ cargo run -p zyquor-cli -- <command> [flags]
 | `api` | Run the axum API only. |
 | `worker` | Run the background worker only. Requires `ZYQUOR_RUN_WORKER=1`; takes the worker lock. |
 | `web` | Run the Vite dev server only. |
+| `status [--json]` | One-shot health + queue summary from the local API. Use it to discover a running instance; exits 1 when unreachable. |
+| `mcp [--allow-browser] [--allow-post] [--api-url <url>]` | Model Context Protocol stdio server for agent harnesses. Default exposes read + draft/approve tools; browser/posting tools need the flags. See [agents.md](agents.md). |
 | `open-profile [--manual]` | Ensure the CDP Chrome is running, or with `--manual` open a normal Chrome window at the X login page and wait for Enter. |
 | `check-login` | Check the dedicated profile's X session. Prints JSON and exits 0 only when logged in. |
 | `post-loop [--once] [--dry] [--force]` | Original-post lane: rotating topics, draft, screen, approve, post through the gated API path. |

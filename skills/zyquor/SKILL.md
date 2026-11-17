@@ -1,9 +1,17 @@
 ---
 name: zyquor
-description: Drive Zyquor, the user's local-first X posting and reply engine, over its HTTP API with plain curl. Use whenever the user mentions Zyquor, their accounts, mentions, reply drafts, the review queue, approving/scheduling posts, posting jobs, history, or performance stats, or asks "draft a reply to this post", "scan my mentions", "what's in the queue", or "post the next job". The review queue is the gate: nothing is ever posted without an explicit ask.
+description: Drive Zyquor, the user's local-first X posting and reply engine. Prefer the `zyquor mcp` MCP tools when available (also HTTP API with curl, or `zyquor status --json`); this skill is also served as the MCP resource zyquor://guide. Use whenever the user mentions Zyquor, their accounts, mentions, reply drafts, the review queue, approving/scheduling posts, posting jobs, history, or performance stats, or asks "draft a reply to this post", "scan my mentions", "what's in the queue", or "post the next job". The review queue is the gate: nothing is ever posted without an explicit ask.
 ---
 
 # Zyquor
+
+## Preferred interfaces
+
+- **MCP (best):** `./zyquor mcp` exposes typed tools (status, list_jobs, create_draft, generate_draft, select_candidate, approve_draft; add `--allow-browser` for prepare_job and `--allow-post` for post_job). Register it in Claude Code/Cursor/Codex or rely on this repo's `.mcp.json`. See [docs/agents.md](../../docs/agents.md) for the full tool table and safety tiers.
+- **CLI:** `./zyquor status --json` for one-shot state; `cargo run -p zyquor-cli -- …` for the rest.
+- **HTTP:** every route below stays the source of truth and the fallback for anything the tools do not cover.
+
+The safety rules in this file apply to every interface: the review queue is the gate, approvals are always screened, posting needs an explicit human ask.
 
 Zyquor is the user's local-first posting and reply engine for X (Twitter). Each X account has its own Chrome profile, its own limits (daily post cap, quiet hours, spacing), and posts run concurrently per account. The per-day hard ceiling comes from `ZYQUOR_DAILY_POST_CEILING` in the repo `.env` (currently 50 flat: ceiling 50, variance band 50/50). Every post starts as a draft that a human approves. Nothing auto-posts unless the user explicitly says so.
 

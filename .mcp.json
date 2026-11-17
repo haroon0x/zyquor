@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "zyquor": {
+      "command": "cargo",
+      "args": ["run", "--quiet", "-p", "zyquor-cli", "--", "mcp"]
+    }
+  }
+}

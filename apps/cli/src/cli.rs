@@ -69,7 +69,7 @@ pub fn repo_data_dir() -> PathBuf {
 
 pub fn print_usage() {
     println!(
-        "Usage: zyquor [start|api|worker|web|post-loop|reply-loop|overseer|open-profile [--manual]|check-login|backfill-timeline [--dry-run]|poll-mentions [--dry]|seed-account [handle] [display name...]|lessons [--dry]|tweet-eval|smoke-generation|outreach <find|queue|review|list|mark-sent|skip|verify>]"
+        "Usage: zyquor [start|api|worker|web|status [--json]|mcp [--allow-browser] [--allow-post] [--api-url <url>]|post-loop|reply-loop|overseer|open-profile [--manual]|check-login|backfill-timeline [--dry-run]|poll-mentions [--dry]|seed-account [handle] [display name...]|lessons [--dry]|tweet-eval|smoke-generation|outreach <find|queue|review|list|mark-sent|skip|verify>]"
     );
 }
 
@@ -82,6 +82,7 @@ fn known_flags(command: &str) -> &'static [&'static str] {
         "poll-mentions" => &["--dry", "--help", "-h"],
         "lessons" => &["--dry", "--help", "-h"],
         "seed-account" => &["--help", "-h"],
+        "status" => &["--json", "--help", "-h"],
         _ => &["--help", "-h"],
     }
 }

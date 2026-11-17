@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Agent-native interface: `zyquor mcp` stdio MCP server (read + draft/generate/
+  select/screened-approve tools; `prepare_job`/`post_job` and autopost approval
+  only with `--allow-browser`/`--allow-post`; `post_job` also needs
+  `confirm:"post"`), `zyquor status [--json]` discovery command, a
+  project-scoped `.mcp.json`, a repaired `./zyquor` dev wrapper (fresh binary,
+  otherwise `cargo run`), `docs/agents.md`, and an MCP `zyquor://guide`
+  resource backed by the shipped skill. Protocol tested in
+  `apps/cli/tests/mcp_protocol.rs`.
+
 - Release-signing readiness: generated the Tauri updater minisign keypair
   (public key committed at `apps/desktop/updater.pubkey` and in
   `plugins.updater`), taught `desktop-win` to sign updater artifacts and emit

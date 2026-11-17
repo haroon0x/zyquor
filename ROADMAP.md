@@ -106,6 +106,14 @@ decision and served inside the Tauri webview.
   card was dropped. It now captures the full `Month D, YYYY` text; fixture
   tests cover full/short month names, 1-digit days, dedupe, and the blurb
   fallback.
+- **Agent native.** Added a stdio MCP server (`zyquor mcp`, 14 default tools:
+  status/queue/history reads plus draft → generate → select → screened approve;
+  `prepare_job`/`post_job` appear only behind `--allow-browser`/`--allow-post`,
+  and posting also needs `confirm:"post"`), a `zyquor status --json` discovery
+  command, a project-scoped `.mcp.json`, a repaired `./zyquor` wrapper (fresh
+  built binary, else `cargo run`), `docs/agents.md`, and an updated
+  `skills/zyquor` (also served as the MCP resource `zyquor://guide`). Protocol
+  covered by `apps/cli/tests/mcp_protocol.rs`.
 - **Release-signing readiness.** The Tauri updater minisign keypair was
   generated (public key committed at `apps/desktop/updater.pubkey` and in
   `plugins.updater`; private key + password held outside the repo), CI can sign

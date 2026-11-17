@@ -147,7 +147,7 @@ skills/       portable agent skill for driving the HTTP API
 
 ## Rust migration
 
-Complete 2026-11-08: one Cargo workspace. `crates/zyquor-{core,accounts,storage,adapters,generation,automation,browser}` plus `apps/{api,worker,desktop,cli}`, plus the React web UI (`apps/web`, kept per the M7 decision — it lives inside the Tauri webview and is the only non-Rust artifact). See [docs/rust-migration.md](docs/rust-migration.md) for the milestone plan, parity strategy, and deliberate removals.
+Complete 2026-11-08: one Cargo workspace. ``.mcp.json` (project-scoped MCP server), `crates/zyquor-{core,accounts,storage,adapters,generation,automation,browser}` plus `apps/{api,worker,desktop,cli}`, plus the React web UI (`apps/web`, kept per the M7 decision — it lives inside the Tauri webview and is the only non-Rust artifact). See [docs/rust-migration.md](docs/rust-migration.md) for the milestone plan, parity strategy, and deliberate removals.
 
 ```bash
 cargo fmt --all --check
@@ -156,6 +156,24 @@ cargo test --workspace
 ```
 
 All TypeScript backend code has been ported and the pnpm workspace retired (only the React renderer remains, built with pnpm/Vite).
+
+## Agent native
+
+Zyquor is built to be driven by coding agents, not just clicked:
+
+```bash
+./zyquor status --json          # one-shot health + queue state
+./zyquor mcp                    # MCP stdio server (Claude Code, Cursor, Codex, …)
+claude mcp add zyquor -- ./zyquor mcp   # register once (project .mcp.json is included)
+```
+
+The MCP server exposes read tools plus draft/generate/select/approve (approvals
+always pass the server-side quality screen). `prepare_job` and `post_job` are
+only listed when the server is started with `--allow-browser` / `--allow-post`,
+and posting additionally requires `confirm:"post"` — the human gate is encoded
+in the interface. Pass `--allow-post` only after the user explicitly asks to
+publish; see [docs/agents.md](docs/agents.md) for the tool table, harness setup,
+HTTP fallback and the safety contract.
 
 ## Development
 
