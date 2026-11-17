@@ -214,6 +214,12 @@ account credentials leaving the machine.
 
 ### Fixed
 
+- Desktop app: the windowed path now honours `ZYQUOR_DATA_ROOT` like the
+  headless smoke path (it used to always open the Tauri app-data directory,
+  silently starting a second empty database), and the navigation guard allows
+  the app's own hash-routed SPA pages instead of blocking internal
+  `tauri://localhost#...` navigations.
+
 - Live X acceptance (2026-11-17) surfaced three browser-flow bugs, all fixed:
   login/session checks now run on a home shell page instead of the composer
   route (`/compose/post` has no nav shell and `verify_credentials` returns

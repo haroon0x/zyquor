@@ -647,10 +647,16 @@ fn run_setup(
     api_port: u16,
     hidden: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let data_root = app
-        .path()
-        .app_data_dir()
-        .unwrap_or_else(|_| std::env::temp_dir().join("zyquor"));
+    // The documented resolution order is `ZYQUOR_DATA_ROOT` first, then the
+    // Tauri app-data directory (the headless smoke path already did this; the
+    // windowed path used to ignore the env override and open a second, empty
+    // database).
+    let data_root = std::env::var("ZYQUOR_DATA_ROOT")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| app.path().app_data_dir().ok())
+        .unwrap_or_else(|| std::env::temp_dir().join("zyquor"));
     init_file_log(&data_root);
     if let Some(log_path) = log::log_file_path() {
         log_line("info", &format!("log file: {}", log_path.display()));
@@ -874,6 +880,13 @@ fn main() {
                         return true;
                     }
                     if url.origin() == current.origin() {
+                        return true;
+                    }
+                    // Tauri's custom-protocol origins are opaque to the `url`
+                    // crate, so the origin comparison above can fail for the
+                    // app's own SPA hash routes (`tauri://localhost#queue`).
+                    // Allow same scheme + host, which is still app-local.
+                    if url.scheme() == current.scheme() && url.host_str() == current.host_str() {
                         return true;
                     }
                     let scheme = url.scheme();
