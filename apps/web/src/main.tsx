@@ -86,11 +86,26 @@ function App() {
   const [busyScopes, setBusyScopes] = useState<string[]>([]);
   const [refreshToken, setRefreshToken] = useState(0);
   const refreshRequestIdRef = useRef(0);
+  const toastIdRef = useRef(0);
+  const [toasts, setToasts] = useState<Array<{ id: number; message: string; kind: "success" | "info" | "error" }>>([]);
+  const [browserSessionChecking, setBrowserSessionChecking] = useState(false);
+  const [systemSnapshot, setSystemSnapshot] = useState<{ workerRunning: boolean; postingEnabled: boolean; prepareEnabled: boolean } | null>(null);
   const isElectron = Boolean(window.zyquor);
   const appVersion = window.zyquor?.appVersion ?? "";
 
   function reportError(caught: unknown, fallback: string) {
     setError(caught instanceof Error ? caught.message : fallback);
+  }
+
+  function dismissToast(id: number) {
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  }
+
+  function notify(message: string, kind: "success" | "info" | "error" = "success") {
+    toastIdRef.current += 1;
+    const id = toastIdRef.current;
+    setToasts((current) => [...current.slice(-3), { id, message, kind }]);
+    window.setTimeout(() => dismissToast(id), kind === "error" ? 9000 : 5500);
   }
 
   async function loadRootData() {
@@ -132,6 +147,37 @@ function App() {
     void api<WorkerStatus>("/worker/status").then(setWorkerStatus).catch(() => setWorkerStatus(null));
   }, [refreshToken]);
 
+  // Keep the rail's worker/posting indicators live without opening System.
+  useEffect(() => {
+    void api<{ posting?: { enablePost?: boolean; enablePrepare?: boolean }; worker?: { running?: boolean } }>("/system/status")
+      .then((status) => setSystemSnapshot({
+        workerRunning: status.worker?.running === true,
+        postingEnabled: status.posting?.enablePost === true,
+        prepareEnabled: status.posting?.enablePrepare === true
+      }))
+      .catch(() => setSystemSnapshot(null));
+  }, [refreshToken]);
+
+  // Verify the posting-browser session as soon as an account becomes active, so
+  // the header never sits on an ambiguous "X unknown" until the user clicks.
+  useEffect(() => {
+    let active = true;
+    setBrowserSessionChecking(true);
+    void api<BrowserSession>(`/browser/x-session?accountId=${encodeURIComponent(activeAccountId)}`)
+      .then((session) => {
+        if (active) setBrowserSession(session);
+      })
+      .catch(() => {
+        if (active) setBrowserSession(null);
+      })
+      .finally(() => {
+        if (active) setBrowserSessionChecking(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [activeAccountId]);
+
   useEffect(() => {
     setAutoPost(false);
   }, [draft?.draft.id]);
@@ -150,9 +196,19 @@ function App() {
   }
 
   function checkBrowserSession() {
+    setBrowserSessionChecking(true);
     run(async () => {
-      const session = await api<BrowserSession>(`/browser/x-session?accountId=${encodeURIComponent(activeAccountId)}`);
-      setBrowserSession(session);
+      try {
+        const session = await api<BrowserSession>(`/browser/x-session?accountId=${encodeURIComponent(activeAccountId)}`);
+        setBrowserSession(session);
+        if (session.loggedIn) {
+          notify(`X session verified${session.observedHandle ? ` as @${session.observedHandle}` : ""}.`);
+        } else {
+          notify("The posting browser is not logged in. Run `zyquor open-profile --manual` once.", "error");
+        }
+      } finally {
+        setBrowserSessionChecking(false);
+      }
     }, "header");
   }
 
@@ -172,6 +228,7 @@ function App() {
       setNewAccountHandle("");
       setNewAccountDisplayName("");
       setShowAccountForm(false);
+      notify(`Added account @${account.handle}.`, "success");
     }, "account-create");
   }
 
@@ -180,6 +237,7 @@ function App() {
     run(async () => {
       await api("/system/stop-all", { method: "POST" });
       setRefreshToken((current) => current + 1);
+      notify("Paused the worker and turned prepare/post off.", "info");
     }, "stop-all");
   }
 
@@ -197,6 +255,7 @@ function App() {
   }
 
   const activeAccount = accounts.find((account) => account.id === activeAccountId);
+  const workerOnline = workerStatus?.workerRunning === true;
   const activeViewMeta = views.find((view) => view.id === activeView) ?? views[0]!;
   const panelFor = (scope: string): PanelProps => ({
     accountId: activeAccountId,
@@ -204,6 +263,8 @@ function App() {
     refresh,
     refreshToken,
     reportError,
+    notify,
+    navigate,
     run: (action) => run(action, scope)
   });
   const composerState = {
@@ -284,14 +345,30 @@ function App() {
         </nav>
         <p className="rail-note">Every post waits for a human click.</p>
         <div className="sidebar-status">
-          <button aria-label="Open setup guide" className="ghost onboarding-help" onClick={openOnboarding} title="Setup guide">?</button>
-          <span
-            aria-label={workerStatus?.workerRunning ? "Worker online" : "Worker offline"}
-            className={workerStatus?.workerRunning ? "dot-chip worker-chip online" : "dot-chip worker-chip offline"}
-            role="status"
-            title={workerStatus?.workerRunning ? "Worker online" : "Worker offline"}
-          />
-          {isElectron ? <span className="sidebar-version">v{appVersion || "—"}</span> : null}
+          <div className="rail-states">
+            <button
+              className={workerOnline ? "rail-state ok" : "rail-state warn"}
+              onClick={() => navigate("system")}
+              title="Worker state — open System"
+              type="button"
+            >
+              <span aria-hidden="true" className="rail-dot" />
+              worker {workerOnline ? "online" : "offline"}
+            </button>
+            <button
+              className={systemSnapshot?.postingEnabled ? "rail-state posting-on" : "rail-state"}
+              onClick={() => navigate("system")}
+              title="Posting flag — open System"
+              type="button"
+            >
+              <span aria-hidden="true" className="rail-dot" />
+              posting {systemSnapshot?.postingEnabled ? "on" : "off"}
+            </button>
+          </div>
+          <div className="rail-actions">
+            <button aria-label="Open setup guide" className="ghost onboarding-help" onClick={openOnboarding} title="Setup guide" type="button">?</button>
+            {isElectron ? <span className="sidebar-version">v{appVersion || "—"}</span> : null}
+          </div>
         </div>
       </aside>
       <div className="app-main">
@@ -318,6 +395,7 @@ function App() {
                         method: "POST",
                         body: JSON.stringify({ accountId: nextId })
                       });
+                      const switched = accounts.find((account) => account.id === nextId);
                       setBrowserSession({
                         accountId: nextId,
                         cdpUrl: null,
@@ -327,6 +405,7 @@ function App() {
                         profileDir: "",
                         url: null
                       });
+                      notify(`Active account: @${switched?.handle ?? nextId}`, "info");
                     } catch (caught) {
                       setActiveAccountId(previousId);
                       throw caught;
@@ -364,10 +443,19 @@ function App() {
                   <button className="ghost compact-button" type="button" onClick={() => setShowAccountForm(false)}>Cancel</button>
                 </form>
               ) : null}
-              {browserSession ? (
-                <span className={browserSession.loggedIn ? "dot-chip online" : "dot-chip offline"}>X {browserSession.loggedIn ? "active" : "logged out"}</span>
-              ) : <span className="dot-chip unknown">X unchecked</span>}
-              <button className="secondary compact-button" disabled={busyScopes.includes("header")} onClick={checkBrowserSession}>
+              {browserSessionChecking ? (
+                <span className="dot-chip checking" title="Checking the posting browser session">X checking…</span>
+              ) : browserSession ? (
+                <span
+                  className={browserSession.loggedIn ? "dot-chip online" : "dot-chip offline"}
+                  title={browserSession.observedHandle ? `Logged in as @${browserSession.observedHandle}` : undefined}
+                >
+                  X {browserSession.loggedIn ? "active" : "logged out"}
+                </span>
+              ) : (
+                <span className="dot-chip unknown" title="Session not verified yet — click Check X">X unknown</span>
+              )}
+              <button className="secondary compact-button" disabled={busyScopes.includes("header") || browserSessionChecking} onClick={checkBrowserSession}>
                 <Busy active={busyScopes.includes("header")} />Check X
               </button>
               {isElectron ? <button
@@ -382,7 +470,24 @@ function App() {
           </div>
         </div>
         <main className="content-area">
-          {error ? <p className="notice error" role="alert">{error}</p> : null}
+          {error ? (
+            <div className="notice error notice-action" role="alert">
+              <span>{error}</span>
+              <span className="notice-actions">
+                <button
+                  className="ghost compact-button"
+                  type="button"
+                  onClick={() => {
+                    setError(null);
+                    void refresh().catch(() => undefined);
+                  }}
+                >
+                  Retry
+                </button>
+                <button className="ghost compact-button" type="button" onClick={() => setError(null)}>Dismiss</button>
+              </span>
+            </div>
+          ) : null}
           <header className="view-header">
             <div className="view-header-copy">
               <span className="view-kicker">
@@ -424,6 +529,22 @@ function App() {
           }}
         />
       ) : null}
+      <div aria-live="polite" aria-relevant="additions" className="toast-stack" role="status">
+        {toasts.map((toast) => (
+          <div className={`toast toast--${toast.kind}`} key={toast.id}>
+            <span aria-hidden="true" className="toast-mark" />
+            <span className="toast-message">{toast.message}</span>
+            <button
+              aria-label="Dismiss notification"
+              className="toast-close"
+              onClick={() => dismissToast(toast.id)}
+              type="button"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
     </>
   );
 }

@@ -4,7 +4,7 @@ import { Busy, InlineError, errorMessage } from "../components/Feedback.js";
 import type { PanelProps, PostHistory } from "../types.js";
 
 export function HistoryView({ panel }: { panel: PanelProps }) {
-  const { accountId, busy, refresh, refreshToken, run } = panel;
+  const { accountId, busy, navigate, notify, refresh, refreshToken, run } = panel;
   const [history, setHistory] = useState<PostHistory[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -30,9 +30,10 @@ export function HistoryView({ panel }: { panel: PanelProps }) {
   }, [accountId, refreshToken]);
 
   function deletePost(item: PostHistory) {
-    if (!window.confirm("Delete this post from X as well as marking it deleted here?")) return;
+    if (!window.confirm("Delete this post from X? This removes it from your timeline and cannot be undone.")) return;
     run(async () => {
       await api(`/history/${item.id}/delete`, { method: "POST" });
+      notify("Deleted from X and marked as deleted in History.", "success");
       await refresh();
     });
   }
@@ -63,7 +64,22 @@ export function HistoryView({ panel }: { panel: PanelProps }) {
             );
           })}
         </div>
-      ) : loaded && !loadError ? <div className="view-empty-state"><p>Nothing posted yet</p></div> : !loadError ? <p className="empty">Loading history…</p> : null}
+      ) : loaded && !loadError ? (
+        <div className="view-empty-state">
+          <p>Nothing posted yet</p>
+          <p className="empty-state-hint">Approve a draft in Compose, then publish it from the Queue. Posts appear here with their permalinks for 24 hours.</p>
+          <button className="secondary compact-button" type="button" onClick={() => navigate("queue")}>Open the Queue</button>
+        </div>
+      ) : !loadError ? (
+        <div aria-label="Loading history" className="skeleton-table">
+          {[0, 1, 2].map((row) => (
+            <div className="skeleton-row" key={row}>
+              <span className="skeleton-line" />
+              <span className="skeleton-line skeleton-line--short" />
+            </div>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }

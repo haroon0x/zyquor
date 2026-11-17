@@ -3325,3 +3325,221 @@ textarea:focus, input:focus, select:focus {
   .queue-panel, .queue-table, .content-area, .app-main { min-width: 0; max-width: 100%; }
   .account-bar-inner { overflow-x: clip; }
 }
+
+/* ==========================================================================
+   Pass 8 — UX feedback layer (toasts, clarity, states)
+   ========================================================================== */
+
+/* --- rail status footer --- */
+.sidebar-status {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 9px;
+}
+.rail-states { display: flex; flex-direction: column; gap: 1px; }
+.rail-state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 22px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  padding: 0 4px;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-align: left;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+.rail-state:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 5%, transparent); }
+.rail-dot { width: 5px; height: 5px; flex: 0 0 5px; border-radius: 50%; background: currentColor; opacity: 0.55; }
+.rail-state.ok .rail-dot { background: var(--ok); opacity: 1; }
+.rail-state.warn { color: var(--warn); }
+.rail-state.warn .rail-dot { background: var(--warn); opacity: 1; }
+.rail-state.posting-on { color: var(--warn); }
+.rail-state.posting-on .rail-dot { background: var(--warn); opacity: 1; animation: pulse-dot 2.2s ease-in-out infinite; }
+.rail-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+/* --- session/liveness chips --- */
+.dot-chip.checking { color: var(--muted); border-color: var(--line); }
+.dot-chip.checking::before { background: var(--muted); opacity: 1; animation: busy-pulse 1s ease-in-out infinite; }
+
+/* --- actionable notice banner --- */
+.notice-action { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.notice-actions { display: flex; flex: 0 0 auto; gap: 4px; }
+
+/* --- compose next-step clarity --- */
+.compose-next {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 18px 0 0;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+  max-width: 76ch;
+}
+.compose-next-mark { height: 6px; width: 6px; margin-top: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--accent); }
+.compose-next--warn { color: var(--warn); border-top-color: color-mix(in srgb, var(--warn) 30%, var(--line)); }
+.compose-next--warn .compose-next-mark { background: var(--warn); }
+.compose-submit-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 14px; }
+.compose-submit-row .composer-submit { margin-top: 0; flex: 0 1 auto; min-width: 220px; }
+.compose-shortcut { color: var(--faint); font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap; }
+.compose-hint, .compose-progress { margin: 10px 0 0; color: var(--faint); font-size: 11.5px; }
+.compose-progress { color: var(--info); }
+
+/* --- candidate next step + queued confirmation --- */
+.candidate-hint { margin: 0 0 12px; color: var(--muted); font-size: 12px; max-width: 72ch; }
+.candidate-hint strong { color: var(--ink); font-weight: 600; }
+.approved-callout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0 0 14px;
+  border: 1px solid color-mix(in srgb, var(--ok) 34%, transparent);
+  border-left: 3px solid var(--ok);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--ok) 6%, var(--panel-raised));
+  padding: 11px 13px;
+}
+.approved-callout strong { display: block; font-size: 12.5px; font-weight: 600; }
+.approved-callout span { display: block; margin-top: 2px; color: var(--muted); font-size: 11.5px; }
+
+/* --- queue selection count --- */
+.selection-count {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
+  border-radius: var(--radius);
+  padding: 0 7px;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* --- toasts --- */
+.toast-stack {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(380px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.toast {
+  display: grid;
+  grid-template-columns: 3px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--panel-raised);
+  box-shadow: 0 24px 50px -28px rgba(28, 26, 19, 0.6);
+  padding: 10px 10px 10px 9px;
+  pointer-events: auto;
+  animation: toast-in 0.28s var(--ease-out) both;
+}
+.toast-mark { height: 18px; width: 3px; border-radius: 2px; background: var(--ok); }
+.toast--info .toast-mark { background: var(--info); }
+.toast--error .toast-mark { background: var(--warn); }
+.toast-message { font-size: 12px; line-height: 1.45; color: var(--ink); }
+.toast-close {
+  height: 20px;
+  width: 20px;
+  min-width: 20px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--faint);
+  font-size: 15px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+}
+.toast-close:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 7%, transparent); color: var(--ink); }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+/* --- skeletons --- */
+.skeleton-table { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.skeleton-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 150px;
+  gap: 16px;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  padding: 17px 2px;
+}
+.skeleton-pill, .skeleton-line {
+  display: block;
+  height: 11px;
+  border-radius: 2px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--ink) 6%, transparent) 25%,
+    color-mix(in srgb, var(--ink) 12%, transparent) 50%,
+    color-mix(in srgb, var(--ink) 6%, transparent) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+.skeleton-pill { height: 16px; width: 36px; }
+.skeleton-line--short { width: 120px; justify-self: end; }
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* --- actionable empty states --- */
+.view-empty-state { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.view-empty-state .empty-state-hint {
+  max-width: 54ch;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--muted);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  letter-spacing: 0;
+  line-height: 1.55;
+  text-transform: none;
+}
+.view-empty-state .compact-button { margin-top: 2px; }
+.queue-filter-empty { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; }
+.queue-filter-empty .compact-button { text-transform: none; letter-spacing: 0; font-family: var(--font-sans); font-size: 10.5px; }
+
+@media (max-width: 720px) {
+  .toast-stack { right: 12px; bottom: 12px; left: 12px; width: auto; }
+  .compose-shortcut { display: none; }
+  .compose-submit-row .composer-submit { flex: 1 1 100%; }
+  .approved-callout { flex-direction: column; align-items: flex-start; }
+  .skeleton-row { grid-template-columns: 36px minmax(0, 1fr); }
+  .skeleton-line--short { display: none; }
+}
+
+/* Pass 8b — mobile: keep the top bar to brand + nav + account (no rail states) */
+@media (max-width: 720px) {
+  .sidebar-status { display: none; }
+}

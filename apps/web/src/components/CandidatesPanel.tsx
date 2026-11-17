@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import type { Candidate, Draft, DraftResponse, Job, PanelProps } from "../types.js";
 import { Busy, StatusBadge } from "./Feedback.js";
@@ -17,7 +18,7 @@ export interface CandidatesState {
 }
 
 export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: CandidatesState }) {
-  const { busy, refresh, run } = panel;
+  const { busy, navigate, notify, refresh, run } = panel;
   const {
     autoPost,
     draft,
@@ -33,6 +34,11 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
   } = state;
   const selectedCandidate = draft?.candidates.find((candidate) => candidate.selected) ?? null;
   const editedCharacterLength = editedText.length;
+  const [queuedJob, setQueuedJob] = useState<Job | null>(null);
+
+  useEffect(() => {
+    setQueuedJob(null);
+  }, [draft?.draft.id]);
 
   function selectCandidate(candidate: Candidate) {
     if (!draft) return;
@@ -60,6 +66,13 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
       setDraft({ ...draft, draft: response.draft });
       setAutoPost(false);
       setScheduledFor("");
+      setQueuedJob(response.job);
+      notify(
+        response.job.mode === "autopost"
+          ? "Approved as autopost — the worker will publish it without another review."
+          : "Approved and queued. Nothing is posted until you press Post in the Queue.",
+        response.job.mode === "autopost" ? "info" : "success"
+      );
       await refresh();
     });
   }
@@ -71,6 +84,7 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
         method: "POST"
       });
       setDraft(response);
+      notify(`Local scores refreshed for ${response.candidates.length} candidate${response.candidates.length === 1 ? "" : "s"}.`, "info");
     });
   }
 
@@ -81,7 +95,7 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
           <div className="candidate-results-head">
             <div>
               <h2>Candidates</h2>
-              <p>Choose a direction, edit it, then approve.</p>
+              <p>Select the card you want, edit if needed, then Approve.</p>
             </div>
             <div className="candidate-results-actions">
               <button className="secondary compact-button" disabled={busy} onClick={evaluateDraft}>
@@ -90,6 +104,22 @@ export function CandidatesPanel({ panel, state }: { panel: PanelProps; state: Ca
               <StatusBadge status={draft.draft.status} />
             </div>
           </div>
+          <p className="candidate-hint">
+            Approving queues the job — it does <strong>not</strong> post. Every post is published explicitly from the Queue.
+          </p>
+          {queuedJob ? (
+            <div className="approved-callout" role="status">
+              <div>
+                <strong>Queued as {queuedJob.mode === "autopost" ? "an autopost job" : "a review job"}</strong>
+                <span>
+                  {queuedJob.mode === "autopost"
+                    ? "The worker will publish it without another review."
+                    : "Nothing is posted until you press Post in the Queue."}
+                </span>
+              </div>
+              <button className="secondary compact-button" type="button" onClick={() => navigate("queue")}>Open Queue</button>
+            </div>
+          ) : null}
           <div className="candidate-list data-content">
             {draft.candidates.map((candidate) => {
               const selected = candidate.id === selectedCandidate?.id;

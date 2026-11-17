@@ -24,7 +24,7 @@ export interface ComposerState {
 }
 
 export function Composer({ panel, state }: { panel: PanelProps; state: ComposerState }) {
-  const { accountId, busy, refresh, run } = panel;
+  const { accountId, busy, notify, refresh, run } = panel;
   const {
     autoPost,
     idea,
@@ -71,6 +71,7 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
         setDraft(null);
         setEditedText("");
         await refresh();
+        notify("Autopost queued — the worker will publish it without another review.", "info");
         return;
       }
 
@@ -95,6 +96,10 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
         setDraft(null);
         setEditedText("");
         await refresh();
+        notify(
+          `${ideas.length} batch job${ideas.length === 1 ? "" : "s"} queued — review and approve them in the Queue.`,
+          "success"
+        );
         return;
       }
 
@@ -123,8 +128,35 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
       }
       setDraft(response);
       setEditedText(response.candidates[0]?.text ?? "");
+      if (response.candidates.length) {
+        notify(`Drafts ready — ${response.candidates.length} candidate${response.candidates.length === 1 ? "" : "s"} below.`, "success");
+      } else {
+        notify("No candidates came back. Try a more concrete idea or regenerate.", "error");
+      }
     });
   }
+
+  const trimmedIdea = idea.trim();
+  const batchIdeas = idea.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const nextStep = postPlan === "batch"
+    ? autoPost
+      ? "Autopost batch — each line becomes a job the worker publishes without another review."
+      : `Batch: ${batchIdeas.length || 0} line${batchIdeas.length === 1 ? "" : "s"} → one draft each, approved in the Queue and spaced ${scheduleSpacingMinutes} min apart.`
+    : autoPost
+      ? "Autopost — one generated post, queued for the worker to publish without another review. Only use when you mean it."
+      : scheduledFor
+        ? "Scheduled — generates drafts to review; approved jobs wait for the chosen time."
+        : replyToUrl.trim()
+          ? "Reply draft — generates reply candidates for that post; review and approve before anything is sent."
+          : "Review first — generates drafts here; approve one to queue it. Nothing is posted until Post in the Queue.";
+  const nextStepWarning = autoPost;
+  const submitLabel = postPlan === "batch"
+    ? autoPost ? "Autopost batch" : "Create batch jobs"
+    : autoPost
+      ? "Autopost without review"
+      : scheduledFor
+        ? "Generate & schedule"
+        : "Generate drafts";
 
   return (
     <form
@@ -159,7 +191,7 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
       <div className="compose-options">
         <label>
           Plan
-          <select value={postPlan} onChange={(event) => setPostPlan(event.target.value)}>
+          <select disabled={busy} value={postPlan} onChange={(event) => setPostPlan(event.target.value)}>
             <option value="single">single</option>
             <option value="batch">batch</option>
           </select>
@@ -169,7 +201,7 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
           <select
             value={replyToUrl.trim() && postPlan === "single" ? "reply" : tweetType}
             onChange={(event) => setTweetType(event.target.value)}
-            disabled={Boolean(replyToUrl.trim()) && postPlan === "single"}
+            disabled={busy || (Boolean(replyToUrl.trim()) && postPlan === "single")}
           >
             {tweetTypeOptions.map((option) => (
               <option key={option} value={option}>
@@ -180,7 +212,7 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
         </label>
         <label>
           Schedule
-          <input type="datetime-local" value={scheduledFor} onChange={(event) => setScheduledFor(event.target.value)} />
+          <input disabled={busy} type="datetime-local" value={scheduledFor} onChange={(event) => setScheduledFor(event.target.value)} />
         </label>
         {postPlan === "batch" ? (
           <label>
@@ -189,6 +221,7 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
               max="480"
               min="15"
               step="15"
+              disabled={busy}
               type="number"
               value={scheduleSpacingMinutes}
               onChange={(event) => setScheduleSpacingMinutes(Number(event.target.value))}
@@ -209,10 +242,10 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
             />
           </label>
         ) : postPlan === "single" ? (
-          <button className="ghost reply-target-toggle" type="button" onClick={() => setShowReplyTarget(true)}>+ Reply target</button>
+          <button className="ghost reply-target-toggle" disabled={busy} type="button" onClick={() => setShowReplyTarget(true)}>+ Reply target</button>
         ) : null}
         <label className={autoPost ? "checkbox-row switch-row autopost-control warning" : "checkbox-row switch-row autopost-control"}>
-          <input checked={autoPost} type="checkbox" onChange={(event) => setAutoPost(event.target.checked)} />
+          <input checked={autoPost} disabled={busy} type="checkbox" onChange={(event) => setAutoPost(event.target.checked)} />
           <span aria-hidden="true" className="switch" />
           <span>
             Autopost
@@ -220,10 +253,22 @@ export function Composer({ panel, state }: { panel: PanelProps; state: ComposerS
           </span>
         </label>
       </div>
-      <button className="composer-submit" disabled={!idea.trim() || busy}>
-        <Busy active={busy} />
-        {postPlan === "batch" ? "Create batch jobs" : autoPost ? "Autopost" : "Generate drafts"}
-      </button>
+      <p className={nextStepWarning ? "compose-next compose-next--warn" : "compose-next"}>
+        <span aria-hidden="true" className="compose-next-mark" />
+        {nextStep}
+      </p>
+      <div className="compose-submit-row">
+        <button className="composer-submit" disabled={!trimmedIdea || busy}>
+          <Busy active={busy} />
+          {busy ? "Writing candidates…" : submitLabel}
+        </button>
+        <span className="compose-shortcut" title="Generate from the keyboard">⌘ / Ctrl + Enter</span>
+      </div>
+      {busy ? (
+        <p className="compose-progress" role="status">Generating takes a few seconds up to about a minute. The rest of the app stays usable.</p>
+      ) : !trimmedIdea ? (
+        <p className="compose-hint">Add an idea above to continue.</p>
+      ) : null}
     </form>
   );
 }

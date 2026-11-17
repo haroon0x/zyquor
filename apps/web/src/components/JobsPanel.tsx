@@ -42,7 +42,7 @@ function toDateTimeLocal(timestamp: string | null) {
 }
 
 export function JobsPanel({ panel }: { panel: PanelProps }) {
-  const { accountId, busy, refresh, refreshToken, run } = panel;
+  const { accountId, busy, navigate, notify, refresh, refreshToken, run } = panel;
   const [jobs, setJobs] = useState<Job[]>([]);
   const [attemptsByJob, setAttemptsByJob] = useState<Record<string, Attempt[]>>({});
   const [draftsByJob, setDraftsByJob] = useState<Record<string, JobDraftDetails>>({});
@@ -51,6 +51,7 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [filter, setFilter] = useState<QueueFilter>("ready");
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const requestIdRef = useRef(0);
   const draftDetailsCacheRef = useRef<Record<string, JobDraftDetails>>({});
 
@@ -101,6 +102,7 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
     );
     setSelectedJobIds((current) => current.filter((id) => availableJobIds.has(id)));
     setExpandedJobId((current) => current && availableJobIds.has(current) ? current : null);
+    setLoaded(true);
   }
 
   useEffect(() => {
@@ -129,9 +131,33 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId, busy, expandedJobId]);
 
-  function prepareJob(job: Job) { run(async () => { await api(`/jobs/${job.id}/prepare`, { method: "POST" }); await refresh(); }); }
-  function postJob(job: Job) { run(async () => { await api(`/jobs/${job.id}/post`, { method: "POST" }); await refresh(); }); }
-  function deleteJob(job: Job) { run(async () => { await api(`/jobs/${job.id}`, { method: "DELETE" }); await refresh(); }); }
+  function draftPreview(job: Job) {
+    const text = draftsByJob[job.id]?.text ?? "this draft";
+    return text.length > 140 ? `${text.slice(0, 140)}…` : text;
+  }
+  function prepareJob(job: Job) {
+    run(async () => {
+      await api(`/jobs/${job.id}/prepare`, { method: "POST" });
+      notify("Composer filled and verified — nothing was posted. Review it in the posting browser.", "success");
+      await refresh();
+    });
+  }
+  function postJob(job: Job) {
+    if (!window.confirm(`Publish this post to X now?\n\n${draftPreview(job)}\n\nThis cannot be undone.`)) return;
+    run(async () => {
+      await api(`/jobs/${job.id}/post`, { method: "POST" });
+      notify("Posted — the permalink is saved in History.", "success");
+      await refresh();
+    });
+  }
+  function deleteJob(job: Job) {
+    if (!window.confirm(`Delete this job?\n\n${draftPreview(job)}\n\nThe draft stays, only the queue entry is removed.`)) return;
+    run(async () => {
+      await api(`/jobs/${job.id}`, { method: "DELETE" });
+      notify("Job deleted.", "info");
+      await refresh();
+    });
+  }
   function rescheduleJob(job: Job) {
     const scheduledFor = scheduleEdits[job.id];
     if (!scheduledFor) return;
@@ -140,6 +166,7 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
         method: "PATCH",
         body: JSON.stringify({ scheduledFor: new Date(scheduledFor).toISOString() })
       });
+      notify(`Job scheduled for ${new Date(scheduledFor).toLocaleString()}.`, "info");
       await refresh();
     });
   }
@@ -149,40 +176,58 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
         method: "PATCH",
         body: JSON.stringify({ scheduledFor: null })
       });
+      notify("Schedule cleared — the job is ready as soon as posting is allowed.", "info");
       await refresh();
     });
   }
   function postAllReadyJobs() {
+    if (!window.confirm(`Publish all ${postableJobs.length} ready job(s) to X now? This cannot be undone.`)) return;
     run(async () => {
       const result = await api<{ failed: number; posted: number; total: number }>("/jobs/post-ready", {
         method: "POST", body: JSON.stringify({ accountId })
       });
       await refresh();
-      if (result.failed > 0) throw new Error(`Post all finished: ${result.posted}/${result.total} posted, ${result.failed} failed.`);
-    });
-  }
-  function postNextNow() {
-    run(async () => {
-      await api("/jobs/post-next", { method: "POST", body: JSON.stringify({ accountId }) });
-      await refresh();
-    });
-  }
-  function deleteCleanupJobs() { run(async () => { await api("/jobs/cleanup", { method: "DELETE" }); await refresh(); }); }
-  function deleteAllJobs() {
-    run(async () => {
-      if (window.confirm("Delete ALL jobs?")) {
-        await api(`/jobs?accountId=${encodeURIComponent(accountId)}`, { method: "DELETE" });
-        await refresh();
+      if (result.failed > 0) {
+        notify(`Posted ${result.posted}/${result.total}; ${result.failed} failed. Check the Failed filter and attempts.`, "error");
+      } else {
+        notify(`Posted ${result.posted}/${result.total} job(s) — permalinks are in History.`, "success");
       }
     });
   }
-  function prepareAllReadyJobs() {
+  function postNextNow() {
+    if (!window.confirm("Publish the next ready job to X now? This cannot be undone.")) return;
     run(async () => {
-      const now = Date.now();
-      const readyJobs = jobs.filter((job) =>
-        (job.status === "approved" || job.status === "failed") && (!job.scheduledFor || Date.parse(job.scheduledFor) <= now)
-      );
+      await api("/jobs/post-next", { method: "POST", body: JSON.stringify({ accountId }) });
+      notify("Posted the next ready job — permalink saved in History.", "success");
+      await refresh();
+    });
+  }
+  function deleteCleanupJobs() {
+    if (!window.confirm("Remove all posted and failed job records? Drafts and history stay; this cannot be undone.")) return;
+    run(async () => {
+      await api("/jobs/cleanup", { method: "DELETE" });
+      notify("Removed posted and failed job records.", "info");
+      await refresh();
+    });
+  }
+  function deleteAllJobs() {
+    if (!window.confirm(`Delete ALL jobs for @${accountId}? Drafts and history stay; this cannot be undone.`)) return;
+    run(async () => {
+      await api(`/jobs?accountId=${encodeURIComponent(accountId)}`, { method: "DELETE" });
+      notify("All jobs deleted. Drafts and posted history were kept.", "info");
+      await refresh();
+    });
+  }
+  function prepareAllReadyJobs() {
+    const now = Date.now();
+    const readyJobs = jobs.filter((job) =>
+      (job.status === "approved" || job.status === "failed") && (!job.scheduledFor || Date.parse(job.scheduledFor) <= now)
+    );
+    if (!readyJobs.length) return;
+    if (!window.confirm(`Fill the X composer for ${readyJobs.length} ready job(s)? Nothing is posted; each composer stays for review.`)) return;
+    run(async () => {
       for (const job of readyJobs) await api(`/jobs/${job.id}/prepare`, { method: "POST" });
+      notify(`Filled ${readyJobs.length} composer(s) — review each in the posting browser before posting.`, "success");
       await refresh();
     });
   }
@@ -190,12 +235,21 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
     setSelectedJobIds((current) => current.includes(jobId) ? current.filter((id) => id !== jobId) : [...current, jobId]);
   }
   function deleteSelectedJobs() {
+    const selected = jobs.filter((job) => selectedJobIds.includes(job.id));
+    const deletable = selected.filter((job) => job.status === "failed" || job.status === "prepared");
+    const skipped = selected.length - deletable.length;
+    if (!deletable.length) {
+      notify("Only failed or prepared jobs can be deleted. Posted/approved jobs are kept for the record.", "error");
+      return;
+    }
+    if (!window.confirm(`Delete ${deletable.length} selected job(s)?${skipped ? ` ${skipped} will be skipped (not deletable).` : ""} Drafts are kept.`)) return;
     run(async () => {
-      const selected = jobs.filter((job) => selectedJobIds.includes(job.id));
-      for (const job of selected) {
-        if (job.status === "failed" || job.status === "prepared") await api(`/jobs/${job.id}`, { method: "DELETE" });
-      }
+      for (const job of deletable) await api(`/jobs/${job.id}`, { method: "DELETE" });
       setSelectedJobIds([]);
+      notify(
+        `${deletable.length} job(s) deleted${skipped ? `; ${skipped} skipped (only failed/prepared are deletable)` : ""}.`,
+        skipped ? "info" : "success"
+      );
       await refresh();
     });
   }
@@ -234,20 +288,32 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
           ))}
         </div>
         <div className="queue-toolbar-actions">
-          {nextAutopostJob ? <button className="secondary" disabled={busy} onClick={postNextNow}><Busy active={busy} />Post next now</button> : null}
+          {nextAutopostJob ? <button className="secondary" disabled={busy} onClick={postNextNow}><Busy active={busy} />Post next</button> : null}
           {postableJobs.length ? <button className="secondary" disabled={busy} onClick={postAllReadyJobs}><Busy active={busy} />Post all ready</button> : null}
         </div>
       </div>
       {jobs.length ? (
         <div className="queue-secondary-actions">
+          {selectedJobIds.length ? <span className="selection-count">{selectedJobIds.length} selected</span> : null}
           {readyForBulkPrepare.length ? <button className="ghost" disabled={busy} onClick={prepareAllReadyJobs}><Busy active={busy} />Prepare all ready</button> : null}
-          {hasCleanupJobs ? <button className="ghost" disabled={busy} onClick={deleteCleanupJobs}><Busy active={busy} />Cleanup posted / failed</button> : null}
+          {hasCleanupJobs ? <button className="ghost" disabled={busy} onClick={deleteCleanupJobs}><Busy active={busy} />Clear posted &amp; failed</button> : null}
           {selectedDeletableJobs.length ? <button className="ghost danger" disabled={busy} onClick={deleteSelectedJobs}><Busy active={busy} />Delete selected ({selectedDeletableJobs.length})</button> : null}
           {selectedJobIds.length ? <button className="ghost" disabled={busy} onClick={() => setSelectedJobIds([])}>Clear selection ({selectedJobIds.length})</button> : null}
           <button className="ghost danger" disabled={busy} onClick={deleteAllJobs}><Busy active={busy} />Delete all</button>
         </div>
       ) : null}
-      {jobs.length ? (
+      {!loaded && !loadError ? (
+        <div aria-label="Loading queue" className="skeleton-table">
+          {[0, 1, 2, 3, 4].map((row) => (
+            <div className="skeleton-row" key={row}>
+              <span className="skeleton-pill" />
+              <span className="skeleton-line" />
+              <span className="skeleton-line skeleton-line--short" />
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {loaded && jobs.length ? (
         <div className="queue-table">
           <div className="queue-table-head" aria-hidden="true">
             <span>Status</span><span>Text</span><span>Type</span><span>Scheduled</span><span>Actions</span>
@@ -263,6 +329,7 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
                 <div
                   aria-expanded={expanded}
                   className="queue-row-summary"
+                  title="Open job details and attempt history"
                   onClick={() => setExpandedJobId(expanded ? null : job.id)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
@@ -283,9 +350,9 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
                   <span className="queue-type">{draft?.type ?? "—"}</span>
                   <span className="queue-scheduled">{job.scheduledFor ? new Date(job.scheduledFor).toLocaleString() : "Now"}</span>
                   <div className="queue-row-actions" onClick={(event) => event.stopPropagation()}>
-                    <button aria-label="Prepare job" className="ghost icon-button" disabled={!canPrepare || busy} title="Prepare" onClick={() => prepareJob(job)}><Busy active={busy} /><ActionIcon name="prepare" /></button>
-                    {canPost ? <button aria-label="Post job" className="ghost icon-button" disabled={busy} title="Post" onClick={() => postJob(job)}><Busy active={busy} /><ActionIcon name="post" /></button> : null}
-                    <button aria-label="Delete job" className="ghost danger icon-button" disabled={job.status === "running" || busy} title="Delete" onClick={() => deleteJob(job)}><Busy active={busy} /><ActionIcon name="delete" /></button>
+                    <button aria-label="Prepare job" className="ghost icon-button" disabled={!canPrepare || busy} title="Prepare — fill the composer without posting" onClick={() => prepareJob(job)}><Busy active={busy} /><ActionIcon name="prepare" /></button>
+                    {canPost ? <button aria-label="Post job" className="ghost icon-button" disabled={busy} title="Post — publish to X now" onClick={() => postJob(job)}><Busy active={busy} /><ActionIcon name="post" /></button> : null}
+                    <button aria-label="Delete job" className="ghost danger icon-button" disabled={job.status === "running" || busy} title="Delete job" onClick={() => deleteJob(job)}><Busy active={busy} /><ActionIcon name="delete" /></button>
                   </div>
                 </div>
                 {expanded ? (
@@ -333,9 +400,20 @@ export function JobsPanel({ panel }: { panel: PanelProps }) {
                 ) : null}
               </article>
             );
-          }) : <div className="queue-filter-empty">No {filter} jobs.</div>}
+          }) : (
+            <div className="queue-filter-empty">
+              <span>No {filter} jobs right now.</span>
+              <button className="secondary compact-button" type="button" onClick={() => navigate("compose")}>Compose a post</button>
+            </div>
+          )}
         </div>
-      ) : <div className="view-empty-state"><p>No jobs yet — approve a draft to queue it</p></div>}
+      ) : loaded && !loadError ? (
+        <div className="view-empty-state">
+          <p>No jobs yet</p>
+          <p className="empty-state-hint">Approve a draft in Compose and it lands here for review and posting.</p>
+          <button className="secondary compact-button" type="button" onClick={() => navigate("compose")}>Go to Compose</button>
+        </div>
+      ) : null}
     </section>
   );
 }

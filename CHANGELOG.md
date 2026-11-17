@@ -186,6 +186,15 @@ account credentials leaving the machine.
 
 ### Changed
 
+- UX pass on the web GUI: global toast feedback for every action (approve,
+  post, prepare, delete, schedule, session checks), a plain-language "what
+  happens next" line in Compose (review-first vs scheduled vs autopost), busy
+  and disabled-reason feedback while generating, automatic X session
+  detection on account switch (no more ambiguous "X unchecked"), live
+  worker/posting indicators in the nav rail, confirmations with the exact text
+  before publishing anything, a selection counter for queue bulk actions,
+  content-shaped skeleton loaders, and empty states that link to the next step.
+
 - Web UI redesign ("Wire Desk"): light warm-paper editorial theme with bundled
   Instrument Sans + JetBrains Mono, a labelled numbered nav rail, masthead,
   kicker/edition header, hairline panels instead of boxy cards, a single

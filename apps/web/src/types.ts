@@ -150,6 +150,8 @@ export interface BrowserSession {
   enabled: boolean;
   error: string | null;
   loggedIn: boolean;
+  /** Handle the posting browser is actually logged in as, when reported. */
+  observedHandle?: string | null;
   profileDir: string;
   url: string | null;
 }
@@ -324,6 +326,10 @@ export interface PanelProps {
   refresh: () => Promise<void>;
   run: (action: () => Promise<void>) => void;
   reportError: (error: unknown, fallback: string) => void;
+  /** Global toast feedback ("Draft approved", "Job deleted", …). */
+  notify: (message: string, kind?: "success" | "info" | "error") => void;
+  /** In-app navigation so empty states can point at the next step. */
+  navigate: (view: "compose" | "queue" | "replies" | "automation" | "history" | "system" | "settings") => void;
 }
 
 export const tweetTypeOptions = [
