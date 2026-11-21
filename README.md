@@ -217,16 +217,24 @@ Draft candidates are scored by `scoreTweetQuality` (deterministic) and must clea
 cargo run -p zyquor-cli -- tweet-eval
 ```
 
-## Desktop app (Windows)
+## Desktop app
+
+Tagged CI runs publish installers to GitHub Releases: Windows (NSIS `.exe` and
+`.msi`), Linux (`.deb`, `.rpm`, `.AppImage`) and macOS (universal `.dmg`).
+Bundles are unsigned unless the Authenticode/updater secrets are configured
+(see [docs/code-signing.md](docs/code-signing.md)), so Windows SmartScreen and
+macOS Gatekeeper warn on download. macOS builds are not notarized yet, and the
+macOS/Linux desktop path is newer than Windows. Linux installs need WebKitGTK
+(`libwebkit2gtk-4.1`) on the host.
 
 ```bash
 cargo tauri dev                              # build and launch
 cargo run -p zyquor-desktop -- --headless-smoke   # headless logic smoke, no GUI
-cargo tauri build                            # Windows installer bundles
+cargo tauri build                            # installer bundles for the current OS
 pnpm --dir apps/desktop/scripts install && node apps/desktop/scripts/make-icons.mjs  # regenerate icons
 ```
 
-The desktop app runs the API, worker, and UI in one process, keeps the worker alive in the tray, and starts or reconnects the dedicated posting Chrome profile. Data lives in `%APPDATA%/Zyquor` (override with `ZYQUOR_DATA_ROOT`). Settings are edited in the app and stored as `settings.json`. Build the Windows bundles on Windows; the `desktop-win` CI job runs on `windows-latest` and currently produces unsigned installers. See [docs/code-signing.md](docs/code-signing.md) for the Tauri v2 signing procedure and the opt-in CI wiring (certificate secrets are not configured yet).
+The desktop app runs the API, worker, and UI in one process, keeps the worker alive in the tray, and starts or reconnects the dedicated posting Chrome profile. Data lives in the Tauri app-data directory (`com.zyquor.app`; override with `ZYQUOR_DATA_ROOT`), and settings are edited in the app and stored as `settings.json`.
 
 ## License
 

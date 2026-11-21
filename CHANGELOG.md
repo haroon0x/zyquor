@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Desktop installers are produced again. `apps/desktop/tauri.conf.json` now sets
+  `bundle.active: true` (Tauri v2 defaults it to `false`, so `cargo tauri build`
+  silently emitted only the binary and no installers) and references the
+  committed `.ico`/PNG icon family (Windows `tauri-build` failed without an
+  `.ico`). Version bumped to 0.2.0.
+- CI builds desktop bundles for Windows, Linux (`.deb`/`.rpm`/`.AppImage`) and
+  macOS (universal `.dmg`), and publishes tag builds to GitHub Releases with a
+  `SHA256SUMS.txt`. The `rust` job installs Tauri's Linux dependencies, the
+  renderer job declares its missing `@types/node`/`vitest` devDependencies, and
+  the tag is checked against the app version before publishing.
+
 ### Added
 
 - Agent-native interface: `zyquor mcp` stdio MCP server (read + draft/generate/

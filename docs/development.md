@@ -8,7 +8,7 @@ Zyquor is a Rust Cargo workspace. Everything that runs is Rust except the React 
 - Node.js and pnpm, only for building the `apps/web` renderer.
 - Chrome installed. Browser automation is direct CDP through `chromiumoxide`; no browser bundle is downloaded.
 - A generation provider: the authenticated `opencode` CLI by default, or `command-code` (CLI), Gemini (API key), or Ollama (local server). `tweet-eval` additionally needs the `command-code` CLI for its judge pass.
-- The Tauri v2 CLI (`cargo tauri`) for the desktop app. Run the desktop app from native Windows, never from WSL.
+- The Tauri v2 CLI (`cargo tauri`) for the desktop app. Run the desktop app natively on Windows, macOS, or Linux — never from inside WSL.
 - An X account you are willing to post from, plus a dedicated profile under `profiles/`.
 
 ## Build and Verify
@@ -104,7 +104,7 @@ Runtime files:
 
 ## Desktop (Tauri v2)
 
-Build the renderer first, then run from the repo root on native Windows:
+Build the renderer first, then run from the repo root on a native OS (Windows, macOS, or Linux):
 
 ```bash
 pnpm --dir apps/web build
@@ -112,7 +112,7 @@ cargo tauri dev
 cargo tauri build
 ```
 
-The desktop shell runs the API and worker in-process on an ephemeral port, adds the tray/window, and injects its control plane after startup. `tauri.conf.json` lives at `apps/desktop/tauri.conf.json` and consumes `../web/dist`. Bundles are unsigned by default; the optional Authenticode signing path, the CI secrets it needs, and the maintainer decisions still open are in [code-signing.md](code-signing.md).
+The desktop shell runs the API and worker in-process on an ephemeral port, adds the tray/window, and injects its control plane after startup. `tauri.conf.json` lives at `apps/desktop/tauri.conf.json` and consumes `../web/dist`. `cargo tauri build` produces the installers for the current OS (Windows NSIS/MSI, Linux deb/rpm/AppImage, macOS app/dmg); tagged CI runs build all three and publish them as GitHub Release assets. Bundles are unsigned by default; the optional Authenticode signing path, the CI secrets it needs, and the maintainer decisions still open are in [code-signing.md](code-signing.md).
 
 Headless boot check on any operating system:
 

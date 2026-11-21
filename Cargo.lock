@@ -5773,7 +5773,7 @@ dependencies = [
 
 [[package]]
 name = "zyquor-accounts"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -5782,7 +5782,7 @@ dependencies = [
 
 [[package]]
 name = "zyquor-adapters"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "fancy-regex",
@@ -5799,7 +5799,7 @@ dependencies = [
 
 [[package]]
 name = "zyquor-api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "chrono",
@@ -5825,7 +5825,7 @@ dependencies = [
 
 [[package]]
 name = "zyquor-automation"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "fancy-regex",
@@ -5841,7 +5841,7 @@ dependencies = [
 
 [[package]]
 name = "zyquor-browser"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chromiumoxide",
  "chrono",
@@ -5857,7 +5857,7 @@ dependencies = [
 
 [[package]]
 name = "zyquor-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "chrono",
@@ -5881,7 +5881,7 @@ dependencies = [
 
 [[package]]
 name = "zyquor-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "dotenvy",
@@ -5894,7 +5894,7 @@ dependencies = [
 
 [[package]]
 name = "zyquor-desktop"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "chrono",
@@ -5918,7 +5918,7 @@ dependencies = [
 
 [[package]]
 name = "zyquor-generation"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fancy-regex",
  "reqwest 0.12.28",
@@ -5931,7 +5931,7 @@ dependencies = [
 
 [[package]]
 name = "zyquor-storage"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "rusqlite",
@@ -5946,7 +5946,7 @@ dependencies = [
 
 [[package]]
 name = "zyquor-worker"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "rand 0.9.5",
