@@ -281,10 +281,7 @@ fn parallel(text: &str) -> bool {
     // Shape: `<verb>..., the <word> doesn't|isn't|...`
     let lower = text.to_lowercase();
     let negations = ["doesn't", "isn't", "hasn't", "won't", "can't"];
-    if lower.contains(',') && negations.iter().any(|negation| lower.contains(negation)) {
-        return true;
-    }
-    false
+    lower.contains(',') && negations.iter().any(|negation| lower.contains(negation))
 }
 
 fn experience_claim(text: &str) -> bool {

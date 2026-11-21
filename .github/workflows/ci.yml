@@ -39,13 +39,28 @@ jobs:
 
   rust:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      # `tauri::generate_context!` embeds `frontendDist` at compile time, so
+      # `apps/desktop` cannot be checked until the renderer is built.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: Build the React renderer (Tauri frontendDist)
+        working-directory: apps/web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
       - name: Install Tauri Linux dependencies
         run: |
           sudo apt-get update
